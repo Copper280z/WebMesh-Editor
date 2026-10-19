@@ -154,6 +154,26 @@ class MappingTopologyTests(unittest.TestCase):
                                                                    "cylinders": [{"origin": middle, "axis": [0, 0, 1], "radius": 5}],
                                                                    "rays": [{"origin": middle, "axis": [0, 0, 1], "direction": [0, 1, 0], "length": 200}]}))
 
+    def test_fuse_merges_neighbors_and_keeps_the_rest_conforming(self):
+        cad = self.import_file(ROOT / "examples/block.step")
+        b = cad["topology"]["bounds"]
+        thirds = [b[0] + (b[3] - b[0]) * k / 3 for k in (1, 2)]
+        slabs = self.sessions.prepare(self.request(cad, operation={"kind": "slice", "planes": [{"origin": [x, 0, 0], "normal": [1, 0, 0]} for x in thirds]}))
+        first, middle, last = sorted(slabs["topology"]["volumes"], key=lambda v: v["bounds"][0])
+        with self.assertRaisesRegex(CadError, "share faces"):
+            self.sessions.prepare(self.request(slabs, operation={"kind": "fuse", "volumeIds": [first["id"], last["id"]]}))
+        with self.assertRaises(CadError):
+            self.sessions.prepare(self.request(slabs, operation={"kind": "fuse", "volumeIds": [first["id"]]}))
+        fused = self.sessions.prepare(self.request(slabs, operation={"kind": "fuse", "volumeIds": [first["id"], middle["id"]], "label": "Fused two slabs"}))
+        topology = fused["topology"]
+        self.assertEqual(len(topology["volumes"]), 2)
+        self.assertAlmostEqual(topology["volume"], cad["topology"]["volume"], places=5)
+        self.assertEqual(fused["history"][-1]["label"], "Fused two slabs")
+        merged = max(topology["volumes"], key=lambda v: v["volume"])
+        self.assertEqual(len(merged["faces"]), 6, "faces split by the removed interface are unified")
+        shared = [f for f in topology["faces"] if len(f.get("volumes", [])) == 2]
+        self.assertEqual(len(shared), 1, "the remaining slab still shares one conforming face")
+
     def test_fitted_passage_ends_are_moved_into_free_space(self):
         cad = self.import_file(ROOT / "examples/block.step")
         bounds = cad["topology"]["bounds"]

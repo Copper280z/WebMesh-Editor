@@ -315,6 +315,8 @@
           vp.setOverlay('pending-cylinders', { type: 'lines', positions: segs, color: 0x3aa8e6, depthTest: false, renderOrder: 14 });
         }
         if (op.volumeIds?.length) vp.setOverlay('pending-scope', { type: 'faces', faces: op.volumeIds.flatMap(v => vp.volumeFaces(v)), color: 0x3aa8e6, opacity: 0.18 });
+      } else if (op.kind === 'fuse') {
+        vp.setOverlay('pending-faces', { type: 'faces', faces: op.volumeIds.flatMap(v => vp.volumeFaces(v)), color: 0x3aa8e6, opacity: 0.45, depthTest: false, renderOrder: 7 });
       } else if (op.kind === 'defeature') {
         vp.setOverlay('pending-faces', { type: 'faces', faces: op.faceIds, color: 0xff5c5c, opacity: 0.6, depthTest: false, renderOrder: 7 });
       } else if (op.kind === 'passages' || op.kind === 'passage') {
@@ -466,7 +468,7 @@
       if (!session || discrete()) return '';
       if (!selection.ids.length) {
         if (pending && !tool && step === 'prepare') return pendingCard();
-        const hint = { solid: 'Click a solid to see whether it is a mapped block and how to fix it.', face: 'Click a face: holes, fillets and planes get matching tools.', edge: step === 'size' ? 'Click edges to set their element counts. Shift adds to the selection.' : 'Click an edge to slice across it or along a re-entrant corner.', vertex: 'Click a vertex to slice through it.' }[pick];
+        const hint = { solid: 'Click a solid to see whether it is a mapped block and how to fix it. Shift-pick neighbors to fuse them.', face: 'Click a face: holes, fillets and planes get matching tools.', edge: step === 'size' ? 'Click edges to set their element counts. Shift adds to the selection.' : 'Click edges to cut along them, or one to slice across it.', vertex: 'Click a vertex to slice through it; Shift-pick a second to cut between them.' }[pick];
         return `<div class="cad-hint">${icon('target')}<span>${hint}<br><small>Shift/Ctrl adds · Esc clears · 1–4 switch pick type</small></span></div>`;
       }
       const info = F() && analysis ? F().infer(session.topology, recognized, analysis, selection) : null;
@@ -559,13 +561,17 @@
         }, { mapping: H(), blends: autoState.blends, holes: autoState.holes, size: Number(sizing.size) || defaultSize(),
           progress: message => { autoState.message = message; renderReadiness(); } });
       } finally { autoState.running = false; }
-      const { start, end, steps } = result;
-      autoState.message = steps
-        ? `Auto-fix made ${steps} change${steps === 1 ? '' : 's'}: ${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable.${end.blocked ? ' Fix the rest by hand (select a red solid).' : ''} Undo steps one at a time.`
-        : 'Auto-fix found no change that makes more solids mappable. Select a red solid to see manual options.';
+      const { start, end, steps, reason, error } = result;
+      if (reason === 'done') autoState.message = `Auto-fix made ${steps} change${steps === 1 ? '' : 's'}: ${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable. Undo steps one at a time.`;
+      else {
+        // Its cuts stay, so the user picks up where it stopped.
+        const why = reason === 'error' ? `stopped on an error (${error})` : reason === 'limit' ? 'stopped at its 40-step limit' : steps ? 'found no further change that helps' : 'found no change that makes more solids mappable';
+        autoState.message = `Auto-fix ${why}: ${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable.${steps ? ` All ${steps} of its change${steps === 1 ? ' is' : 's are'} kept in the history.` : ''} Continue by hand: select a red solid for its fixes, Shift-pick neighboring solids to fuse them and cut again, or undo steps one at a time.`;
+        expanded.blocked = true;
+      }
       if (session.revision !== startRevision && generated) generated.stale = true;
       hooks.render();
-      hooks.message(autoState.message, !!end.blocked && !steps);
+      hooks.message(autoState.message, reason === 'error' || (!!end.blocked && !steps));
     }
     function renderReadiness() { const el = document.querySelector('.cad-ready'); if (el) el.outerHTML = readinessCard(); }
     function shortReason(volume) {

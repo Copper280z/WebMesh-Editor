@@ -257,3 +257,31 @@ test('the Cut tool collects edge and vertex picks into one bounded cut', async (
   assert.equal(f.workspace.getState().tool, 'cut', 'the tool stays open for the next cut');
   assert.equal(f.workspace.getState().pending, null);
 });
+
+test('when Auto-fix cannot finish it says so and points to fixing the rest by hand', async () => {
+  // Every preview returns the same blocked L, so no step helps.
+  const f = await imported({ imported: 'l-shape', prepared: 'l-shape' });
+  f.click('auto-fix');
+  for (let i = 0; i < 200 && !f.calls.messages.some(m => /^Auto-fix/.test(m.text)); i++) await new Promise(resolve => setTimeout(resolve, 10));
+  const message = f.calls.messages.find(m => /^Auto-fix/.test(m.text)).text;
+  assert.match(message, /found no change/);
+  assert.match(message, /Continue by hand/);
+  assert.match(message, /fuse/);
+  assert.equal(f.workspace.getState().revision, 0, 'nothing was applied');
+});
+
+test('picked neighboring solids are fused through the preview and apply flow', async () => {
+  const f = await imported({ imported: 'split-box', prepared: 'box' });
+  const ids = f.workspace.getState().topology.volumes.map(v => v.id);
+  f.workspace.api.pick('solid');
+  f.workspace.api.select('solid', ids);
+  const index = f.workspace.api.infer().findIndex(a => a.key === 'fuse');
+  assert.equal(index, 0);
+  f.workspace.api.runAction(index);
+  await f.workspace.api.waitForPreview();
+  await f.workspace.api.apply();
+  const prepare = f.calls.requests.find(r => r.action === 'prepare');
+  assert.deepEqual(plain(prepare.data.operation.volumeIds), ids.slice().sort((a, b) => a - b));
+  assert.equal(prepare.data.operation.kind, 'fuse');
+  assert.equal(f.workspace.getState().analysis.summary.volumes, 1);
+});

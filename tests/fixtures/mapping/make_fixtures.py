@@ -134,6 +134,25 @@ def twin_obtuse(occ):
     prism(occ, [(0, 0), (0, 10), (8, 10 - 32 / 3), (8, -6), (4.5, -6)], 6)
 
 
+def plate_hole_quarters(occ):
+    # Two planes through the hole axis: each quarter holds a piece of the hole.
+    plate_hole(occ)
+    occ.synchronize()
+    tools = [(2, plane(occ, [(10, -5, -5), (10, 25, -5), (10, 25, 9), (10, -5, 9)])), (2, plane(occ, [(-5, 10, -5), (25, 10, -5), (25, 10, 9), (-5, 10, 9)]))]
+    occ.fragment(occ.getEntities(3), tools)
+    remove_loose(occ)
+
+
+def tray(occ):
+    # A rectangular pocket: walls rise around the whole floor.
+    occ.cut([(3, occ.addBox(0, 0, 0, 20, 14, 8))], [(3, occ.addBox(3, 3, 2, 14, 8, 7))])
+
+
+def windowed_wall(occ):
+    # A wall with a square through-opening that is not a round feature.
+    occ.cut([(3, occ.addBox(0, 0, 0, 6, 30, 20))], [(3, occ.addBox(-1, 12, 7, 8, 6, 6))])
+
+
 def build(name, make):
     gmsh.initialize(["fixtures", "-nopopup"], readConfigFiles=False)
     gmsh.option.setNumber("General.Terminal", 0)
@@ -173,6 +192,6 @@ if __name__ == "__main__":
                        ("plate-hole", plate_hole), ("plate-hole-radial", plate_hole_radial), ("quarter-annulus", quarter_annulus),
                        ("filleted-block", filleted_block), ("obtuse-strip", obtuse_strip), ("chamfer-strip", chamfer_strip),
                        ("triangle-prism", triangle_prism), ("holed-wall", holed_wall), ("l-footprint", l_footprint),
-                       ("s-prism", s_prism), ("twin-obtuse", twin_obtuse)]:
+                       ("s-prism", s_prism), ("twin-obtuse", twin_obtuse), ("tray", tray), ("windowed-wall", windowed_wall), ("plate-hole-quarters", plate_hole_quarters)]:
         if not wanted or name in wanted:
             build(name, make)

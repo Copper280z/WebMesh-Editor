@@ -473,6 +473,35 @@ def slice_solids(gmsh, operation, volumes):
         raise ValueError("The slice left surface fragments outside every solid. Adjust the cut and try again.")
 
 
+def fuse_solids(gmsh, operation, volumes):
+    """Merge neighboring solids back into one, e.g. to redo an unwanted cut.
+
+    Coplanar faces left by the removed interfaces are unified. Every other
+    solid stays, and the result is imprinted again so neighbors keep sharing
+    conforming faces.
+    """
+    model, occ = gmsh.model, gmsh.model.occ
+    selected = operation.get("volumeIds")
+    if (not isinstance(selected, list) or not 2 <= len(selected) <= 256 or len(set(selected)) != len(selected)
+            or any(type(tag) is not int or (3, tag) not in volumes for tag in selected)):
+        raise ValueError("Choose two or more existing solids to fuse.")
+    before = len(volumes)
+    result, _ = occ.fuse([(3, selected[0])], [(3, tag) for tag in selected[1:]], removeObject=True, removeTool=True)
+    occ.synchronize()
+    if len([entity for entity in result if entity[0] == 3]) != 1:
+        raise ValueError("The selected solids do not form one piece. Fuse solids that share faces.")
+    if len(model.getEntities(3)) > 1:
+        occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
+        occ.synchronize()
+    for dimension in (2, 1, 0):
+        loose = [entity for entity in model.getEntities(dimension) if not len(model.getAdjacencies(*entity)[0])]
+        if loose:
+            occ.remove(loose, recursive=True)
+            occ.synchronize()
+    if len(model.getEntities(3)) != before - len(selected) + 1:
+        raise ValueError("Fusing changed other solids. The previous geometry was retained.")
+
+
 def prepare(gmsh, operation):
     model, occ = gmsh.model, gmsh.model.occ
     kind = operation.get("kind")
@@ -611,11 +640,13 @@ def prepare(gmsh, operation):
             raise ValueError("The plane did not split a solid. Choose a coordinate through the material.")
     elif kind == "slice":
         slice_solids(gmsh, operation, volumes)
+    elif kind == "fuse":
+        fuse_solids(gmsh, operation, volumes)
     else:
-        raise ValueError("Unknown preparation operation. Choose slice, split, project, passages, defeature, or heal.")
+        raise ValueError("Unknown preparation operation. Choose slice, fuse, split, project, passages, defeature, or heal.")
     if not model.getEntities(3) or any(safe_mass(gmsh, 3, t) <= 0 for _, t in model.getEntities(3)):
         raise ValueError("The operation did not produce valid positive-volume CAD solids.")
-    if kind in {"split", "project", "slice"}:
+    if kind in {"split", "project", "slice", "fuse"}:
         final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in model.getEntities(3))
         if abs(final_mass - original_mass) > max(original_mass * 1e-7, 1e-8):
             raise ValueError("The split changed the solid volume beyond CAD tolerance. The previous geometry was retained.")

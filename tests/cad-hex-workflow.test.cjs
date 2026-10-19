@@ -49,9 +49,21 @@ test('corner bracket with every hole removed maps with its chamfers kept', cad, 
   await session.apply({ kind: 'defeature', faceIds: [...new Set(holes.flatMap(f => f.faces))], label: 'Removed holes' });
   assert.equal(session.topology.faces.length, 13, 'a clean tray');
   const result = await session.autoFix({ blends: false, holes: false, size: 4 });
-  assert.equal(result.end.blocked, 0);
-  assert.ok(result.steps <= 6, `${result.steps} steps`);
-  assertMesh(session, 4, 0.3);
+  // One cut separates the floor from the walls and splits the wall ring at its corners.
+  assert.deepEqual(result.end, { volumes: 5, mappable: 5, blocked: 0 });
+  assert.equal(result.steps, 1);
+  assertMesh(session, 4, 0.55);
+});
+
+test('corner bracket keeps its holes with Auto-fix after the passage step', cad, async () => {
+  const s = await new CadSession(server.base).import('long corner bracket.step');
+  const bores = s.features('hole').filter(f => f.diameter > 8);
+  await s.apply({ kind: 'passages', faceIds: bores.flatMap(f => f.faces), passages: bores.map(f => F.squarePassage(s.recognized.ctx, f)), label: 'Square passages' });
+  const result = await s.autoFix({ blends: false, holes: true, size: 4 });
+  assert.deepEqual(result.end, { volumes: 64, mappable: 64, blocked: 0 });
+  assert.ok(result.steps <= 20, `${result.steps} steps`);
+  assert.equal(s.features('hole').length, 6, 'every Ø4.6 hole is kept round');
+  assertMesh(s, 2.5, 0.25);
 });
 
 test('corner bracket keeps its holes when prepared by hand: passages, bounded cuts, boxed holes', cad, async () => {

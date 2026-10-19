@@ -67,6 +67,7 @@ The **CAD & mesh** workspace is a hex-meshing toolbox in three steps. Every soli
 | Re-entrant edge | Slice the solid along either adjacent face |
 | Straight edges | Cut along them (see **Cut** below) |
 | Vertex | Slice through it normal to X, Y or Z; Shift-pick a second vertex to cut between them |
+| Two or more solids | Fuse them back into one, to redo a cut differently (they must share faces); slice them together |
 | Red solid | Its reasons (with the offending faces, edges and corners marked in yellow) and concrete fixes in a sensible order: remove blends, join two re-entrant corners, slice re-entrant edges, cut along imprint lines, box and split around holes |
 
 Every geometry change is previewed before it is applied: cutting planes and section outlines appear immediately, faces to be removed turn red, and the server computes the actual result in the background. The result preview shows the new solids colored by whether they will be mapped blocks (“1 → 4 solids · 4/4 mappable”). **Apply** (or Enter) commits the previewed result instantly; Esc cancels. The Slice tool takes any normal, an offset slider that snaps to vertices, a point on a picked edge, and a scope of all or selected solids.
@@ -76,9 +77,11 @@ Every geometry change is previewed before it is applied: cutting planes and sect
 **Auto-fix** prepares solids for mapped meshing in passes, keeping a step only when its previewed result is better, and records each step in the undoable history:
 
 1. Remove fillets and chamfers (optional, one batched defeature).
-2. Make every solid a mapped block: join re-entrant corners that see each other, slice re-entrant edges (preferring the smaller cut of the two face planes), cut along imprints that stop short, separate several holes that share a face, box holes in square cells and split around them (optional), and split triangular or five-or-more-sided prisms into blocks from their center, continuing each cut into the adjacent solid so it leaves no T-junction.
+2. Make every solid a mapped block: separate walls from a pocket floor (one bounded cut along the floor outline and across each wall corner), slice through square openings at their floor and ceiling (continued around the walls), join re-entrant corners that see each other, slice re-entrant edges (preferring the smaller cut of the two face planes), cut along imprints that stop short, separate several holes that share a face, box holes in square cells and split around them (optional), split pieces of a hole (for example sectors fused back together) by radial cuts to their corners, and split triangular or five-or-more-sided prisms into blocks from their center, continuing each cut into the adjacent solid so it leaves no T-junction.
 3. Remove T-junction cycles that would make the edge-count equations contradictory. No step may introduce such a conflict or a knife edge.
 4. Square up badly shaped blocks (strongly tapered, or bent sides) when the trial mesh at the current size improves.
+
+When Auto-fix stops short (no step helps, it reaches its 40-step limit, or the kernel refuses a step), it says which, keeps every change it made in the history, and lists the solids still red. Continue from its cuts by hand: select a red solid for its fixes, Shift-pick neighboring solids and **Fuse** them to redo a cut differently (running Auto-fix again re-cuts them its own way), or undo its steps one at a time. A fuse unifies the faces the removed interfaces leave behind and keeps the surrounding solids conforming.
 
 Results on the included parts (target size 4 unless noted):
 
@@ -86,13 +89,13 @@ Results on the included parts (target size 4 unless noted):
 | --- | --- | ---: | ---: | ---: |
 | `examples/l-bracket.step`, bore kept | Auto-fix: remove the R3 fillet, slice off the web, box the bore, split around it | 7 | 696 | 0.71 |
 | `examples/l-bracket.step`, bore removed | Remove the bore, then Auto-fix | 2 | 790 | 0.99 |
-| `long corner bracket.step`, all holes removed | Remove the 12 holes (one defeature), then three automatic slices; both chamfers kept | 5 | 1,042 | 0.35 (0.44 at size 2) |
-| `long corner bracket.step`, holes kept | By hand, 20 operations (below); size 2.5 | 64 | 2,074 | 0.27 |
-| `flexure.step` | Auto-fix with fillet removal and hole splits (size 1.5) | 54 of 59 | 2,322 | 0.31 |
+| `long corner bracket.step`, all holes removed | Remove the 12 holes (one defeature), then Auto-fix: one cut separates the floor and splits the wall ring; both chamfers kept | 5 | 1,190 | 0.58 (0.59 at size 2) |
+| `long corner bracket.step`, holes kept | Square passages for the Ø8.5 bores, then Auto-fix (18 steps, about 20 s; size 2.5) | 64 | 2,064 | 0.27 |
+| `flexure.step` | Auto-fix with fillet removal and hole splits (size 1.5); stops with 4 solids left | 64 of 68 | 3,258 | 0.11 |
 
 HEX20 versions of each have the same blocks and quality. Every equation of the corner bracket with its holes kept (80 equality groups, 56 sums, 656 face equations) is solved without conflicts.
 
-**Corner bracket with its holes kept, by hand.** Its Ø8.5 access bores graze the floor (0.25 mm-deep grooves meeting the walls at 12°) and cross each other inside the angled wall, which no mapped decomposition can follow, so they are simplified to square passages; the six Ø4.6 holes in the outer walls stay round. Each step is a pick and a click in **Prepare**:
+**Corner bracket with its holes kept.** Its Ø8.5 access bores graze the floor (0.25 mm-deep grooves meeting the walls at 12°) and cross each other inside the angled wall, which no mapped decomposition can follow, so they are simplified to square passages; the six Ø4.6 holes in the outer walls stay round. Each step is a pick and a click in **Prepare**:
 
 1. **Features**: check the six Ø8.5 holes → **Replace 6 holes with square passages** (crossing passages become one opening per crossing).
 2. **Cut**: Edge-pick the four edges of the pocket floor → **Cut along 4 edges**; then for each wall corner Shift-pick its inner and outer vertex on the top face → **Add to cut** (the two 45° chamfer miters, and the inner faces of the walls continued at the two acute corners). Apply: the floor core, the chamfer corner and three walls, 2/5 mappable.
@@ -100,7 +103,7 @@ HEX20 versions of each have the same blocks and quality. Every equation of the c
 4. Select each outer wall’s middle layer → **Box 3 holes in square cells** (6.01 mm cells, the passage height), then pick each Ø4.6 hole → **Split around hole**: 44/46.
 5. Select the angled wall’s layer under the passages → **Cut along 12 imprint edges**, the same over them, then each crossing column → **Cut between re-entrant edges**: 64/64.
 
-Auto-fix alone, after the same passage step, stops at 74 of 97 blocks after its 40-step limit (about 6½ minutes): it cannot infer the corner cuts of step 2 that separate the wall ring. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
+After step 1, **Auto-fix** (with fillet and chamfer removal off) finds the same decomposition by itself in 18 steps and about 20 seconds. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
 
 A solid is a mapped block when every face has exactly four corners, no edge is re-entrant (dihedral above 220°) or a knife edge (below 20°), and its faces group across flat edges into six logical sides meeting at eight corners. Corners and dihedrals below 140° are block corners and edges, 140–220° are flat; angles between 115° and 165° are resolved per face so it gets four corners (a 144° corner of an otherwise three-cornered face is promoted, the bluntest of five is demoted), and the matching edges follow that choice. Composite sides are allowed: imprinted faces from neighboring splits (T-junctions) are meshed as one structured grid. Blocks whose parallel edges differ by more than 10× are reported as strongly tapered.
 

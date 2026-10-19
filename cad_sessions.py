@@ -177,6 +177,8 @@ class CadSessions:
                   "project": f"Partitioned by projected faces {operation.get('faceIds', [])} along {str(operation.get('axis', '')).upper()}",
                   "defeature": operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip()
                   else f"Removed faces {operation.get('faceIds', [])}", "heal": "Healed CAD topology",
+                  "fuse": operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip()
+                  else f"Fused solids {operation.get('volumeIds', [])}",
                   "passage": "Cut a reviewed rectangular through-passage",
                   "passages": f"Cut {passage_count} reviewed rectangular through-passages"}
         record["states"].append({"path": output, "json": json_path, "revision": revision,

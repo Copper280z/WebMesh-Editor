@@ -265,34 +265,42 @@
    * that follows gives four well-shaped sectors instead of long slivers.
    */
   function holeCells(ctx, features) {
-    const planes = [], solids = new Set(), seen = new Set();
+    const cells = [], solids = new Set();
     for (const feature of features) {
       const axis = unit(feature.axis), holeEdges = new Set(feature.faces.flatMap(f => ctx.faceEdges.get(f) || []));
-      const host = [...ctx.faces.values()].find(face => face.surface?.kind === 'plane' && (face.orientedLoops || []).slice(1).some(loop => loop.every(([e]) => holeEdges.has(Number(e)))));
+      const host = [...ctx.faces.values()].find(face => face.surface?.kind === 'plane' && (face.orientedLoops || []).length > 1 && face.orientedLoops.some(loop => loop.every(([e]) => holeEdges.has(Number(e)))));
       if (!host) continue;
-      const outer = (host.orientedLoops[0] || []).flatMap(([e]) => ctx.edges.get(Number(e))?.vertices || []).map(v => ctx.vertices.get(Number(v))).filter(Boolean);
+      const outer = planarRings(ctx, host.id).outer.points;
       // In-plane directions: the axes closest to the face, made exactly perpendicular to the hole.
       const dirs = AXES.map(a => sub(a, scale(axis, dot(a, axis)))).filter(a => norm(a) > 0.5).map(cleanNormal);
-      const extent = d => { const t = outer.map(p => dot(sub(p, feature.center), d)); return [Math.min(...t), Math.max(...t)]; };
-      const spans = dirs.map(d => ({ d, range: extent(d) })).map(x => ({ ...x, width: x.range[1] - x.range[0] }));
+      const spans = dirs.map(d => { const t = outer.map(p => dot(p, d)); return { d, lo: Math.min(...t), hi: Math.max(...t) }; }).map(x => ({ ...x, width: x.hi - x.lo }));
       if (spans.length < 2) continue;
       spans.sort((a, b) => a.width - b.width);
       const side = spans[0].width, long = spans[spans.length - 1];
       if (side < feature.diameter * 1.05) continue;
-      for (const offset of [-side / 2, side / 2]) {
-        // Skip a plane that would leave a sliver at the end of the host face.
-        const room = offset < 0 ? offset - long.range[0] : long.range[1] - offset;
-        if (room < side * 0.2) continue;
-        const origin = add(feature.center, scale(long.d, offset));
-        const key = `${long.d.map(x => x.toFixed(6))}:${dot(origin, long.d).toFixed(6)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        planes.push({ origin, normal: long.d.slice() });
-      }
+      cells.push({ feature, host: host.id, long, side, t: dot(feature.center, long.d) });
       for (const v of feature.solids) solids.add(Number(v));
     }
-    if (!planes.length) return null;
-    return { kind: 'slice', planes: planes.slice(0, 16), volumeIds: [...solids], label: `Boxed ${features.length} hole${features.length === 1 ? '' : 's'} in square cells` };
+    // Neighbors closer than a cell share the plane midway between them.
+    const planes = new Map();
+    const groups = new Map();
+    for (const cell of cells) { const key = `${cell.host}:${cell.long.d.map(x => x.toFixed(6))}`; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(cell); }
+    for (const list of groups.values()) {
+      list.sort((a, b) => a.t - b.t);
+      list.forEach((cell, i) => {
+        const prev = list[i - 1], next = list[i + 1];
+        const lo = prev && prev.t + prev.side / 2 > cell.t - cell.side / 2 ? (prev.t + cell.t) / 2 : cell.t - cell.side / 2;
+        const hi = next && next.t - next.side / 2 < cell.t + cell.side / 2 ? (next.t + cell.t) / 2 : cell.t + cell.side / 2;
+        for (const offset of [lo, hi]) {
+          // Skip a plane that would leave a sliver at the end of the host face.
+          if (offset - cell.long.lo < cell.side * 0.2 || cell.long.hi - offset < cell.side * 0.2) continue;
+          const key = `${cell.long.d.map(x => x.toFixed(6))}:${offset.toFixed(6)}`;
+          if (!planes.has(key)) planes.set(key, { origin: add(cell.feature.center, scale(cell.long.d, offset - cell.t)), normal: cell.long.d.slice() });
+        }
+      });
+    }
+    if (!planes.size) return null;
+    return { kind: 'slice', planes: [...planes.values()].slice(0, 16), volumeIds: [...solids], label: `Boxed ${features.length} hole${features.length === 1 ? '' : 's'} in square cells` };
   }
 
   /** Inscribed square through-passage spanning the feature; the kernel fits its open ends. */
@@ -309,28 +317,42 @@
   /* Bounded cuts                                                        */
   /* ------------------------------------------------------------------ */
 
+  const signedArea = poly => poly.reduce((sum, p, i) => { const r = poly[(i + 1) % poly.length]; return sum + p[0] * r[1] - r[0] * p[1]; }, 0) / 2;
+  function segmentDistance(q, a, b) {
+    const d = [b[0] - a[0], b[1] - a[1]], l = d[0] * d[0] + d[1] * d[1];
+    const t = l > 0 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * d[0] + (q[1] - a[1]) * d[1]) / l)) : 0;
+    return Math.hypot(q[0] - a[0] - t * d[0], q[1] - a[1] - t * d[1]);
+  }
+  function insidePolygon(poly, q) {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > q[1]) !== (yj > q[1]) && q[0] < (xj - xi) * (q[1] - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  }
+
+  /** A planar face as 2D polygons in its own plane; the outer ring is the one with the largest area. */
+  function planarRings(ctx, faceId) {
+    const face = ctx.faces.get(Number(faceId)), s = face?.surface;
+    if (!s || s.kind !== 'plane' || !(face.orientedLoops || []).length) return null;
+    const n = unit(s.normal), u = unit(cross(n, Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0])), w = cross(n, u);
+    const flat = p => [dot(p, u), dot(p, w)];
+    const rings = face.orientedLoops.map(loop => {
+      const ids = loop.map(([e, sense]) => { const vs = ctx.edges.get(Number(e))?.vertices || []; return Number(sense > 0 ? vs[0] : vs[vs.length - 1]); });
+      const points = ids.map(v => ctx.vertices.get(v)).filter(Boolean);
+      return { ids, points, flat: points.map(flat), edges: loop.map(([e]) => Number(e)) };
+    });
+    const outer = rings.reduce((best, r) => (Math.abs(signedArea(r.flat)) > Math.abs(signedArea(best.flat)) ? r : best), rings[0]);
+    return { n, u, w, flat, rings, outer, inner: rings.filter(r => r !== outer) };
+  }
+
   /** True when a point lies inside a planar face (its outer loop minus inner loops). */
   function insideFace(ctx, faceId, point) {
-    const face = ctx.faces.get(Number(faceId)), s = face?.surface;
-    if (!s || s.kind !== 'plane' || !(face.orientedLoops || []).length) return false;
-    const n = unit(s.normal), u = unit(cross(n, Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0])), w = cross(n, u);
-    const flat = p => [dot(p, u), dot(p, w)], q = flat(point);
-    const ring = loop => loop.map(([e, sense]) => {
-      const vs = ctx.edges.get(Number(e))?.vertices || [];
-      return ctx.vertices.get(Number(sense > 0 ? vs[0] : vs[vs.length - 1]));
-    }).filter(Boolean).map(flat);
-    const inside = poly => {
-      let c = false;
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const [xi, yi] = poly[i], [xj, yj] = poly[j];
-        if ((yi > q[1]) !== (yj > q[1]) && q[0] < (xj - xi) * (q[1] - yi) / (yj - yi) + xi) c = !c;
-      }
-      return c;
-    };
-    const rings = face.orientedLoops.map(ring);
-    const area = poly => Math.abs(poly.reduce((sum, p, i) => { const r = poly[(i + 1) % poly.length]; return sum + p[0] * r[1] - r[0] * p[1]; }, 0));
-    const outer = rings.reduce((best, r) => (area(r) > area(best) ? r : best), rings[0]);
-    return inside(outer) && !rings.some(r => r !== outer && inside(r));
+    const shape = planarRings(ctx, faceId);
+    if (!shape) return false;
+    const q = shape.flat(point);
+    return insidePolygon(shape.outer.flat, q) && !shape.inner.some(r => insidePolygon(r.flat, q));
   }
 
   /**
@@ -385,6 +407,135 @@
     const segments = frames.map((f, i) => ({ a: f.start, b: f.end, source: `Edge ${ids[i]}` }));
     const label = `Cut solid${volumes.size === 1 ? '' : 's'} ${[...volumes].join(', ')} along edge${ids.length === 1 ? '' : 's'} ${ids.join(', ')}`;
     return { operation: cutOperation(ctx, segments, n, [...volumes], label, holders), segments, axis: cleanNormal(n), volumeIds: [...volumes], faces: holders };
+  }
+
+  /**
+   * Walls that rise around a floor face (every edge of its outline is
+   * re-entrant): cut along the outline to separate the floor from the walls,
+   * and once across each corner of the wall ring so the ring falls apart into
+   * straight wall pieces. A corner cut runs to the outer vertex on the corner's
+   * bisector (a miter); at an acute corner it continues one inner face to an
+   * outer vertex instead, which keeps both wall pieces four-sided.
+   */
+  function pocketCuts(ctx, volumeId) {
+    const id = Number(volumeId), own = (ctx.volumes.get(id)?.faces || []).map(Number);
+    const tol = ctx.span * 1e-6, actions = [];
+    const unit2 = v => { const l = Math.hypot(v[0], v[1]); return [v[0] / l, v[1] / l]; };
+    for (const f of own) {
+      const face = ctx.faces.get(f);
+      if (face?.surface?.kind !== 'plane' || (face.orientedLoops || []).length !== 1) continue;
+      const loop = face.orientedLoops[0];
+      if (loop.length < 3 || loop.length > 8 || !loop.every(([e]) => edgeFrame(ctx, e)?.line && (edgeAngle(ctx, e, id) ?? 0) > 220)) continue;
+      const floor = planarRings(ctx, f);
+      // The outline: the largest face of the solid parallel to the floor in another plane.
+      const outline = own.filter(g => g !== f).map(g => ({ g, s: ctx.faces.get(g)?.surface, area: Number(ctx.faces.get(g)?.area) || 0 }))
+        .filter(x => x.s?.kind === 'plane' && Math.abs(Math.abs(dot(unit(x.s.normal), floor.n)) - 1) < 1e-6 && Math.abs(dot(sub(x.s.origin, face.surface.origin), floor.n)) > tol)
+        .sort((a, b) => b.area - a.area)[0];
+      if (!outline) continue;
+      const poly = floor.outer.flat, outer = planarRings(ctx, outline.g).outer.points.map(floor.flat);
+      const ccw = signedArea(poly) > 0;
+      const clear = (p, q) => [0.1, 0.3, 0.5, 0.7, 0.9].every(t => {
+        const r = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+        return insidePolygon(outer, r) && !insidePolygon(poly, r);
+      });
+      const hit = (p, d) => {
+        let best = null;
+        for (let i = 0; i < outer.length; i++) {
+          const a = outer[i], b = outer[(i + 1) % outer.length], e = [b[0] - a[0], b[1] - a[1]];
+          const den = d[0] * e[1] - d[1] * e[0];
+          if (Math.abs(den) < 1e-12) continue;
+          const ap = [a[0] - p[0], a[1] - p[1]];
+          const t = (ap[0] * e[1] - ap[1] * e[0]) / den, k = (ap[0] * d[1] - ap[1] * d[0]) / den;
+          if (t > tol && k > -1e-9 && k < 1 + 1e-9 && (!best || t < best.t)) best = { t, q: [p[0] + t * d[0], p[1] + t * d[1]] };
+        }
+        if (!best) return null;
+        const vertex = outer.find(v => Math.hypot(v[0] - best.q[0], v[1] - best.q[1]) < ctx.span * 1e-5);
+        return { length: best.t, q: vertex || best.q, vertex: !!vertex };
+      };
+      const corners = [];
+      let complete = true;
+      for (let i = 0; i < poly.length && complete; i++) {
+        const p = poly[i], prev = poly[(i - 1 + poly.length) % poly.length], next = poly[(i + 1) % poly.length];
+        const turn = (p[0] - prev[0]) * (next[1] - p[1]) - (p[1] - prev[1]) * (next[0] - p[0]);
+        if ((turn > 0) !== ccw) continue; // a re-entrant floor corner needs no cut
+        const a = unit2([prev[0] - p[0], prev[1] - p[1]]), b = unit2([next[0] - p[0], next[1] - p[1]]);
+        const angle = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1]))) * 180 / Math.PI;
+        const bisector = unit2([-(a[0] + b[0]), -(a[1] + b[1])]);
+        let choice = null;
+        if (angle >= 80) {
+          for (const q of outer) {
+            const v = [q[0] - p[0], q[1] - p[1]], l = Math.hypot(v[0], v[1]);
+            if (l < tol) continue;
+            const off = Math.acos(Math.max(-1, Math.min(1, (v[0] * bisector[0] + v[1] * bisector[1]) / l))) * 180 / Math.PI;
+            if (off <= 20 && clear(p, q) && (!choice || off < choice.off)) choice = { q, off };
+          }
+        }
+        if (!choice) {
+          const options = [];
+          for (const d of [[-a[0], -a[1]], [-b[0], -b[1]]]) options.push({ d, rank: 0 });
+          for (const e of [a, b]) for (const r of [[-e[1], e[0]], [e[1], -e[0]]]) if (r[0] * bisector[0] + r[1] * bisector[1] > 0) options.push({ d: r, rank: 1 });
+          const found = options.map(o => ({ ...o, h: hit(p, o.d) })).filter(o => o.h && clear(p, o.h.q))
+            .sort((x, y) => (y.h.vertex - x.h.vertex) || (x.rank - y.rank) || (x.h.length - y.h.length));
+          if (found[0]) choice = { q: found[0].h.q };
+        }
+        if (!choice) { complete = false; break; }
+        const start = floor.outer.points[i];
+        corners.push({ a: start.slice(), b: add(start, add(scale(floor.u, choice.q[0] - p[0]), scale(floor.w, choice.q[1] - p[1]))) });
+      }
+      if (!complete || !corners.length) continue;
+      const pts = floor.outer.points, outlineCuts = pts.map((pt, i) => ({ a: pt.slice(), b: pts[(i + 1) % pts.length].slice() }));
+      const operation = cutOperation(ctx, [...outlineCuts, ...corners], floor.n, [id], `Separated the walls around floor face ${f} of solid ${id}`, [outline.g]);
+      if (operation) actions.push({ key: `pocket:${id}:${f}`, label: 'Separate the walls from the floor', detail: `Cut along the ${pts.length} edges of floor face ${f} and across ${corners.length} wall corners`, faces: [f], edges: loop.map(([e]) => Number(e)), operation });
+    }
+    return actions;
+  }
+
+  /**
+   * Openings that are not round features (square passages, windows): slice the
+   * solid through the planes of the faces lining them, continued through the
+   * neighbors those planes cross, so the solid falls into layers either side of
+   * the openings. Planes parallel to the solid's largest faces come first.
+   */
+  function openingLevels(ctx, recognized, volume) {
+    const id = Number(volume.id), own = (ctx.volumes.get(id)?.faces || []).map(Number);
+    const hosts = (volume.reasons || []).filter(r => r.code === 'face-holes').flatMap(r => r.faces || []).map(Number);
+    const groups = new Map();
+    const b = ctx.volumes.get(id)?.bounds, size = b ? Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) : ctx.span;
+    const extent = points => Math.hypot(...[0, 1, 2].map(i => Math.max(...points.map(p => p[i])) - Math.min(...points.map(p => p[i]))));
+    for (const host of hosts) {
+      const shape = planarRings(ctx, host);
+      if (!shape) continue;
+      for (const ring of shape.inner) {
+        // Openings in a wall, not the cut-outs of a profile that make up the part.
+        if (!ring.points.length || extent(ring.points) > size * 0.35) continue;
+        const lining = [...new Set(ring.edges.flatMap(e => [...(ctx.edgeFaces.get(e) || [])]))].filter(g => g !== host);
+        if (lining.some(g => recognized?.byFace.get(g))) continue;
+        for (const g of lining) {
+          const sg = ctx.faces.get(g)?.surface;
+          if (sg?.kind !== 'plane') continue;
+          const n = cleanNormal(sg.normal);
+          if (Math.abs(dot(n, shape.n)) > 1e-6) continue;
+          const key = n.map(x => x.toFixed(6)).join(',');
+          if (!groups.has(key)) groups.set(key, { n, planes: new Map() });
+          const offset = dot(sg.origin, n).toFixed(6);
+          if (!groups.get(key).planes.has(offset)) groups.get(key).planes.set(offset, sg.origin.slice());
+        }
+      }
+    }
+    const weight = n => Math.max(0, ...own.map(g => ctx.faces.get(g)).filter(face => face?.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(face.surface.normal), n)) - 1) < 1e-6).map(face => Number(face.area) || 0));
+    const actions = [];
+    for (const { n, planes } of [...groups.values()].sort((a, b) => weight(b.n) - weight(a.n))) {
+      if (planes.size > 6) continue;
+      const list = [...planes.values()].filter(origin => solidsCut(ctx, origin, n).includes(id))
+        .map(origin => ({ origin, normal: n.slice(), volumeIds: sheetVolumes(ctx, [id], origin, n) }));
+      if (!list.length) continue;
+      const solids = new Set(list.flatMap(p => p.volumeIds));
+      const axis = [0, 1, 2].find(i => Math.abs(Math.abs(n[i]) - 1) < 1e-9);
+      actions.push({ key: `levels:${id}:${n.map(x => x.toFixed(6))}`, label: `Slice through the openings${axis == null ? '' : ` ⟂ ${'XYZ'[axis]}`}`,
+        detail: `${list.length} plane${list.length === 1 ? '' : 's'} along faces lining the openings in face${hosts.length === 1 ? '' : 's'} ${hosts.slice(0, 3).join(', ')}, through ${solids.size} solid${solids.size === 1 ? '' : 's'}`,
+        faces: hosts, operation: { kind: 'slice', planes: list, volumeIds: [...solids], label: `Sliced solid ${id} through its openings` } });
+    }
+    return actions;
   }
 
   function sweepName(axis) {
@@ -505,6 +656,18 @@
       subtitle = point.map(v => fmt(v, 5)).join(', ');
       for (let axis = 0; axis < 3; axis++) actions.push({ key: 'slice-vertex-' + axis, label: `Slice ⟂ ${'XYZ'[axis]}`, detail: `Plane through the vertex, normal ${'XYZ'[axis]}`, tool: 'slice', slice: { origin: point.slice(), normal: AXES[axis].slice(), scope: 'all' }, primary: axis === 0 });
       facts.push(['Cut', 'Shift-pick a second vertex to cut between them']);
+    } else if (kind === 'solid' && ids.length > 1) {
+      const records = ids.map(id => ctx.volumes.get(id)).filter(Boolean);
+      if (!records.length) return null;
+      title = `${ids.length} solids`;
+      const mappable = ids.filter(id => analysis?.volumes.get(id)?.mappable).length;
+      subtitle = `${mappable} of ${ids.length} mappable`;
+      facts.push(['Volume', fmt(records.reduce((sum, r) => sum + (Number(r.volume) || 0), 0), 5)]);
+      const fuse = fuseAction(ctx, ids);
+      if (fuse.operation) actions.push(fuse);
+      else facts.push(['Fuse', fuse.error]);
+      const box = ctx.bounds && records.every(r => r.bounds) ? [0, 1, 2].map(i => (Math.min(...records.map(r => r.bounds[i])) + Math.max(...records.map(r => r.bounds[i + 3]))) / 2) : [0, 0, 0];
+      actions.push({ key: 'slice-solid', label: 'Slice these solids', detail: 'One plane through all of them', tool: 'slice', slice: { origin: box, normal: [1, 0, 0], scope: 'solids', volumeIds: ids.slice() } });
     } else if (kind === 'solid') {
       const volume = analysis?.volumes.get(ids[0]);
       const record = ctx.volumes.get(ids[0]);
@@ -517,6 +680,23 @@
       actions.push({ key: 'slice-solid', label: 'Slice this solid', detail: 'Plane through its center', tool: 'slice', slice: { origin: record.bounds ? [0, 1, 2].map(i => (record.bounds[i] + record.bounds[i + 3]) / 2) : [0, 0, 0], normal: [1, 0, 0], scope: 'solids', volumeIds: ids.slice() } });
     }
     return { title, subtitle, facts, actions };
+  }
+
+  /** Fuse picked solids back into one; they must be connected through shared faces. */
+  function fuseAction(ctx, volumeIds) {
+    const ids = [...new Set(volumeIds.map(Number))];
+    if (ids.length < 2) return { error: 'Pick two or more solids.' };
+    const linked = new Set([ids[0]]), queue = [ids[0]];
+    while (queue.length) {
+      const id = queue.pop();
+      for (const f of ctx.volumes.get(id)?.faces || []) for (const other of ctx.faces.get(Number(f))?.volumes || []) {
+        const v = Number(other);
+        if (ids.includes(v) && !linked.has(v)) { linked.add(v); queue.push(v); }
+      }
+    }
+    if (linked.size !== ids.length) return { error: 'These solids do not share faces; pick neighbors to fuse.' };
+    return { key: 'fuse', label: `Fuse ${ids.length} solids`, detail: 'Merge them back into one solid, e.g. to redo a cut differently', primary: true,
+      operation: { kind: 'fuse', volumeIds: ids.slice().sort((a, b) => a - b), label: `Fused solids ${ids.slice().sort((a, b) => a - b).join(', ')}` } };
   }
 
   /** True when a plane grazes a cylinder of the solid, which would leave a knife edge. */
@@ -779,6 +959,8 @@
       // its corner), and two re-entrant edges that see each other across a cap
       // are joined by one cut.
       const own = new Set((ctx.volumes.get(Number(volume.id))?.faces || []).map(Number));
+      if ((volume.reasons || []).some(r => r.code === 'reentrant')) pocketCuts(ctx, volume.id).forEach(push);
+      if ((volume.reasons || []).some(r => r.code === 'face-holes')) openingLevels(ctx, recognized, volume).forEach(push);
       const cited = (volume.reasons || []).filter(r => r.code === 'face-corners' || r.code === 'face-reflex').flatMap(r => r.faces || []).map(Number);
       const planesDone = new Set();
       for (const faceId of cited) {
@@ -804,6 +986,22 @@
         if (operation) push({ key: `cut-imprints:${volume.id}:${planeKey}`, label: `Cut along ${list.length} imprint edge${list.length === 1 ? '' : 's'}`,
           detail: `Bounded cuts that stop where the imprints on face${coplanar.length === 1 ? '' : 's'} ${coplanar.slice(0, 4).join(', ')}${coplanar.length > 4 ? '…' : ''} stop`, edges: list, faces: coplanar, operation });
       }
+      // A piece of a hole (sectors fused back together, or a hole cut by an
+      // earlier slice): radial cuts from the hole axis to the piece's own
+      // corners split it into sectors again.
+      if (recognized && (volume.reasons || []).some(r => r.code === 'face-corners')) {
+        for (const feature of recognized.features.filter(f => f.kind === 'hole' && f.solids.includes(Number(volume.id)))) {
+          const axis = unit(feature.axis), arc = new Set([...own].filter(g => feature.faces.includes(g)).flatMap(g => faceVertices(ctx, g)));
+          const cap = [...own].map(g => ctx.faces.get(g)).find(face => face?.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(face.surface.normal), axis)) - 1) < 1e-6);
+          if (!cap || !arc.size) continue;
+          const rays = (cap.corners?.[0] || []).filter(([v, angle]) => angle != null && angle < 140 && !arc.has(Number(v))).map(([v]) => {
+            const offset = sub(ctx.vertices.get(Number(v)), feature.center), radial = sub(offset, scale(axis, dot(offset, axis)));
+            return norm(radial) > feature.radius * 1.05 ? { origin: feature.center.slice(), axis: axis.slice(), direction: unit(radial), length: norm(radial) + ctx.span * 1e-5 } : null;
+          }).filter(Boolean);
+          if (rays.length) push({ key: `split-arc:${volume.id}:${feature.id}`, label: 'Split around the hole', detail: `${rays.length} radial cut${rays.length === 1 ? '' : 's'} from the ${feature.label} axis to the corners of solid ${volume.id}`, faces: feature.faces.filter(f => own.has(f)),
+            operation: { kind: 'slice', rays, volumeIds: [Number(volume.id)], label: `Split solid ${volume.id} around ${feature.label}` } });
+        }
+      }
       const reentrant = [...new Set((volume.reasons || []).filter(r => r.code === 'reentrant').flatMap(r => r.edges || []).map(Number))]
         .map(e => ({ e, frame: edgeFrame(ctx, e) })).filter(x => x.frame?.line);
       for (let i = 0; i < reentrant.length; i++) for (let j = i + 1; j < reentrant.length; j++) {
@@ -816,8 +1014,14 @@
           const va = (ctx.edges.get(A.e)?.vertices || []).map(Number).find(v => verts.includes(v));
           const vb = (ctx.edges.get(B.e)?.vertices || []).map(Number).find(v => verts.includes(v));
           if (va == null || vb == null) continue;
+          // Both ends must be re-entrant corners of the cap itself.
+          const capCorners = new Map((ctx.faces.get(g).corners || []).flat().map(([v, angle]) => [Number(v), angle]));
+          if (!((capCorners.get(va) ?? 0) > 200 && (capCorners.get(vb) ?? 0) > 200)) continue;
           const a = ctx.vertices.get(va), b = ctx.vertices.get(vb);
           if (![0.2, 0.4, 0.5, 0.6, 0.8].every(t => insideFace(ctx, g, add(a, scale(sub(b, a), t))))) continue;
+          // The cut must cross the cap, not run along one of its edges.
+          const cap = planarRings(ctx, g), m = cap.flat(scale(add(a, b), 0.5));
+          if (cap.rings.some(r => r.flat.some((p, k) => segmentDistance(m, p, r.flat[(k + 1) % r.flat.length]) < ctx.span * 1e-4))) continue;
           const operation = cutOperation(ctx, [{ a, b }], axis, [volume.id], `Joined re-entrant edges ${A.e} and ${B.e} of solid ${volume.id}`, [g]);
           if (operation) push({ key: `join:${volume.id}:${A.e}:${B.e}`, label: 'Cut between re-entrant edges', detail: `Edges ${A.e} and ${B.e}, straight across face ${g}`, edges: [A.e, B.e], vertices: [va, vb], faces: [g], operation });
           break;
@@ -837,13 +1041,19 @@
     // Blends hide re-entrant edges, so remove them first; split holes once the block structure exists.
     const rank = action => {
       if (action.operation?.kind === 'defeature' && (action.feature === 'fillet' || action.feature === 'chamfer' || action.key.startsWith('remove:'))) return 0;
+      // Whole-structure cuts first: they make the pieces the other fixes work on.
+      if (action.key.startsWith('pocket:')) return 0.8;
+      if (action.key.startsWith('levels:')) return 0.85;
       if (action.key.startsWith('join:')) return 0.9;
       if (action.key.startsWith('slice:')) return 1;
       // One bounded cut along several imprints replaces as many single-plane extensions.
       if (action.key.startsWith('cut-imprints:')) return action.edges.length > 1 ? 0.95 : 1.05;
+      if (action.key.startsWith('split-arc')) return 1.9;
       if (action.key.startsWith('split-mid')) return 2;
+      // Square cells also separate holes that share a face, with better sectors.
+      if (action.key.startsWith('box-holes')) return 1.44;
+      if (action.key.startsWith('box-hole')) return 1.45;
       if (action.key.startsWith('separate-holes')) return 1.5;
-      if (action.key.startsWith('box-hole')) return 1.6;
       if (action.key.startsWith('split-hole-ring')) return 3;
       if (action.key.startsWith('split-hole')) return 2;
       if (action.operation?.kind === 'defeature') return 4;
@@ -892,132 +1102,143 @@
     const commit = async (operation, label) => { await session.apply(operation); applied.push(label); progress(`Step ${applied.length}: ${label}`); };
     let st = current();
     const start = st.analysis.summary;
-    if (blends) {
-      // One defeature for every blend on a blocked solid is far faster than one per blend.
-      const blocked = new Set(solids(st.analysis).filter(v => !v.mappable).map(v => v.id));
-      const list = st.recognized.features.filter(f => (f.kind === 'fillet' || f.kind === 'chamfer') && f.solids.some(v => blocked.has(v)));
-      if (list.length > 1) {
-        progress(`Removing ${list.length} fillets and chamfers…`);
-        try { await commit({ kind: 'defeature', faceIds: [...new Set(list.flatMap(f => f.faces))].sort((a, b) => a - b), label: `Removed ${list.length} fillets and chamfers` }, `Removed ${list.length} fillets and chamfers`); }
-        catch { /* fall back to one blend at a time */ }
-        st = current();
-      }
-    }
-    // Phase 1: make every solid a mapped block.
-    const mapAll = async limit => {
-    const begin = applied.length;
-    while (applied.length < maxSteps && applied.length - begin < limit) {
-      const blocked = solids(st.analysis).filter(v => !v.mappable)
-        .sort((a, b) => (Number(st.topology.volumes.find(x => x.id === b.id)?.volume) || 0) - (Number(st.topology.volumes.find(x => x.id === a.id)?.volume) || 0));
-      if (!blocked.length) break;
-      let candidate = null, owner = null;
-      for (const v of blocked) {
-        const list = fixes(st.recognized.ctx, st.recognized, v).filter(a => allowed(a) && !tried.has(signature(st, a)));
-        if (list.length) { candidate = list[0]; owner = v; break; }
-      }
-      if (!candidate) break;
-      // Alternative planes for the same re-entrant edge: preview each, keep the smaller cut.
-      const alternatives = [candidate];
-      if (candidate.key.startsWith('slice:') && candidate.edges?.length) {
-        for (const a of fixes(st.recognized.ctx, st.recognized, owner)) if (a.key !== candidate.key && a.key.startsWith('slice:') && (a.edges || []).some(e => candidate.edges.includes(e)) && allowed(a)) alternatives.push(a);
-      }
-      let best = null;
-      for (const option of alternatives) {
-        tried.add(signature(st, option));
-        progress(`Step ${applied.length + 1}: trying ${option.label.toLowerCase()}…`);
-        let data;
-        try { data = await session.preview(option.operation); } catch { continue; }
-        const result = H.analyze(data.topology), value = score(result);
-        if (cusps(result) > cusps(st.analysis)) continue;
-        if (conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
-        if (option.operation.kind !== 'defeature' && !better(value, score(st.analysis))) continue;
-        const plane = option.operation.planes?.[0];
-        const cut = plane ? data.topology.faces.filter(f => (f.volumes || []).length > 1 && f.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(f.surface.normal), unit(plane.normal))) - 1) < 1e-6 && Math.abs(dot(sub(f.surface.origin, plane.origin), unit(plane.normal))) < st.recognized.ctx.span * 1e-6).reduce((sum, f) => sum + (Number(f.area) || 0), 0) : 0;
-        if (!best || better(value, best.value) || (value[0] === best.value[0] && value[1] === best.value[1] && cut < best.cut)) best = { option, value, cut };
-      }
-      if (!best) continue;
-      await commit(best.option.operation, best.option.operation.label || best.option.label);
-      st = current();
-    }
-    return applied.length - begin;
-    };
-    await mapAll(maxSteps);
-    // Phase 1b: remove T-junction cycles that make the edge counts unsolvable.
-    for (let round = 0; round < 8 && applied.length < maxSteps; round++) {
-      const intervals = intervalsOf(st.analysis, st.topology);
-      if (!intervals || !intervals.conflicts.length) break;
-      const now = intervals.conflicts.length, blockedNow = solids(st.analysis).filter(v => !v.mappable).length;
-      let best = null;
-      for (const option of conflictFixes(st.recognized.ctx, st.analysis, intervals).filter(a => !tried.has(signature(st, a))).slice(0, 6)) {
-        tried.add(signature(st, option));
-        progress(`Resolving edge-count conflicts: ${option.label.toLowerCase()}…`);
-        let data;
-        try { data = await session.preview(option.operation); } catch { continue; }
-        const result = H.analyze(data.topology), left = conflicts(result, data.topology);
-        if (left >= now || cusps(result) > cusps(st.analysis) || solids(result).filter(v => !v.mappable).length > blockedNow) continue;
-        if (!best || left < best.left) best = { option, left };
-      }
-      if (!best) break;
-      await commit(best.option.operation, best.option.operation.label || best.option.label);
-      st = current();
-      await mapAll(6);
-    }
-    // Phase 2: reshape poor blocks, judged by the mapped mesh they actually give.
-    if (shape) {
-      const size = Number(options.size) > 0 ? Number(options.size) : null;
-      const target = Number(options.targetQuality) > 0 ? Number(options.targetQuality) : 0.3;
-      const quality = (topology, preview, analysis) => {
-        try {
-          const ctxSpan = Math.max(topology.bounds[3] - topology.bounds[0], topology.bounds[4] - topology.bounds[1], topology.bounds[5] - topology.bounds[2]);
-          const intervals = H.solveIntervals(analysis, { size: size || ctxSpan / 25 });
-          if (!intervals.solvable || !intervals.region.volumes.length) return null;
-          const mesh = H.generateMesh(analysis, intervals, H.createGeometry(topology, preview), { order: 1 });
-          const per = new Map(mesh.quality.perVolume.map(p => [p.volume, p.minScaledJacobian]));
-          let deficit = 0; for (const value of per.values()) deficit += Math.max(0, target - value);
-          return { min: mesh.quality.minScaledJacobian, deficit, per };
-        } catch { return null; }
-      };
-      const blocked = a => solids(a).filter(x => !x.mappable).length;
-      let q = quality(st.topology, st.preview, st.analysis);
-      for (let round = 0; q && q.min < target && round < 10 && applied.length < maxSteps; round++) {
-        const worst = [...q.per].filter(([, value]) => value < target).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([id]) => st.analysis.volumes.get(id)).filter(Boolean);
-        let best = null;
-        for (const v of worst) {
-          for (const option of shapeFixes(st.recognized.ctx, v).filter(a => !tried.has(signature(st, a))).slice(0, 5)) {
-            tried.add(signature(st, option));
-            progress(`Improving element quality: ${option.detail.toLowerCase()}…`);
-            let data;
-            try { data = await session.preview(option.operation); } catch { continue; }
-            const result = H.analyze(data.topology);
-            if (cusps(result) > cusps(st.analysis) || conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
-            const next = quality(data.topology, data.preview, result);
-            if (!next || next.deficit > q.deficit - 0.02 || next.min < q.min - 1e-9) continue;
-            const repair = blocked(result) > blocked(st.analysis);
-            if (repair && typeof session.undo !== 'function') continue;
-            // Prefer steps that keep every block mapped; others need a repair pass.
-            if (!best || (best.repair && !repair) || (best.repair === repair && next.deficit < best.next.deficit)) best = { option, next, repair };
-          }
+    // Every applied step is kept when the planner stops short or fails, so
+    // the user continues by hand from its cuts (or undoes them one at a time).
+    let failure = null;
+    try {
+      if (blends) {
+        // One defeature for every blend on a blocked solid is far faster than one per blend.
+        const blocked = new Set(solids(st.analysis).filter(v => !v.mappable).map(v => v.id));
+        const list = st.recognized.features.filter(f => (f.kind === 'fillet' || f.kind === 'chamfer') && f.solids.some(v => blocked.has(v)));
+        if (list.length > 1) {
+          progress(`Removing ${list.length} fillets and chamfers…`);
+          try { await commit({ kind: 'defeature', faceIds: [...new Set(list.flatMap(f => f.faces))].sort((a, b) => a - b), label: `Removed ${list.length} fillets and chamfers` }, `Removed ${list.length} fillets and chamfers`); }
+          catch { /* fall back to one blend at a time */ }
+          st = current();
         }
-        if (!best) break;
-        const before = { count: applied.length, deficit: q.deficit, blocked: blocked(st.analysis) };
+      }
+      // Phase 1: make every solid a mapped block.
+      const mapAll = async limit => {
+      const begin = applied.length;
+      while (applied.length < maxSteps && applied.length - begin < limit) {
+        const blocked = solids(st.analysis).filter(v => !v.mappable)
+          .sort((a, b) => (Number(st.topology.volumes.find(x => x.id === b.id)?.volume) || 0) - (Number(st.topology.volumes.find(x => x.id === a.id)?.volume) || 0));
+        if (!blocked.length) break;
+        let candidate = null, owner = null;
+        for (const v of blocked) {
+          const list = fixes(st.recognized.ctx, st.recognized, v).filter(a => allowed(a) && !tried.has(signature(st, a)));
+          if (list.length) { candidate = list[0]; owner = v; break; }
+        }
+        if (!candidate) break;
+        // Alternative planes for the same re-entrant edge: preview each, keep the smaller cut.
+        const alternatives = [candidate];
+        if (candidate.key.startsWith('slice:') && candidate.edges?.length) {
+          for (const a of fixes(st.recognized.ctx, st.recognized, owner)) if (a.key !== candidate.key && a.key.startsWith('slice:') && (a.edges || []).some(e => candidate.edges.includes(e)) && allowed(a)) alternatives.push(a);
+        }
+        let best = null;
+        for (const option of alternatives) {
+          tried.add(signature(st, option));
+          progress(`Step ${applied.length + 1}: trying ${option.label.toLowerCase()}…`);
+          let data;
+          try { data = await session.preview(option.operation); } catch { continue; }
+          const result = H.analyze(data.topology), value = score(result);
+          if (cusps(result) > cusps(st.analysis)) continue;
+          if (conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
+          if (option.operation.kind !== 'defeature' && !better(value, score(st.analysis))) continue;
+          const plane = option.operation.planes?.[0];
+          const cut = plane ? data.topology.faces.filter(f => (f.volumes || []).length > 1 && f.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(f.surface.normal), unit(plane.normal))) - 1) < 1e-6 && Math.abs(dot(sub(f.surface.origin, plane.origin), unit(plane.normal))) < st.recognized.ctx.span * 1e-6).reduce((sum, f) => sum + (Number(f.area) || 0), 0) : 0;
+          if (!best || better(value, best.value) || (value[0] === best.value[0] && value[1] === best.value[1] && cut < best.cut)) best = { option, value, cut };
+        }
+        if (!best) continue;
         await commit(best.option.operation, best.option.operation.label || best.option.label);
         st = current();
-        if (best.repair) {
-          await mapAll(6);
-          const repaired = quality(st.topology, st.preview, st.analysis);
-          if (blocked(st.analysis) > before.blocked || !repaired || repaired.deficit > before.deficit - 0.02) {
-            // The repair did not pay off: return to the state before this step.
-            progress('Reverting a reshaping step that did not improve quality…');
-            for (let k = applied.length; k > before.count; k--) { await session.undo(); applied.pop(); }
-            st = current();
-            continue;
-          }
-        }
-        q = quality(st.topology, st.preview, st.analysis);
       }
+      return applied.length - begin;
+      };
+      await mapAll(maxSteps);
+      // Phase 1b: remove T-junction cycles that make the edge counts unsolvable.
+      for (let round = 0; round < 8 && applied.length < maxSteps; round++) {
+        const intervals = intervalsOf(st.analysis, st.topology);
+        if (!intervals || !intervals.conflicts.length) break;
+        const now = intervals.conflicts.length, blockedNow = solids(st.analysis).filter(v => !v.mappable).length;
+        let best = null;
+        for (const option of conflictFixes(st.recognized.ctx, st.analysis, intervals).filter(a => !tried.has(signature(st, a))).slice(0, 6)) {
+          tried.add(signature(st, option));
+          progress(`Resolving edge-count conflicts: ${option.label.toLowerCase()}…`);
+          let data;
+          try { data = await session.preview(option.operation); } catch { continue; }
+          const result = H.analyze(data.topology), left = conflicts(result, data.topology);
+          if (left >= now || cusps(result) > cusps(st.analysis) || solids(result).filter(v => !v.mappable).length > blockedNow) continue;
+          if (!best || left < best.left) best = { option, left };
+        }
+        if (!best) break;
+        await commit(best.option.operation, best.option.operation.label || best.option.label);
+        st = current();
+        await mapAll(6);
+      }
+      // Phase 2: reshape poor blocks, judged by the mapped mesh they actually give.
+      if (shape) {
+        const size = Number(options.size) > 0 ? Number(options.size) : null;
+        const target = Number(options.targetQuality) > 0 ? Number(options.targetQuality) : 0.3;
+        const quality = (topology, preview, analysis) => {
+          try {
+            const ctxSpan = Math.max(topology.bounds[3] - topology.bounds[0], topology.bounds[4] - topology.bounds[1], topology.bounds[5] - topology.bounds[2]);
+            const intervals = H.solveIntervals(analysis, { size: size || ctxSpan / 25 });
+            if (!intervals.solvable || !intervals.region.volumes.length) return null;
+            const mesh = H.generateMesh(analysis, intervals, H.createGeometry(topology, preview), { order: 1 });
+            const per = new Map(mesh.quality.perVolume.map(p => [p.volume, p.minScaledJacobian]));
+            let deficit = 0; for (const value of per.values()) deficit += Math.max(0, target - value);
+            return { min: mesh.quality.minScaledJacobian, deficit, per };
+          } catch { return null; }
+        };
+        const blocked = a => solids(a).filter(x => !x.mappable).length;
+        let q = quality(st.topology, st.preview, st.analysis);
+        for (let round = 0; q && q.min < target && round < 10 && applied.length < maxSteps; round++) {
+          const worst = [...q.per].filter(([, value]) => value < target).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([id]) => st.analysis.volumes.get(id)).filter(Boolean);
+          let best = null;
+          for (const v of worst) {
+            for (const option of shapeFixes(st.recognized.ctx, v).filter(a => !tried.has(signature(st, a))).slice(0, 5)) {
+              tried.add(signature(st, option));
+              progress(`Improving element quality: ${option.detail.toLowerCase()}…`);
+              let data;
+              try { data = await session.preview(option.operation); } catch { continue; }
+              const result = H.analyze(data.topology);
+              if (cusps(result) > cusps(st.analysis) || conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
+              const next = quality(data.topology, data.preview, result);
+              if (!next || next.deficit > q.deficit - 0.02 || next.min < q.min - 1e-9) continue;
+              const repair = blocked(result) > blocked(st.analysis);
+              if (repair && typeof session.undo !== 'function') continue;
+              // Prefer steps that keep every block mapped; others need a repair pass.
+              if (!best || (best.repair && !repair) || (best.repair === repair && next.deficit < best.next.deficit)) best = { option, next, repair };
+            }
+          }
+          if (!best) break;
+          const before = { count: applied.length, deficit: q.deficit, blocked: blocked(st.analysis) };
+          await commit(best.option.operation, best.option.operation.label || best.option.label);
+          st = current();
+          if (best.repair) {
+            await mapAll(6);
+            const repaired = quality(st.topology, st.preview, st.analysis);
+            if (blocked(st.analysis) > before.blocked || !repaired || repaired.deficit > before.deficit - 0.02) {
+              // The repair did not pay off: return to the state before this step.
+              progress('Reverting a reshaping step that did not improve quality…');
+              for (let k = applied.length; k > before.count; k--) { await session.undo(); applied.pop(); }
+              st = current();
+              continue;
+            }
+          }
+          q = quality(st.topology, st.preview, st.analysis);
+        }
+      }
+    } catch (error) {
+      failure = error;
+      try { st = current(); } catch { /* keep the last known state */ }
     }
-    return { steps: applied.length, applied, start, end: st.analysis.summary };
+    const end = st.analysis.summary;
+    const reason = failure ? 'error' : !end.blocked ? 'done' : applied.length >= maxSteps ? 'limit' : 'stuck';
+    return { steps: applied.length, applied, start, end, reason, error: failure ? failure.message || String(failure) : null,
+      blocked: solids(st.analysis).filter(v => !v.mappable).map(v => v.id) };
   }
 
-  return { recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, context };
+  return { recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, pocketCuts, openingLevels, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, context };
 }));
