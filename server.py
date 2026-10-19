@@ -107,7 +107,8 @@ def health(gmsh):
     kernel = importlib.util.find_spec("gmsh") is not None or any((Path(folder) / "gmsh.py").is_file()
                 for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
     return {"ok": True, "gmsh": {"available": version is not None, "version": version},
-            "cad": {"available": kernel, "operations": ["preview", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped"]},
+            "cad": {"available": kernel, "operations": ["preview", "slice", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped"],
+                    "nativeMapping": True},
             "formats": ["step", "iges", "brep", "stl"], "topologies": ["tri", "quad", "tet", "hex"],
             "orders": [1, 2], "limits": {"cadBytes": MAX_CAD, "timeoutSeconds": MESH_TIMEOUT,
                                         "meshBytes": MAX_MESH, "residentBytes": MAX_RSS},
@@ -466,7 +467,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         if not self.trusted_request():
             return
         endpoint = urlsplit(self.path).path
-        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/undo", "/api/cad/export", "/api/cad/mesh"}:
+        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/export", "/api/cad/mesh"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":

@@ -11,6 +11,10 @@ import time
 import uuid
 
 
+# Undoable preparation steps per session; total snapshot storage is bounded separately.
+MAX_SNAPSHOTS = 96
+
+
 class CadError(Exception):
     def __init__(self, message, status=422, log=""):
         super().__init__(message)
@@ -91,6 +95,44 @@ class CadSessions:
                                          "revision": 0, "operation": {"kind": "import"}, "label": "Imported geometry"}]}
         return self.payload(key, self.records[key])
 
+    @staticmethod
+    def operation_key(operation):
+        return json.dumps(operation, sort_keys=True, allow_nan=False, separators=(",", ":"))
+
+    def discard_staged(self, record):
+        staged = record.pop("staged", None)
+        if staged:
+            staged["path"].unlink(missing_ok=True)
+            staged["json"].unlink(missing_ok=True)
+
+    def preview(self, data):
+        """Run a preparation without committing it; an identical prepare reuses the result."""
+        key, record = self.lookup(data)
+        if record.get("discrete"):
+            raise CadError("Split and defeature require editable STEP, IGES or BREP. STL is a discrete surface.")
+        operation = data.get("operation")
+        if not isinstance(operation, dict):
+            raise CadError("Provide a geometry preparation operation.", 400)
+        operation_key = self.operation_key(operation)
+        staged = record.get("staged")
+        if not (staged and staged["base"] == record["revision"] and staged["key"] == operation_key):
+            self.discard_staged(record)
+            state = record["states"][record["cursor"]]
+            folder = self.root / key
+            output = folder / f"staged-{uuid.uuid4().hex[:8]}.brep"
+            try:
+                result = self.runner({"action": "prepare", "operation": operation}, state["path"], output)
+            except Exception:
+                output.unlink(missing_ok=True)
+                raise
+            json_path = output.with_suffix(".json")
+            json_path.write_text(json.dumps(result, allow_nan=False, separators=(",", ":")))
+            record["staged"] = {"base": record["revision"], "key": operation_key, "path": output, "json": json_path}
+        staged = record["staged"]
+        result = json.loads(staged["json"].read_text())
+        result.update(cadId=key, revision=record["revision"], staged=True)
+        return result
+
     def prepare(self, data):
         key, record = self.lookup(data)
         if record.get("discrete"):
@@ -98,19 +140,26 @@ class CadSessions:
         operation = data.get("operation")
         if not isinstance(operation, dict):
             raise CadError("Provide a geometry preparation operation.", 400)
-        if record["cursor"] + 1 >= 24:
-            raise CadError("This session has 24 preparation snapshots. Export and reimport the prepared BREP to continue.")
+        if record["cursor"] + 1 >= MAX_SNAPSHOTS:
+            raise CadError(f"This session has {MAX_SNAPSHOTS} preparation snapshots. Export and reimport the prepared BREP to continue.")
         state = record["states"][record["cursor"]]
         revision = record["revision"] + 1
         folder = self.root / key
         output = folder / f"state-{revision}.brep"
-        try:
-            result = self.runner({"action": "prepare", "operation": operation}, state["path"], output)
-        except Exception:
-            output.unlink(missing_ok=True)
-            raise
         json_path = folder / f"state-{revision}.json"
-        json_path.write_text(json.dumps(result, allow_nan=False, separators=(",", ":")))
+        staged = record.get("staged")
+        if staged and staged["base"] == record["revision"] and staged["key"] == self.operation_key(operation):
+            record.pop("staged")
+            staged["path"].replace(output)
+            staged["json"].replace(json_path)
+        else:
+            self.discard_staged(record)
+            try:
+                result = self.runner({"action": "prepare", "operation": operation}, state["path"], output)
+            except Exception:
+                output.unlink(missing_ok=True)
+                raise
+            json_path.write_text(json.dumps(result, allow_nan=False, separators=(",", ":")))
         if sum(path.stat().st_size for path in self.root.rglob("*") if path.is_file()) > 512 * 1024 * 1024:
             output.unlink(missing_ok=True)
             json_path.unlink(missing_ok=True)
@@ -121,9 +170,13 @@ class CadSessions:
         record["states"] = record["states"][:record["cursor"] + 1]
         kind = operation.get("kind", "prepare")
         passage_count = len(operation["passages"]) if isinstance(operation.get("passages"), list) else 0
+        slice_count = sum(len(operation.get(key) or []) for key in ("planes", "cylinders", "rays"))
         labels = {"split": f"Split at {str(operation.get('axis', '')).upper()} = {operation.get('position')}",
+                  "slice": operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip()
+                  else f"Sliced with {slice_count} {'surface' if slice_count == 1 else 'surfaces'}",
                   "project": f"Partitioned by projected faces {operation.get('faceIds', [])} along {str(operation.get('axis', '')).upper()}",
-                  "defeature": f"Removed faces {operation.get('faceIds', [])}", "heal": "Healed CAD topology",
+                  "defeature": operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip()
+                  else f"Removed faces {operation.get('faceIds', [])}", "heal": "Healed CAD topology",
                   "passage": "Cut a reviewed rectangular through-passage",
                   "passages": f"Cut {passage_count} reviewed rectangular through-passages"}
         record["states"].append({"path": output, "json": json_path, "revision": revision,
@@ -134,6 +187,7 @@ class CadSessions:
 
     def undo(self, data):
         key, record = self.lookup(data)
+        self.discard_staged(record)
         if not record["cursor"]:
             raise CadError("There are no geometry preparation operations to undo.", 400)
         record["cursor"] -= 1

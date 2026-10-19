@@ -167,6 +167,9 @@ def preview(gmsh, data):
     for edge in data["edges"]:
         tag = edge["id"]
         try:
+            if edge.get("samples"):
+                edges.append({"id": tag, "points": edge.pop("samples")})
+                continue
             lower, upper = model.getParametrizationBounds(1, tag)
             start, end = float(lower[0]), float(upper[0])
             count = 2 if edge["type"] == "Line" else 65
@@ -219,7 +222,7 @@ def rectangular_passages(gmsh, operation, volumes):
             corner[index], size[index] = center[index] - length / 2, length
         if any(size[i] > span * 4 or corner[i] < bounds[i] - 2 * span or corner[i] + size[i] > bounds[i + 3] + 2 * span for i in range(3)):
             raise ValueError("Passage bounds must remain near the CAD and below four times its largest dimension.")
-        boxes.append((coordinate, corner, size))
+        boxes.append((coordinate, corner, size, item.get("fit") is True))
     if faces:
         result = occ.defeature([tag for _, tag in volumes], faces, removeVolume=True)
         occ.synchronize()
@@ -229,7 +232,35 @@ def rectangular_passages(gmsh, operation, volumes):
     mass = sum(safe_mass(gmsh, 3, tag) for _, tag in volumes)
     tolerance = max(mass * 1e-9, 1e-8)
     tools = []
-    for coordinate, corner, size in boxes:
+    # Probe slab for the end checks. OpenCASCADE returns an empty intersection
+    # for slabs much thinner than this, which would make every end look open.
+    thickness = max(span * 1e-5, 1e-6)
+
+    def cap_mass(corner, size, coordinate, position):
+        cap_corner, cap_size = list(corner), list(size)
+        cap_corner[coordinate], cap_size[coordinate] = position, thickness
+        cap = (3, occ.addBox(*cap_corner, *cap_size))
+        overlap, _ = occ.intersect(occ.copy(volumes), [cap])
+        value = sum(occ.getMass(dimension, tag) for dimension, tag in overlap if dimension == 3)
+        if overlap:
+            occ.remove(overlap, recursive=True)
+        return value
+
+    for coordinate, corner, size, fit in boxes:
+        if fit:
+            # The range is the extent of the replaced feature. Move each end just
+            # past it, or just inside it when the feature ends against material
+            # (a bore that starts at an inner wall), so both ends are open.
+            lo, hi = corner[coordinate], corner[coordinate] + size[coordinate]
+            pad = max(span * 5e-3, (hi - lo) * 0.02)
+            # An oblique exit reaches past the feature's vertices by up to a width.
+            reach = max(size[(coordinate + 1) % 3], size[(coordinate + 2) % 3])
+            free = lambda t: cap_mass(corner, size, coordinate, t) <= thickness * size[(coordinate + 1) % 3] * size[(coordinate + 2) % 3] * 1e-4
+            # Nearest open position first, alternating outward and inward.
+            start = next((t for t in (lo - pad, lo + pad, lo - reach, lo + 3 * pad, lo - 2 * reach, lo + 6 * pad) if free(t)), lo - pad)
+            end = next((t for t in (hi + pad, hi - pad, hi + reach, hi - 3 * pad, hi + 2 * reach, hi - 6 * pad) if free(t - thickness)), hi + pad)
+            if end - start > 2 * pad:
+                corner[coordinate], size[coordinate] = start, end - start
         tool = (3, occ.addBox(*corner, *size))
         # Each cut must cross material and both ends must finish in free space.
         # This rejects blind pockets and accidentally truncated through ranges.
@@ -239,19 +270,17 @@ def rectangular_passages(gmsh, operation, volumes):
             occ.remove(intersection, recursive=True)
         if removed <= tolerance:
             raise ValueError("A rectangular passage does not intersect material. Review its center and dimensions.")
-        thickness = max(span * 1e-7, 1e-7)
         for end in (0, 1):
-            cap_corner, cap_size = list(corner), list(size)
-            cap_corner[coordinate] += (size[coordinate] - 2 * thickness) if end else thickness
-            cap_size[coordinate] = thickness
-            cap = (3, occ.addBox(*cap_corner, *cap_size))
-            overlap, _ = occ.intersect(occ.copy(volumes), [cap])
-            cap_mass = sum(occ.getMass(dimension, tag) for dimension, tag in overlap if dimension == 3)
-            if overlap:
-                occ.remove(overlap, recursive=True)
-            if cap_mass > max(tolerance * 0.001, thickness * size[(coordinate + 1) % 3] * size[(coordinate + 2) % 3] * 1e-4):
+            position = corner[coordinate] + ((size[coordinate] - 2 * thickness) if end else thickness)
+            if cap_mass(corner, size, coordinate, position) > max(tolerance * 0.001, thickness * size[(coordinate + 1) % 3] * size[(coordinate + 2) % 3] * 1e-4):
                 raise ValueError("Both passage range endpoints must finish in free space; extend the range through the wall.")
         tools.append(tool)
+    if len(tools) > 1:
+        # Crossing passages become one opening (with unified faces) instead of
+        # leaving the walls and floors of each crossing split into slivers.
+        fused, _ = occ.fuse(tools[:1], tools[1:], removeObject=True, removeTool=True)
+        occ.synchronize()
+        tools = [entity for entity in fused if entity[0] == 3]
     result, mapping = occ.cut(volumes, tools, removeObject=True, removeTool=True)
     occ.synchronize()
     solids = [entity for entity in result if entity[0] == 3]
@@ -260,6 +289,188 @@ def rectangular_passages(gmsh, operation, volumes):
     final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in solids)
     if final_mass >= mass - tolerance:
         raise ValueError("The passage cuts did not remove material.")
+
+
+def _vector3(value, label):
+    if (not isinstance(value, list) or len(value) != 3
+            or any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e9 for v in value)):
+        raise ValueError(f"{label} must contain three finite coordinates.")
+    return [float(v) for v in value]
+
+
+def _unit3(value, label):
+    vector = _vector3(value, label)
+    length = math.sqrt(sum(v * v for v in vector))
+    if length < 1e-12:
+        raise ValueError(f"{label} must be a nonzero direction.")
+    return [v / length for v in vector]
+
+
+def _both_sides_inside(gmsh, face, volume, step):
+    """True when points just off both sides of a face lie inside one solid."""
+    model = gmsh.model
+    try:
+        lower, upper = model.getParametrizationBounds(2, face)
+        for a in (0.5, 0.3, 0.7, 0.15, 0.85):
+            for b in (0.5, 0.3, 0.7, 0.15, 0.85):
+                uv = [lower[0] + (upper[0] - lower[0]) * a, lower[1] + (upper[1] - lower[1]) * b]
+                if not model.isInside(2, face, uv, parametric=True):
+                    continue
+                point = model.getValue(2, face, uv)
+                normal = model.getNormal(face, uv)
+                ahead = [point[i] + step * normal[i] for i in range(3)]
+                behind = [point[i] - step * normal[i] for i in range(3)]
+                return bool(model.isInside(3, volume, ahead)) and bool(model.isInside(3, volume, behind))
+    except Exception:
+        return False
+    return False
+
+
+def slice_solids(gmsh, operation, volumes):
+    """Fragment solids with arbitrary planes and coaxial cylinders.
+
+    Planes and cylinders are generated here from validated numbers, sized to
+    pass completely through the model. Fragmenting keeps every resulting piece
+    and imprints the new interfaces on neighbors so their meshes can conform.
+    """
+    model, occ = gmsh.model, gmsh.model.occ
+    planes = operation.get("planes", [])
+    cylinders = operation.get("cylinders", [])
+    rays = operation.get("rays", [])
+    if (not isinstance(planes, list) or not isinstance(cylinders, list) or not isinstance(rays, list)
+            or not 1 <= len(planes) + len(cylinders) + len(rays) <= 16):
+        raise ValueError("Slice with between 1 and 16 planes, cylinders or radial cuts.")
+    selected = operation.get("volumeIds", [])
+    if not isinstance(selected, list) or any(type(tag) is not int or (3, tag) not in volumes for tag in selected):
+        raise ValueError("Choose existing solid IDs to slice, or leave the selection empty for every solid.")
+
+    def scope_of(item):
+        # A tool may carry its own solids, so one operation can cut a split and
+        # continue it through neighbors without leaving T-junction imprints.
+        own = item.get("volumeIds") if isinstance(item, dict) else None
+        if own is None:
+            return tuple(selected)
+        if not isinstance(own, list) or not own or any(type(tag) is not int or (3, tag) not in volumes for tag in own):
+            raise ValueError("A slice tool lists solids that do not exist in this revision.")
+        return tuple(own)
+    scoped = []
+    bounds = model.getBoundingBox(-1, -1)
+    lower, upper = bounds[:3], bounds[3:]
+    diagonal = math.sqrt(sum((upper[i] - lower[i]) ** 2 for i in range(3)))
+    center = [(lower[i] + upper[i]) / 2 for i in range(3)]
+    reach = diagonal * 0.75 + 1
+    tools, tool_planes = [], []
+    for plane in planes:
+        if not isinstance(plane, dict):
+            raise ValueError("Each slice plane needs an origin and a normal.")
+        origin, normal = _vector3(plane.get("origin"), "Plane origin"), _unit3(plane.get("normal"), "Plane normal")
+        helper = min(range(3), key=lambda i: abs(normal[i]))
+        axis = [0.0, 0.0, 0.0]
+        axis[helper] = 1.0
+        u = [normal[1] * axis[2] - normal[2] * axis[1], normal[2] * axis[0] - normal[0] * axis[2], normal[0] * axis[1] - normal[1] * axis[0]]
+        length = math.sqrt(sum(v * v for v in u))
+        u = [v / length for v in u]
+        w = [normal[1] * u[2] - normal[2] * u[1], normal[2] * u[0] - normal[0] * u[2], normal[0] * u[1] - normal[1] * u[0]]
+        offset = sum((center[i] - origin[i]) * normal[i] for i in range(3))
+        middle = [center[i] - offset * normal[i] for i in range(3)]
+        points = [occ.addPoint(*[middle[i] + reach * (a * u[i] + b * w[i]) for i in range(3)])
+                  for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        lines = [occ.addLine(points[i], points[(i + 1) % 4]) for i in range(4)]
+        tools.append((2, occ.addPlaneSurface([occ.addCurveLoop(lines)])))
+        tool_planes.append((origin, normal))
+        scoped.append(scope_of(plane))
+    for cylinder in cylinders:
+        if not isinstance(cylinder, dict):
+            raise ValueError("Each slice cylinder needs an origin, axis and radius.")
+        origin, axis = _vector3(cylinder.get("origin"), "Cylinder origin"), _unit3(cylinder.get("axis"), "Cylinder axis")
+        radius = cylinder.get("radius")
+        if type(radius) not in (int, float) or not math.isfinite(radius) or not 0 < radius < diagonal * 2:
+            raise ValueError("Cylinder radius must be positive and smaller than twice the model size.")
+        extent = [sum((corner[i] - origin[i]) * axis[i] for i in range(3))
+                  for corner in ([x, y, z] for x in (lower[0], upper[0]) for y in (lower[1], upper[1]) for z in (lower[2], upper[2]))]
+        start = min(extent) - 0.1 * diagonal - 1
+        span = max(extent) - min(extent) + 0.2 * diagonal + 2
+        base = [origin[i] + start * axis[i] for i in range(3)]
+        circle = occ.addCircle(*base, float(radius), zAxis=axis)
+        surfaces = [entity for entity in occ.extrude([(1, circle)], *[span * a for a in axis]) if entity[0] == 2]
+        tools.extend(surfaces)
+        scoped.extend([scope_of(cylinder)] * len(surfaces))
+    for ray in rays:
+        # A half-plane bounded by an axis line: radial cuts from a hole to a corner.
+        if not isinstance(ray, dict):
+            raise ValueError("Each radial cut needs an origin, axis, direction and length.")
+        origin, axis = _vector3(ray.get("origin"), "Radial cut origin"), _unit3(ray.get("axis"), "Radial cut axis")
+        direction = _vector3(ray.get("direction"), "Radial cut direction")
+        along = sum(direction[i] * axis[i] for i in range(3))
+        direction = [direction[i] - along * axis[i] for i in range(3)]
+        size = math.sqrt(sum(v * v for v in direction))
+        length = ray.get("length")
+        if size < 1e-12 or type(length) not in (int, float) or not math.isfinite(length) or not 0 < length < diagonal * 4:
+            raise ValueError("A radial cut needs a direction across its axis and a positive length.")
+        direction = [v / size for v in direction]
+        start = [origin[i] - reach * axis[i] for i in range(3)]
+        corners = [start, [start[i] + 2 * reach * axis[i] for i in range(3)]]
+        corners += [[corners[1][i] + length * direction[i] for i in range(3)], [start[i] + length * direction[i] for i in range(3)]]
+        points = [occ.addPoint(*corner) for corner in corners]
+        lines = [occ.addLine(points[i], points[(i + 1) % 4]) for i in range(4)]
+        tools.append((2, occ.addPlaneSurface([occ.addCurveLoop(lines)])))
+        normal = [axis[1] * direction[2] - axis[2] * direction[1], axis[2] * direction[0] - axis[0] * direction[2], axis[0] * direction[1] - axis[1] * direction[0]]
+        size = math.sqrt(sum(v * v for v in normal))
+        tool_planes.append((origin, [v / size for v in normal]))
+        scoped.append(scope_of(ray))
+    before = len(volumes)
+    # Fragment each group of tools against its own solids, following the solids
+    # through earlier fragments (their tags change when they are cut).
+    current = {tag: [tag] for _, tag in volumes}
+    partial = False
+    groups = []
+    for tool, scope in zip(tools, scoped):
+        if groups and groups[-1][0] == scope:
+            groups[-1][1].append(tool)
+        else:
+            groups.append((scope, [tool]))
+    for scope, group in groups:
+        if scope:
+            partial = True
+            objects = [(3, tag) for original in scope for tag in current.get(original, [])]
+        else:
+            objects = model.getEntities(3)
+        _, mapping = occ.fragment(objects, group, removeObject=True, removeTool=True)
+        occ.synchronize()
+        replaced = {tag: [t for d, t in result if d == 3] for (_, tag), result in zip(objects, mapping[:len(objects)])}
+        for original, tags in current.items():
+            current[original] = [new for tag in tags for new in replaced.get(tag, [tag])]
+    if partial:
+        occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
+        occ.synchronize()
+    for dimension in (2, 1, 0):
+        loose = [entity for entity in model.getEntities(dimension) if not len(model.getAdjacencies(*entity)[0])]
+        if loose:
+            occ.remove(loose, recursive=True)
+            occ.synchronize()
+    # A cutting surface that ends inside material embeds a slit instead of
+    # separating two solids; such geometry cannot be meshed conformingly. A slit
+    # is a face of one solid with that solid on both sides. Only faces on a tool
+    # plane are tested, found by position because fragments renumber faces.
+    flat = [(origin, normal) for origin, normal in tool_planes]
+    step = max(diagonal * 1e-5, 1e-7)
+    for _, tag in model.getEntities(2):
+        owners = list(model.getAdjacencies(2, tag)[0])
+        if len(owners) != 1 or model.getType(2, tag) != "Plane":
+            continue
+        try:
+            lower, upper = model.getParametrizationBounds(2, tag)
+            point = model.getValue(2, tag, [(lower[0] + upper[0]) / 2, (lower[1] + upper[1]) / 2])
+        except Exception:
+            continue
+        if not any(abs(sum((point[i] - o[i]) * n[i] for i in range(3))) < diagonal * 1e-7 for o, n in flat):
+            continue
+        if _both_sides_inside(gmsh, tag, int(owners[0]), step):
+            raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
+    if len(model.getEntities(3)) <= before:
+        raise ValueError("The slice did not divide a solid. Move it through the material of the chosen solids.")
+    if any(not len(model.getAdjacencies(2, tag)[0]) for _, tag in model.getEntities(2)):
+        raise ValueError("The slice left surface fragments outside every solid. Adjust the cut and try again.")
 
 
 def prepare(gmsh, operation):
@@ -398,11 +609,13 @@ def prepare(gmsh, operation):
         occ.synchronize()
         if len(model.getEntities(3)) <= before:
             raise ValueError("The plane did not split a solid. Choose a coordinate through the material.")
+    elif kind == "slice":
+        slice_solids(gmsh, operation, volumes)
     else:
-        raise ValueError("Unknown preparation operation. Choose split, project, passages, defeature, or heal.")
+        raise ValueError("Unknown preparation operation. Choose slice, split, project, passages, defeature, or heal.")
     if not model.getEntities(3) or any(safe_mass(gmsh, 3, t) <= 0 for _, t in model.getEntities(3)):
         raise ValueError("The operation did not produce valid positive-volume CAD solids.")
-    if kind in {"split", "project"}:
+    if kind in {"split", "project", "slice"}:
         final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in model.getEntities(3))
         if abs(final_mass - original_mass) > max(original_mass * 1e-7, 1e-8):
             raise ValueError("The split changed the solid volume beyond CAD tolerance. The previous geometry was retained.")
@@ -478,6 +691,9 @@ def execute(request):
                 gmsh.model.occ.synchronize()
             data = topology(gmsh)
             data["discrete"] = discrete
+            if not discrete:
+                from cad_mapping import augment
+                augment(gmsh, data)
             result = {"topology": data, "preview": preview(gmsh, data)}
         result["log"] = "\n".join(gmsh.logger.get())[-24_000:]
         return result

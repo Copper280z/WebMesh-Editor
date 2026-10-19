@@ -25,7 +25,7 @@ The service binds to `127.0.0.1`. CAD is processed on your machine in a temporar
 | Workspace | Tools |
 | --- | --- |
 | Geometry | Blocks, rectangular plates, solid or hollow cylinders, and annuli; dimensions, origin, divisions, mesh topology, element order, material and thickness |
-| CAD & mesh | Visible STEP/STP, IGES/IGS, BREP and STL import; face selection, feature removal, solid splitting and healing; triangle/quad/tet, mapped blocks and validated quad-to-hex sweeps |
+| CAD & mesh | STEP/STP, IGES/IGS, BREP and STL import; a guided **Prepare → Size → Mesh** hex workflow: selection-driven slicing and defeaturing with result previews, live mapped-block status, solved edge-count equations, and native mapped HEX8/HEX20; Gmsh tet/tri/quad and sweep methods remain available |
 | Pattern | Linear arrays in one, two or three vector directions; circular arrays about any axis and center; selected elements or the whole model; optional coincident-node welding |
 | Model setup | Materials, properties, loads, constraints, coordinate systems, individual entities, schema-based card modification, transforms, selection and connectivity checks |
 | Post-process | MYSTRAN F06 result sets, deformed shapes and animation, stress/strain/force contours, temperature load contours, legends and criteria |
@@ -53,7 +53,64 @@ A merge tolerance of zero keeps instances disconnected. A positive tolerance wel
 
 The pattern and connectivity tools support triangle, quad, tetrahedral, hexahedral, `CROD`, `CBUSH` and `RBE2` elements. Other structural cards remain available through the deck/card tools, but cannot currently be patterned by the new workspace.
 
-## CAD meshing
+## Native mapped hex meshing
+
+The **CAD & mesh** workspace is a hex-meshing toolbox in three steps. Every solid is checked continuously and colored in the viewport: green solids are mapped blocks, red solids need preparation, amber solids are blocks whose edge counts conflict.
+
+**1 · Prepare.** Pick a solid, face, edge or vertex (`1`–`4` switch the pick type; Shift/Ctrl adds). The context card describes the pick and proposes what to do with it:
+
+| Pick | Inferred actions |
+| --- | --- |
+| Hole face | Remove the hole; box it in a square cell as wide as the surrounding face is narrow; split around it with radial cuts to the surrounding corners (optionally with an O-grid ring); replace it with an inscribed square passage |
+| Fillet, round or chamfer | Remove it and heal the neighbors |
+| Planar face | Slice along its plane when that plane crosses material, otherwise open the Slice tool parallel to it |
+| Re-entrant edge | Slice the solid along either adjacent face |
+| Straight edges | Cut along them (see **Cut** below) |
+| Vertex | Slice through it normal to X, Y or Z; Shift-pick a second vertex to cut between them |
+| Red solid | Its reasons (with the offending faces, edges and corners marked in yellow) and concrete fixes in a sensible order: remove blends, join two re-entrant corners, slice re-entrant edges, cut along imprint lines, box and split around holes |
+
+Every geometry change is previewed before it is applied: cutting planes and section outlines appear immediately, faces to be removed turn red, and the server computes the actual result in the background. The result preview shows the new solids colored by whether they will be mapped blocks (“1 → 4 solids · 4/4 mappable”). **Apply** (or Enter) commits the previewed result instantly; Esc cancels. The Slice tool takes any normal, an offset slider that snaps to vertices, a point on a picked edge, and a scope of all or selected solids.
+
+**Cut** makes bounded cuts where a plane would go too far. Pick straight edges (or Shift-pick two vertices of a face) and choose **Cut along edges** / **Cut between vertices**: each segment is swept through the solid along the normal of the face it lies in, and stops where the segment stops, so an L-shaped imprint or a cut across one corner of a wall ring leaves everything past it alone. While the tool is open, further picks offer **Add to cut**, and all segments are applied as one operation; segment ends that meet are joined exactly, free ends reach just past the boundary. The preview reports a cut that would leave a region open (a slit) or divide nothing. Three fixes use the same cuts: **Cut along N imprint edges** (every imprint on a blocked face’s plane, in one step), **Cut between re-entrant edges** (two re-entrant corners that see each other across a cap), and **Box N holes in square cells** before splitting around them.
+
+**Auto-fix** prepares solids for mapped meshing in passes, keeping a step only when its previewed result is better, and records each step in the undoable history:
+
+1. Remove fillets and chamfers (optional, one batched defeature).
+2. Make every solid a mapped block: join re-entrant corners that see each other, slice re-entrant edges (preferring the smaller cut of the two face planes), cut along imprints that stop short, separate several holes that share a face, box holes in square cells and split around them (optional), and split triangular or five-or-more-sided prisms into blocks from their center, continuing each cut into the adjacent solid so it leaves no T-junction.
+3. Remove T-junction cycles that would make the edge-count equations contradictory. No step may introduce such a conflict or a knife edge.
+4. Square up badly shaped blocks (strongly tapered, or bent sides) when the trial mesh at the current size improves.
+
+Results on the included parts (target size 4 unless noted):
+
+| Part | Preparation | Blocks | HEX8 | Min scaled Jacobian |
+| --- | --- | ---: | ---: | ---: |
+| `examples/l-bracket.step`, bore kept | Auto-fix: remove the R3 fillet, slice off the web, box the bore, split around it | 7 | 696 | 0.71 |
+| `examples/l-bracket.step`, bore removed | Remove the bore, then Auto-fix | 2 | 790 | 0.99 |
+| `long corner bracket.step`, all holes removed | Remove the 12 holes (one defeature), then three automatic slices; both chamfers kept | 5 | 1,042 | 0.35 (0.44 at size 2) |
+| `long corner bracket.step`, holes kept | By hand, 20 operations (below); size 2.5 | 64 | 2,074 | 0.27 |
+| `flexure.step` | Auto-fix with fillet removal and hole splits (size 1.5) | 54 of 59 | 2,322 | 0.31 |
+
+HEX20 versions of each have the same blocks and quality. Every equation of the corner bracket with its holes kept (80 equality groups, 56 sums, 656 face equations) is solved without conflicts.
+
+**Corner bracket with its holes kept, by hand.** Its Ø8.5 access bores graze the floor (0.25 mm-deep grooves meeting the walls at 12°) and cross each other inside the angled wall, which no mapped decomposition can follow, so they are simplified to square passages; the six Ø4.6 holes in the outer walls stay round. Each step is a pick and a click in **Prepare**:
+
+1. **Features**: check the six Ø8.5 holes → **Replace 6 holes with square passages** (crossing passages become one opening per crossing).
+2. **Cut**: Edge-pick the four edges of the pocket floor → **Cut along 4 edges**; then for each wall corner Shift-pick its inner and outer vertex on the top face → **Add to cut** (the two 45° chamfer miters, and the inner faces of the walls continued at the two acute corners). Apply: the floor core, the chamfer corner and three walls, 2/5 mappable.
+3. Face-pick the floor of a passage → **Slice with this plane**, and the same for its ceiling: 12/16.
+4. Select each outer wall’s middle layer → **Box 3 holes in square cells** (6.01 mm cells, the passage height), then pick each Ø4.6 hole → **Split around hole**: 44/46.
+5. Select the angled wall’s layer under the passages → **Cut along 12 imprint edges**, the same over them, then each crossing column → **Cut between re-entrant edges**: 64/64.
+
+Auto-fix alone, after the same passage step, stops at 74 of 97 blocks after its 40-step limit (about 6½ minutes): it cannot infer the corner cuts of step 2 that separate the wall ring. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
+
+A solid is a mapped block when every face has exactly four corners, no edge is re-entrant (dihedral above 220°) or a knife edge (below 20°), and its faces group across flat edges into six logical sides meeting at eight corners. Corners and dihedrals below 140° are block corners and edges, 140–220° are flat; angles between 115° and 165° are resolved per face so it gets four corners (a 144° corner of an otherwise three-cornered face is promoted, the bluntest of five is demoted), and the matching edges follow that choice. Composite sides are allowed: imprinted faces from neighboring splits (T-junctions) are meshed as one structured grid. Blocks whose parallel edges differ by more than 10× are reported as strongly tapered.
+
+**2 · Size.** Each mapped face requires equal element counts on opposite sides, so the model is a system of equations over CAD edge counts. Single-edge sides give equality groups (shown as colored groups and edge colors, e.g. `B: E2 = E4 = E8 = E13 → 4`); imprinted sides give sum equations (`F3: E5 = E9 + E10`). The solver finds integer counts close to the target size. Pick edges (or click their 3D count labels) and use −/+ or the `+`/`−` keys to change them; changed counts become fixed (`L` toggles). Anything that prevents a solution is reported with the edges and faces involved, for example “Edges 2 (fixed 4) and 13 (fixed 5) must match: E2 = E4 via face 1 = E13 via face 5.” Fixed counts survive geometry changes when the edge survives unchanged.
+
+**3 · Mesh.** Mapped hex meshing runs in the browser without Gmsh. Each CAD edge is divided by arc length (exactly on lines and circles), each face is filled by transfinite interpolation and projected onto its plane, cylinder or sphere (other surfaces use the CAD tessellation), and each block interior by 3D transfinite interpolation. Shared CAD edges and faces give the same nodes to neighboring blocks, so interfaces conform. HEX20 midside nodes lie on the CAD curves and surfaces. The live preview colors faces by scaled Jacobian and lists the worst blocks; inverted meshes cannot be added. **Add to model** creates CHEXA elements with one PSOLID (or one per solid) and replaces the previous CAD mesh in one undo step. Mappable solids can be meshed alone or all together; unmappable solids are skipped.
+
+Geometry operations still use OpenCASCADE through Gmsh’s Python API (the only B-rep kernel available locally). Classification uses kernel geometry queries — evaluation, projection and point containment — not the Gmsh mesher. The Gmsh tet/tri/quad, sweep and column-sweep methods remain under **Mesh → Other (Gmsh)** and reuse fixed edge counts as exact divisions.
+
+## CAD meshing with Gmsh
 
 Imported CAD is displayed immediately as selectable surfaces and edges, before any finite-element mesh exists. **Prepare geometry** and **Mesh** are separate steps. CAD has its own visibility switch and preparation undo, while the finite-element model retains its own undo history.
 
@@ -117,12 +174,12 @@ The large openings in `long corner bracket.step` remain closed through-openings 
    | Y | 35.5 | 0 | 10 | 6 | 101 |
    | Y | 17 | 0 | 10 | 6 | 101 |
 
-3. Apply **Create passages**. The prepared solid has 61 faces. Each square branch is inscribed in the original bore; this is a deliberate geometric approximation, not an equivalent stiffness claim.
-4. Choose **Partition by face projection**, axis **Z**, and **Select internal floors**. Review the 16 selected faces, then **Partition solid**. This creates 34 columns with shared interfaces, including the bridges above the openings.
+3. Apply **Create passages**. The prepared solid has 37 faces; crossing branches are cut as one opening, so each crossing has a single floor and ceiling. Each square branch is inscribed in the original bore; this is a deliberate geometric approximation, not an equivalent stiffness claim.
+4. Choose **Partition by face projection**, axis **Z**, and **Select internal floors**. Review the 4 selected faces (the pocket floor and the three crossing floors), then **Partition solid**. This creates 10 columns with shared interfaces, including the bridges above the openings.
 5. Choose **Sweep partitioned columns**, axis **Z**, surface size `8`. Use layer counts `2, 1, 2, 2` for intervals `0–6`, `6–7`, `7–13`, `13–20`. The thin lower ligament retains its own layer.
-6. First and second order both produce **2,504 hex elements**, one face-connected component, minimum scaled Jacobian `0.4784`, and zero missing/added CAD volume. First order has **3,846 nodes**; second order has **13,978 nodes** and verified shared midside connectivity. Empty passage regions contain no exported elements.
+6. First and second order both produce **2,100 hex elements**, one face-connected component, minimum scaled Jacobian `0.4859`, and zero missing/added CAD volume. First order has **3,194 nodes**; second order has **11,636 nodes** and verified shared midside connectivity. Empty passage regions contain no exported elements.
 
-The denser reference uses size `4` and interval counts `3, 1, 3, 4`: **11,101 hex elements**, **55,156 second-order nodes** and minimum scaled Jacobian `0.4584`.
+The denser reference uses size `4` and interval counts `3, 1, 3, 4`: **9,656 hex elements**, **47,964 second-order nodes** and minimum scaled Jacobian `0.4584`.
 
 Both STEP acceptance workflows are exercised through the UI and in the Python suite. Original STEP files remain unchanged. Preparation dimensions and operations are recorded in the saved project.
 
@@ -180,8 +237,10 @@ The repository is source-ready and has no JavaScript build requirement:
 | `styles/workbench.css` | Modern workspace layout and styles |
 | `styles/editor.css` | Existing editor/card styles |
 | `app/workbench.js` | Workspace UI, docked editors and project orchestration |
-| `app/cad-workspace.js` | CAD import, selection, preparation and meshing controls |
-| `app/cad-viewport.js` | Persistent CAD display, picking and split-plane guides |
+| `app/cad-workspace.js` | Prepare → Size → Mesh workspace: inferred actions, previews, Auto-fix, sizing and native mesh commits |
+| `app/cad-viewport.js` | CAD display, solid/face/edge/vertex picking with hover, per-entity colors, preview overlays and 3D labels |
+| `app/hex-mapping.js` | Mapped-block recognition, edge-count equations and integer solver, transfinite HEX8/HEX20 generation and quality |
+| `app/cad-features.js` | Hole, boss, fillet and chamfer recognition; selection inference and fixes for unmappable solids |
 | `app/bolt-workspace.js` | Bolt and attachment patterns with explicit connector stiffness |
 | `app/compact-forms.js` | Shared compact create/modify cards, vectors, DOFs and repeated inputs |
 | `app/modeling.js` | Pure mesh generation, patterning, validation and BDF helpers; browser/Node UMD module |
@@ -191,7 +250,8 @@ The repository is source-ready and has no JavaScript build requirement:
 | `vendor/three-runtime.js` | Bundled Three.js, controls, label renderer and environment loaders; preserved MIT notices |
 | `server.py` | Loopback HTTP server, bounded worker execution and Gmsh bridge |
 | `cad_sessions.py` | Revisioned CAD snapshots, undo and prepared BREP export |
-| `cad_kernel.py` | Isolated OpenCASCADE preparation and CAD display tessellation |
+| `cad_kernel.py` | Isolated OpenCASCADE preparation (slice, defeature, passages, projection, heal) and CAD display tessellation |
+| `cad_mapping.py` | Exact classification data: oriented face loops, corner and dihedral angles, analytic surface and curve descriptors |
 | `cad_sweep.py` | Mapped/swept mesh generation, geometry equivalence and mesh validation |
 | `cad_controls.py` | Revision-specific local sizes, exact counts and shared-boundary constraints |
 | `cad_mesh_extrusion.py` | Mixed mapped/bulk quad profiles and conforming explicit hex extrusion |
@@ -205,7 +265,7 @@ node --test tests/*.test.cjs
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Or use `npm test` and `npm run test:cad`. JavaScript tests cover analytic mesh topology, volume/orientation, conforming quadratic midsides, patterns/welding, append validation, parser continuations, scalar interpolation and solver-card roundtrips. Python tests cover request validation, HTTP behavior and actual CAD-to-mesh integration. Gmsh integration cases are skipped when the required executable or Python bindings are unavailable. No browser automation package is required by these suites.
+Or use `npm test` and `npm run test:cad`. Mapped-meshing fixtures in `tests/fixtures/mapping` are real kernel topologies; regenerate them with `python3 tests/fixtures/mapping/make_fixtures.py`. `tests/cad-hex-workflow.test.cjs` starts the local server and runs the L-bracket (bore kept and removed) and corner bracket (holes removed by Auto-fix, holes kept by hand) workflows end to end; it is skipped when the Gmsh/OpenCASCADE kernel is not installed. JavaScript tests cover analytic mesh topology, volume/orientation, conforming quadratic midsides, patterns/welding, append validation, parser continuations, scalar interpolation and solver-card roundtrips. Python tests cover request validation, HTTP behavior and actual CAD-to-mesh integration. Gmsh integration cases are skipped when the required executable or Python bindings are unavailable. No browser automation package is required by these suites.
 
 ## Historical release notes
 

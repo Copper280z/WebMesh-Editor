@@ -28702,8 +28702,19 @@ ${formatRanges(v.ranges, 500)}`;
       THREE: window.WebMeshThree, scene, getCamera: () => camera,
       getViewport: () => canvas.getBoundingClientRect(),
       onSelection: (detail) => window.dispatchEvent(new CustomEvent("webmesh:cad-selection", { detail })),
-      onChange: (reason) => emitWorkbenchChange(reason)
+      onChange: (reason) => emitWorkbenchChange(reason),
+      onHover: (hit, x, y) => window.dispatchEvent(new CustomEvent("webmesh:cad-hover", { detail: { hit, x, y } }))
     });
+    // CAD hover feedback is independent of the finite-element selection mode.
+    let cadHoverRaf = 0, cadHoverEvent = null;
+    canvas.addEventListener("mousemove", (ev) => {
+      if (!cadViewport.isPicking() || ev.buttons || (viewportDragState && viewportDragState.dragged)) return;
+      cadHoverEvent = ev;
+      if (cadHoverRaf) return;
+      cadHoverRaf = requestAnimationFrame(() => { cadHoverRaf = 0; if (cadHoverEvent) cadViewport.hover(cadHoverEvent.clientX, cadHoverEvent.clientY); });
+    });
+    canvas.addEventListener("mouseleave", () => { cadHoverEvent = null; cadViewport.hover(null); });
+    canvas.addEventListener("mousedown", () => { cadHoverEvent = null; if (cadViewport.isPicking()) cadViewport.hover(null); });
   }
   window.WebMeshAPI = Object.freeze({
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
@@ -28722,6 +28733,7 @@ ${formatRanges(v.ranges, 500)}`;
     selectCad: (selection) => cadViewport ? cadViewport.select(selection) : null,
     getCadState: () => cadViewport ? cadViewport.getState() : { loaded: false, visible: false, mode: "none", faces: [], edges: [], counts: { faces: 0, edges: 0, triangles: 0, segments: 0 } },
     setCadSplitPlane: (plane) => cadViewport ? cadViewport.setSplitPlane(plane) : null,
+    getCadViewport: () => cadViewport,
     loadDeck: async (text, name = "model.bdf") => {
       const content = String(text || "");
       if (!/(?:^|\n)\s*(?:BEGIN\s+BULK|GRID[,*\s]|CEND\b)/i.test(content)) throw new Error("The project contains no recognizable Nastran model deck.");

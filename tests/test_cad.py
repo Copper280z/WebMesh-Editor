@@ -385,12 +385,14 @@ class BracketLayeredHexAcceptanceTests(unittest.TestCase):
         cad = self.prepared
         self.assertGreater(self.simplified["topology"]["volume"], self.original_volume)
         self.assertAlmostEqual(cad["topology"]["volume"], self.simplified["topology"]["volume"], places=6)
-        self.assertEqual(len(cad["topology"]["volumes"]), 34)
+        # Crossing passages are cut as one opening, so each crossing floor is a
+        # single ledge face and projects as one column (not one per fragment).
+        self.assertEqual(len(cad["topology"]["volumes"]), 10)
         plan = next(plan for plan in cad["topology"]["layeredSweeps"] if plan["axis"] == "z")
         for actual, expected in zip(plan["levels"], [0, 6, 7, 13, 20]):
             self.assertAlmostEqual(actual, expected, places=6)
-        self.assertEqual([len(interval["volumeIds"]) for interval in plan["intervals"]], [19, 18, 3, 18])
-        self.assertEqual(sum(column["min"] > 12 for column in plan["columns"]), 15)
+        self.assertEqual([len(interval["volumeIds"]) for interval in plan["intervals"]], [7, 6, 3, 6])
+        self.assertEqual(sum(column["min"] > 12 for column in plan["columns"]), 3)
         self.assertEqual(cad["history"][-1]["operation"]["kind"], "project")
 
     def test_all_three_large_closed_ports_and_their_ligaments_remain(self):
