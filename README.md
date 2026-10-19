@@ -195,3 +195,24 @@ WebMesh Editor is a single-file, browser-based Nastran deck viewer/editor for `.
 Open `WebMeshEditor.html` (or `dist/WebMeshEditor.html`) directly in a modern browser.
 
 No server process is required.
+
+## Temperature load contours
+
+Open a deck containing `TEMP` or `TEMPD` cards, then open **Inspect → Results &
+Load Contours**. Select **Temperature Load** as the output vector, choose the
+temperature set, and turn on **Show Contour**. No F06 file is needed.
+
+**Interpolation** offers linear, nearest neighbor, and cubic. Interpolation
+acts on temperatures before the palette is applied. The existing continuous or
+banded colors, legend range, reverse colors, and criteria labels also apply.
+Temperatures use the deck's units; `TEMP` values override the set's `TEMPD`
+default, and unassigned regions appear gray. Cubic interpolation can exceed the
+nodal range. The default set follows `TEMPERATURE(LOAD)` in case control when
+available.
+
+## Parser regression tests
+
+Run `node --test tests/*.test.cjs` with Node.js. The tests exercise the worker
+embedded in `WebMeshEditor.html`, including labeled free-field continuations,
+temperature loads and interpolation, and export/reimport in free, small, and
+large field formats.
