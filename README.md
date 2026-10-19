@@ -1,6 +1,139 @@
-# WebMesh Editor v2.3
+# WebMesh Studio 3.0
 
-WebMesh Editor is a single-file, browser-based Nastran deck viewer/editor for `.dat` and `.bdf` models.
+WebMesh Studio is a modular, browser-based finite element pre/post processor for Nastran `.bdf` and `.dat` decks. Build connected meshes from primitives, assemble them with patterns, mesh CAD through a local Gmsh service, define model cards, and review MYSTRAN F06 results.
+
+## Start the editor
+
+**Browser only:** open `WebMeshEditor.html` in a current desktop browser with WebGL enabled. Keep the `app/`, `styles/`, and `vendor/` folders beside it. Scratch modeling, patterns, deck editing, export, and results review run locally without an installation, build step, CDN, or server.
+
+**With CAD meshing:** install the Gmsh command-line executable and check that `gmsh -version` works. Start the included Python server from the repository directory:
+
+```sh
+python3 server.py
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The CAD & mesh workspace reports when Gmsh is connected. Python uses only its standard library; no pip dependencies are required. If Gmsh is outside `PATH`, provide its executable explicitly:
+
+```sh
+python3 server.py --gmsh /absolute/path/to/gmsh --port 8765
+```
+
+The service binds to `127.0.0.1`. CAD is processed on your machine in a temporary working directory. A static web host can serve the browser editor, but CAD meshing requires opening the editor from this local service.
+
+## Modeling workflow
+
+| Workspace | Tools |
+| --- | --- |
+| Geometry | Blocks, rectangular plates, solid or hollow cylinders, and annuli; dimensions, origin, divisions, mesh topology, element order, material and thickness |
+| CAD & mesh | STEP/STP, IGES/IGS, BREP and STL import; triangle/quad surface or tetrahedral/structured hex volume meshes; first and second order |
+| Pattern | Linear arrays in one, two or three vector directions; circular arrays about any axis and center; selected elements or the whole model; optional coincident-node welding |
+| Model setup | Materials, properties, loads, constraints, coordinate systems, individual entities, schema-based card modification, transforms, selection and connectivity checks |
+| Post-process | MYSTRAN F06 result sets, deformed shapes and animation, stress/strain/force contours, temperature load contours, legends and criteria |
+
+Use **Preview mesh** to inspect the generated wireframe before choosing **Add to model**. Each addition allocates unused node, element, property and material IDs and enters the model's undo history. Existing model definitions remain in place. **Explore an example** creates an annular flange and a circular array of solid parts in an empty workspace.
+
+Scratch meshes use shared nodes within each primitive. Adjacent tetrahedral cells share consistent face diagonals, and quadratic elements share their midside nodes. Solid cylinders use mapped blocks around the center to avoid collapsed elements on the axis. An annulus can be a ring shell or an extruded hollow volume.
+
+### Element families
+
+| Topology | First order | Second order |
+| --- | --- | --- |
+| Triangle | CTRIA3, 3 nodes | CTRIA6, 6 nodes |
+| Quadrilateral | CQUAD4, 4 nodes | CQUAD8, 8 nodes |
+| Tetrahedron | CTETRA, 4 nodes | CTETRA, 10 nodes |
+| Hexahedron | CHEXA, 8 nodes | CHEXA, 20 nodes |
+
+Nastran uses the same `CTETRA` and `CHEXA` card names for both orders. The meshing layer preserves all midside connectivity and converts Gmsh's node ordering to Nastran ordering. Generated shell properties are `PSHELL`; generated solid properties are `PSOLID`. Default material values are `E = 210000`, `nu = 0.3`, and `rho = 7.85e-9`, consistent with mm, N, s and tonne. The editor does not convert units: all imported geometry, material values, loads and results must use one consistent system.
+
+### Patterns and joining
+
+Linear instance counts include the original. Use counts such as `[5,1,1]`, `[5,3,1]`, or `[5,3,2]` for one-, two-, or three-direction arrays, with a spacing vector for each active direction. Circular patterns use a center, axis, instance count and sweep angle. A full 360-degree sweep omits the duplicate final instance; partial sweeps include both endpoints.
+
+A merge tolerance of zero keeps instances disconnected. A positive tolerance welds matching nodes to the existing model and to other instances. Check dimensions and tolerance before joining parts. Pattern operations preserve property assignments. Loads, constraints and coordinate definitions remain attached to the original entities; the legacy transform tools provide separate metadata-copy controls.
+
+The pattern and connectivity tools support triangle, quad, tetrahedral, hexahedral and `CROD` elements. Other structural cards remain available through the deck/card tools, but cannot currently be patterned by the new workspace.
+
+## CAD meshing
+
+Choose a CAD file, select surface or volume meshing, then choose topology, order and target size. **Generate CAD mesh** runs Gmsh and appends the resulting mesh. The local bridge also provides sample CAD geometry for exercising the workflow.
+
+- Triangles and tetrahedra use unstructured meshing.
+- Quads use surface recombination. Geometry that cannot produce the requested all-quad mesh is rejected instead of silently returning mixed elements.
+- Structured hex meshing uses transfinite curves, surfaces and volumes. CAD must already have compatible block topology, normally six four-sided faces per volume. Arbitrary CAD is not automatically decomposed into hex blocks. Structured divisions control the number of intervals along each curve.
+- STL surface remeshing requires a suitable manifold surface. Volume meshing additionally requires a closed shell. The bridge rejects structured hex meshing of STL.
+- CAD geometry must be cleaned or partitioned in an external CAD tool when necessary. The editor does not yet provide interactive CAD booleans, defeaturing, face partitioning, or a full sketch/constraint system.
+
+Requests accept CAD data files, not executable `.geo` programs. The service limits CAD uploads to 24 MiB and meshing time to 90 seconds, runs one mesh job at a time, and validates the resulting element type and connectivity. Meshing failures retain Gmsh's diagnostic output in the workspace. Surface/volume dimension and requested element topology must match the result.
+
+## Open, save and export
+
+**Open** accepts Nastran decks or saved `.webmesh` projects. For decks containing `INCLUDE` statements, use the model file/folder controls or drop the entry deck together with its included files. Imported source is retained worker-side so editing and export can preserve other solver cards and case-control content.
+
+**Save project** downloads a `.webmesh` JSON snapshot containing the current deck, selected source CAD and recent operation descriptions. The project file does not include imported F06 results, the full undo stack, or every viewport setting; reopen results files after restoring a project. Projects are downloaded files, not an automatic cloud save.
+
+**Export deck** downloads a Nastran `.bdf` file for an external solver. The underlying writer supports free, small and large field formats. WebMesh prepares and reviews models; it does not execute a structural solver or generate a complete analysis setup automatically.
+
+## Viewport and selection
+
+| Action | Control |
+| --- | --- |
+| Orbit | Left mouse drag |
+| Pan | Ctrl + left mouse drag |
+| Zoom | Mouse wheel |
+| Pick an entity | Left click |
+| Box select | Alt + left mouse drag |
+| Polygon select | Ctrl + Shift + left click |
+| Set pivot | Double-click on the model |
+| Context menu | Right click on an entity |
+| Fit model | **F** or viewport fit button |
+| Undo | Ctrl/Cmd + Z |
+| Redo | Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y |
+
+Use the model browser and selection controls to choose nodes, elements, loads, constraints or properties. Display tools retain shading, edges, opacity, entity visibility, load-case filtering, labels and clipping controls. Selection tools retain ID lists, selection-derived editing and CSV exchange.
+
+## Temperature load contours
+
+A deck containing `TEMP` or `TEMPD` cards can display temperature contours without an F06 file. Open the result controls in **Post-process**, select **Temperature Load**, choose the temperature set, and enable **Show Contour**.
+
+Linear, nearest-neighbor and cubic interpolation act on temperatures before the palette is applied. Continuous/banded colors, manual legend ranges, reverse colors and criteria labels remain available. `TEMP` values override the set's `TEMPD` default; unassigned regions appear gray. Cubic interpolation may exceed the nodal range. The default set follows `TEMPERATURE(LOAD)` in case control when available.
+
+## Scope and validation
+
+The mesh checker detects missing references, duplicate IDs/connectivity, degenerate or inverted linear cells, damaged midside connectivity and boundary topology issues. It is not a substitute for solver-specific quality checks. Curved second-order Jacobians, complete material/unit validity, all element formulations and full solver-deck completeness need separate verification. Rendered curved elements use faceted tessellation.
+
+Interactive scratch generation and pattern operations are capped at 500,000 nodes and 250,000 elements per generated operation. Large imported decks use the existing compact worker/typed-array rendering path. Browser memory and GPU capacity still determine practical limits.
+
+## Development
+
+The repository is source-ready and has no JavaScript build requirement:
+
+| File | Responsibility |
+| --- | --- |
+| `WebMeshEditor.html` | HTML shell and retained editing controls |
+| `styles/workbench.css` | Modern workspace layout and styles |
+| `styles/editor.css` | Existing editor/card styles |
+| `app/workbench.js` | Workspace UI, dialogs, projects and CAD requests |
+| `app/modeling.js` | Pure mesh generation, patterning, validation and BDF helpers; browser/Node UMD module |
+| `app/editor-engine.js` | Nastran editor state, rendering, selection, card editing, results and undo/redo |
+| `app/card-worker.js` | Readable parser/writer worker, wrapped as an uncalled factory for offline Blob-worker startup |
+| `app/nastran-schema.js` | Readable schema for card forms |
+| `vendor/three-runtime.js` | Bundled Three.js, controls, label renderer and environment loaders; preserved MIT notices |
+| `server.py` | Optional loopback HTTP server and Gmsh CAD bridge |
+
+`window.WebMeshAPI` is the boundary between the new workbench and the existing engine: state/ID queries, global-coordinate mesh reads, validated append, preview, import/export, selection, card editors and history controls. Changes emit `webmesh:change`; engine availability emits `webmesh:ready`. Keep solver data in the engine and geometry algorithms in the modeling module rather than duplicating them in UI code.
+
+Run the JavaScript and Python suites:
+
+```sh
+node --test tests/*.test.cjs
+python3 -m unittest discover -s tests -p 'test_server.py' -v
+```
+
+Or use `npm test` and `npm run test:cad`. JavaScript tests cover analytic mesh topology, volume/orientation, conforming quadratic midsides, patterns/welding, append validation, parser continuations, scalar interpolation and solver-card roundtrips. Python tests cover request validation, HTTP behavior and actual CAD-to-mesh integration. Gmsh integration cases are skipped when the executable is unavailable. No browser automation package is required by these suites.
+
+## Historical release notes
+
+The following notes describe the previous editor releases and are retained for context; current usage and architecture are documented above.
 
 ## New in v2.3 - Changes Since v2.2
 
@@ -172,47 +305,3 @@ WebMesh Editor is a single-file, browser-based Nastran deck viewer/editor for `.
   - viewport-anchored legend
   - manual text-size control
   - per-level tick labels matching contour formatting
-
-## Controls
-
-| Action | Control |
-| :--- | :--- |
-| Rotate | Left Mouse Button + Drag |
-| Pan | Ctrl + Left Mouse Button + Drag |
-| Zoom | Mouse Wheel |
-| Pick Entity | Left Mouse Click |
-| Box Select | Alt + Left Mouse Drag |
-| Polygon Select | Ctrl + Shift + Left Mouse Click |
-| Set Pivot | Double-Click on Model |
-| Context Menu | Right Mouse Click on an entity |
-
-## Usage
-
-### Live Version
-[LiveDemo(viaGitHubPages)](https://valladarex.github.io/WebMesh-Editor/WebMeshEditor.html)
-
-### Local Version
-Open `WebMeshEditor.html` (or `dist/WebMeshEditor.html`) directly in a modern browser.
-
-No server process is required.
-
-## Temperature load contours
-
-Open a deck containing `TEMP` or `TEMPD` cards, then open **Inspect → Results &
-Load Contours**. Select **Temperature Load** as the output vector, choose the
-temperature set, and turn on **Show Contour**. No F06 file is needed.
-
-**Interpolation** offers linear, nearest neighbor, and cubic. Interpolation
-acts on temperatures before the palette is applied. The existing continuous or
-banded colors, legend range, reverse colors, and criteria labels also apply.
-Temperatures use the deck's units; `TEMP` values override the set's `TEMPD`
-default, and unassigned regions appear gray. Cubic interpolation can exceed the
-nodal range. The default set follows `TEMPERATURE(LOAD)` in case control when
-available.
-
-## Parser regression tests
-
-Run `node --test tests/*.test.cjs` with Node.js. The tests exercise the worker
-embedded in `WebMeshEditor.html`, including labeled free-field continuations,
-temperature loads and interpolation, and export/reimport in free, small, and
-large field formats.

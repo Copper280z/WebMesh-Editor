@@ -4,15 +4,13 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-// Exercise the worker shipped in the single-file editor, without a browser or build step.
-const html = fs.readFileSync(path.join(__dirname, '..', 'WebMeshEditor.html'), 'utf8');
-const encoded = html.match(/var CARD_ENGINE_WORKER_SOURCE_B64 = "([^"]+)";/)[1];
+// Exercise the worker shipped in the editor engine, without a browser or build step.
 const messages = [];
 const worker = vm.createContext({
   self: { postMessage(message) { messages.push(message); } },
   TextEncoder, TextDecoder, performance, setTimeout, clearTimeout
 });
-vm.runInContext(Buffer.from(encoded, 'base64').toString('utf8'), worker);
+vm.runInContext(require('./helpers/worker-source.cjs'), worker);
 const parse = vm.runInContext('parseDeckToCardStream', worker);
 const session = vm.runInContext('getParseSession', worker);
 const tokenize = vm.runInContext('tokenizeCardLines', worker);

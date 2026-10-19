@@ -4,11 +4,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'WebMeshEditor.html'), 'utf8');
-const encoded = html.match(/var CARD_ENGINE_WORKER_SOURCE_B64 = "([^"]+)";/)[1];
 const source = process.env.WEBMESH_TEST_WORKER
   ? fs.readFileSync(process.env.WEBMESH_TEST_WORKER, 'utf8')
-  : Buffer.from(encoded, 'base64').toString('utf8');
+  : require('./helpers/worker-source.cjs');
 const messages = [];
 const worker = vm.createContext({
   self: { postMessage(message) { messages.push(message); } },

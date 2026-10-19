@@ -4,11 +4,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-// Exercise the pure numerical helpers shipped inside the standalone editor.
-const html = fs.readFileSync(path.join(__dirname, '..', 'WebMeshEditor.html'), 'utf8');
+// Exercise the pure numerical helpers shipped inside the editor engine.
+const html = fs.readFileSync(path.join(__dirname, '..', 'app', 'editor-engine.js'), 'utf8');
 function sourceFunction(name) {
   const start = html.indexOf(`function ${name}(`);
-  assert.ok(start >= 0, `${name} must be embedded in the editor`);
+  assert.ok(start >= 0, `${name} must be shipped in the editor engine`);
   const body = html.indexOf('{', start);
   let depth = 1, end = body + 1;
   for (; depth && end < html.length; end++) {
