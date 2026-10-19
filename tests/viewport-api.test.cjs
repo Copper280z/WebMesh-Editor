@@ -8,7 +8,7 @@ const vendor = vm.createContext({ window: {}, console, performance });
 vm.runInContext(fs.readFileSync(path.join(root, 'vendor', 'three-runtime.js'), 'utf8'), vendor);
 const three = vendor.window.WebMeshThree;
 const source = fs.readFileSync(path.join(root, 'app', 'editor-engine.js'), 'utf8');
-const start = source.indexOf('  function workbenchSetView(');
+const start = source.indexOf('  function fitView(');
 const functions = source.slice(start, source.indexOf('  function extractDeckAssignmentInteger(', start));
 
 function fixture(orthographic = true, aspect = 1.5) {
@@ -19,7 +19,7 @@ function fixture(orthographic = true, aspect = 1.5) {
     Vector3, Box3, perspectiveCamera, orthographicCamera,
     camera: orthographic ? orthographicCamera : perspectiveCamera,
     model: { bbox: new Box3(new Vector3(-7, -2, 3), new Vector3(9, 4, 10)) },
-    workbenchPreview: null, controls: { target: new Vector3(), update() {} },
+    workbenchPreview: null, cadViewport: null, controls: { target: new Vector3(), update() {} },
     canvas: { clientWidth: 600 * aspect, clientHeight: 600 },
     recreateOrbitControls() {}, updateCameraClipping() {}, emitWorkbenchChange() {},
     bgColorPicker: { value: '#000000' }, filledEdgeColor: { value: '#111111' }, freeEdgeColor: { value: '#ffff00' },
@@ -63,6 +63,23 @@ for (const orthographic of [true, false]) {
       assert.ok(Math.abs(p.x) < 0.85 && Math.abs(p.y) < 0.85, `corner projects inside viewport: ${p.toArray()}`);
     }
   });
+  test(`${orthographic ? 'orthographic' : 'perspective'} Fit model frames portrait bounds without changing an arbitrary view orientation`, () => {
+    const c=fixture(orthographic,0.15);
+    c.camera.up.set(0.2,0.1,1).normalize();
+    c.camera.position.set(31,-25,19);c.controls.target.set(-4,3,2);
+    c.camera.lookAt(c.controls.target);c.camera.zoom=4;c.camera.updateProjectionMatrix();
+    const orientation=c.camera.quaternion.clone(),up=c.camera.up.clone();
+    let clipUpdates=0;c.updateCameraClipping=()=>{clipUpdates++;};
+    c.fitView();
+    assert.ok(c.camera.quaternion.angleTo(orientation)<1e-7,'fit preserves the current direction and roll');
+    assert.ok(c.camera.up.distanceTo(up)<1e-12);assert.equal(c.camera.zoom,1);assert.equal(clipUpdates,1);
+    assert.ok(c.controls.target.distanceTo(c.model.bbox.getCenter(new three.Vector3()))<1e-12);
+    for(const x of [c.model.bbox.min.x,c.model.bbox.max.x])for(const y of [c.model.bbox.min.y,c.model.bbox.max.y])for(const z of [c.model.bbox.min.z,c.model.bbox.max.z]){
+      const p=new three.Vector3(x,y,z).project(c.camera);
+      assert.ok(Math.abs(p.x)<=0.81&&Math.abs(p.y)<=0.81,`portrait fit includes corner ${p.toArray()}`);
+    }
+    assert.equal(!!c.camera.isOrthographicCamera,orthographic);
+  });
 }
 
 test('unknown views reject before moving the camera', () => {
@@ -84,4 +101,23 @@ test('invalid theme colors reject before changing display state', () => {
   assert.throws(() => c.workbenchSetTheme({ background: '#eeeeee', edges: 'blue' }), /six-digit hex/);
   assert.equal(c.bgColorPicker.value, '#000000');
   assert.equal(c.skyboxEnabled, true);
+});
+
+test('CAD-only fitting ignores the empty finite element placeholder bounds', () => {
+  const c = fixture();
+  const cadBounds = new three.Box3(new three.Vector3(100,200,300), new three.Vector3(110,220,330));
+  c.model.nodes = new Map();
+  c.cadViewport = { getBounds: () => cadBounds.clone() };
+  c.workbenchSetView('top');
+  assert.deepEqual(Array.from(c.controls.target.toArray()), [105,210,315]);
+});
+
+test('view fitting combines CAD and finite element bounds', () => {
+  const c = fixture();
+  c.model.nodes = new Map([[1, {}]]);
+  const cadBounds = new three.Box3(new three.Vector3(100,200,300), new three.Vector3(110,220,330));
+  c.cadViewport = { getBounds: () => cadBounds.clone() };
+  const expected = c.model.bbox.clone().union(cadBounds).getCenter(new three.Vector3());
+  c.workbenchSetView('right');
+  assert.ok(c.controls.target.distanceTo(expected) < 1e-10);
 });

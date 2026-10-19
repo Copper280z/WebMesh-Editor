@@ -200,7 +200,7 @@ test('rod patterns retain property assignment while advanced structural types gi
   assert.equal(copies.elements.length,3);
   assert.ok(copies.elements.every(e=>e.pid===1));
   assert.match(toBdf(copies,{area:2}),/PROD,1,1,2/);
-  for(const type of ['CBAR','CBEAM','CBUSH','RBE2','RBE3']) {
+  for(const type of ['CBAR','CBEAM','RBE3']) {
     const unsupported={...rod,elements:[{...rod.elements[0],type}]};
     const report=validateMesh(unsupported);
     assert.equal(report.valid,false);

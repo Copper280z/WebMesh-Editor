@@ -1,0 +1,32 @@
+/* Geometry preparation controls use the same compact property rows as modeling. */
+.cad-source{display:flex;gap:6px;align-items:center;min-width:0}
+.cad-source>span{flex:1;font-size:11px;color:#b7cbdf;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cad-source .wb-btn{padding:4px 8px;font-size:10px;min-height:27px}
+.cad-summary{font-size:10px;color:#7992ae;margin:7px 0 0}
+.cad-stages{display:flex;border-bottom:1px solid #334457;margin:0 0 13px}
+.cad-stages button{flex:1;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#8b9fb7;font-size:11px;padding:7px 2px}
+.cad-stages button[aria-selected=true]{border-bottom-color:#5cd9bb;color:#7de2c9}
+.cad-inline-actions{display:flex;gap:5px;align-items:center;margin:6px 0}
+.cad-inline-actions .wb-btn{font-size:10px;min-height:25px;padding:3px 6px}
+.cad-inline-actions>span{margin-left:auto;font-size:9px;color:#7e96b1}
+.cad-face-list{max-height:210px;overflow:auto;border:1px solid #2c3d51;border-radius:3px;scrollbar-width:thin;margin-top:6px}
+.cad-face-list button{display:grid;grid-template-columns:30px 1fr 65px;width:100%;border:0;border-bottom:1px solid #263548;border-radius:0;background:transparent;color:#91a9c2;text-align:left;font-size:10px;padding:5px 7px;gap:5px}
+.cad-face-list button:last-child{border:0}
+.cad-face-list button:hover{background:#26384b;color:#dce9f7}
+.cad-face-list button.selected{background:#235144;color:#aff3df;box-shadow:inset 2px 0 #6fe3c5}
+.cad-face-list small{text-align:right;font-size:9px;font-variant-numeric:tabular-nums}
+.cad-history{font-size:10px;color:#7d95ae;padding:5px 0 10px}
+.cad-history summary{cursor:pointer}
+.cad-history ol{padding-left:20px;margin:8px 0;line-height:1.6}
+.wb-section>[data-cad-action=use-source],.wb-section>[data-cad-action=use-target]{font-size:10px;padding:3px 7px;min-height:24px;margin:0 0 7px auto;display:block}
+#wb-panel-foot>[data-cad-action=mesh]{grid-column:1/-1}
+
+.cad-stale{font-size:10px!important;line-height:1.5!important;color:#d7b77e!important;border-left:2px solid #b59659;padding-left:8px;margin:10px 0!important}
+
+.cad-face-head{display:grid;grid-template-columns:30px 1fr 65px;gap:5px;padding:6px 7px 0;color:#69829e;font-size:9px}.cad-face-head span:last-child{text-align:right}
+
+.cad-layer-head,.cad-layer-row{display:grid;grid-template-columns:1fr 1fr 65px;align-items:center;gap:6px;margin-bottom:5px;font-size:10px;color:#99adc4;font-variant-numeric:tabular-nums}.cad-layer-head{font-size:9px;color:#6c85a1}.cad-layer-row input{height:27px;min-height:27px}
+.cad-passage{border-bottom:1px solid #2c3d51;padding:5px 0 9px;margin-bottom:5px}.cad-passage summary{font-size:11px;color:#acbfd2;cursor:pointer;margin-bottom:7px}.cad-passage summary button{float:right;padding:0 6px;border:0;background:transparent;color:#8da5bd;line-height:18px}.cad-passage-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:5px}.cad-passage-row.two{grid-template-columns:repeat(2,minmax(0,1fr))}.cad-passage-row label{display:flex;flex-direction:column;gap:3px;min-width:0}.cad-passage-row span{font-size:9px;color:#819ab3}.cad-passage-row input{width:100%;height:27px;min-height:27px}
+.cad-sizing summary{cursor:pointer}.cad-size-row{display:grid;grid-template-columns:65px 1fr 22px;gap:5px;align-items:center;font-size:10px;color:#a4c1d6;margin:6px 0}.cad-size-row button{border:0;background:transparent;color:#9ab1c8;padding:2px}.cad-entity-list{display:flex;flex-wrap:wrap;gap:4px;max-height:150px;overflow:auto;margin-top:8px}.cad-entity-list button{font-size:10px;padding:3px 6px;background:#233141;border:1px solid #344457;color:#a8bfd2;border-radius:3px}
+.cad-size-group{margin:7px 0 10px;font-size:10px;color:#a4c1d6}.cad-size-group[open]{max-height:170px;overflow:auto;scrollbar-width:thin}.cad-size-group>summary{padding:4px 0;color:#86cfba}
+.cad-division-head,.cad-division-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 0;font-size:10px;font-variant-numeric:tabular-nums}.cad-division-head{margin-top:7px;color:#aac2d8}.cad-division-row{border-bottom:1px solid #293949}

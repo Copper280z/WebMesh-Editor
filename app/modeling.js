@@ -10,6 +10,7 @@
   const MAX_ID = 2147483647;
   const TYPES = {
     CROD: { corners: 2, edges: [[0,1]], solid: false, line: true },
+    CBUSH: { corners: 2, edges: [[0,1]], solid: false, line: true },
     CTRIA3: { corners: 3, edges: [[0,1],[1,2],[2,0]], solid: false },
     CTRIA6: { corners: 3, edges: [[0,1],[1,2],[2,0]], solid: false },
     CQUAD4: { corners: 4, edges: [[0,1],[1,2],[2,3],[3,0]], solid: false },
@@ -71,10 +72,12 @@
       mesh.nodes.push({id,x:p[0],y:p[1],z:p[2]});
       return id;
     }
-    function element(type,nodes,pid) {
+    function element(type,nodes,pid,extra={}) {
       if (nextElement > MAX_ID) throw new Error('Element IDs exceed the supported range.');
       capacity(mesh.nodes.length,mesh.elements.length+1);
-      mesh.elements.push({id:nextElement++,type,pid,nodes});
+      const record={...extra,id:nextElement++,type,pid,nodes};
+      mesh.elements.push(record);
+      return record;
     }
     return {mesh,node,element};
   }
@@ -283,12 +286,23 @@
     for(const transform of includeSeed?transforms:transforms.slice(1)) {
       const map=new Map();
       mesh.nodes.forEach(n=>map.set(n.id,merged(transform(point(n)))));
-      mesh.elements.forEach(e=>b.element(e.type,e.nodes.map(id=>map.get(id)),e.pid));
+      mesh.elements.forEach(e=>{
+        const extra={};
+        if(e.cm!=null)extra.cm=e.cm;
+        if(e.type==='CBUSH') {
+          if(e.cid!=null||e.orient?.kind==='g0')throw new Error('Pattern CBUSH connectors with explicit orientation vectors; coordinate-system and G0 orientations require individual card editing.');
+          if(e.orient?.kind==='x')extra.orient={kind:'x',x:sub(transform(e.orient.x),transform([0,0,0]))};
+          for(const key of ['s','ocid','si'])if(e[key]!=null)extra[key]=Array.isArray(e[key])?e[key].slice():e[key];
+        }
+        b.element(e.type,e.nodes.map(id=>map.get(id)),e.pid,extra);
+      });
     }
     const combined=includeSeed?b.mesh:{nodes:Array.from(referenceNodes.values()).concat(b.mesh.nodes),elements:mesh.elements.concat(b.mesh.elements)};
     const report=validateMesh(combined);
     if(!report.valid) throw new Error('Pattern produces an invalid mesh. Reduce merge tolerance. '+report.errors.slice(0,2).join(' '));
     b.mesh.name=(mesh.name || 'Model')+' · '+name;
+    if(Array.isArray(mesh.properties))b.mesh.properties=JSON.parse(JSON.stringify(mesh.properties));
+    if(mesh.area!=null)b.mesh.area=mesh.area;
     return b.mesh;
   }
 
@@ -328,6 +342,108 @@
     return pattern(mesh,transforms,options,'circular pattern');
   }
 
+  function unit(value,label,fallback) {
+    const v=vector(value,label,fallback), length=norm(v);
+    if(!length||!Number.isFinite(length))throw new Error(label+' cannot be zero.');
+    return scale(v,1/length);
+  }
+  function perpendicular(axis) {
+    const basis=Math.abs(axis[0])<=Math.abs(axis[1])&&Math.abs(axis[0])<=Math.abs(axis[2])?[1,0,0]:Math.abs(axis[1])<=Math.abs(axis[2])?[0,1,0]:[0,0,1];
+    const projected=sub(basis,scale(axis,dot(basis,axis)));
+    return scale(projected,1/norm(projected));
+  }
+  function boltLocations(options={}) {
+    const kind=options.kind||'single', center=vector(options.center,'Pattern center',[0,0,0]);
+    if(!['single','linear','circular'].includes(kind))throw new Error('Bolt pattern must be single, linear, or circular.');
+    const count=kind==='single'?1:integer(options.count,'Bolt count',2,1,1000);
+    if(kind==='single')return [center];
+    if(kind==='linear') {
+      const pitch=vector(options.pitch,'Bolt pitch',[10,0,0]);
+      if(count>1&&!norm(pitch))throw new Error('Bolt pitch cannot be zero for an array.');
+      return Array.from({length:count},(_,i)=>add(center,scale(pitch,i)));
+    }
+    const axis=unit(options.patternAxis,'Circle axis',options.axis||[0,0,1]), radius=positive(options.radius,'Pattern radius',10);
+    const raw=vector(options.radialDirection,'Radial direction',perpendicular(axis)), projected=sub(raw,scale(axis,dot(raw,axis)));
+    if(norm(projected)<=norm(raw)*1e-12)throw new Error('Radial direction must have a component perpendicular to the circle axis.');
+    const radial=scale(projected,1/norm(projected)), tangent=cross(axis,radial);
+    const angle=finite(options.angle,'Pattern angle',360), start=finite(options.startAngle,'Start angle',0);
+    if(!angle||Math.abs(angle)>360)throw new Error('Pattern angle must be nonzero and at most 360 degrees.');
+    const denominator=Math.abs(angle)===360?count:Math.max(1,count-1);
+    return Array.from({length:count},(_,i)=>{const a=(start+angle*i/denominator)*Math.PI/180;return add(center,scale(add(scale(radial,Math.cos(a)),scale(tangent,Math.sin(a))),radius));});
+  }
+  function boundaryNodeIds(mesh) {
+    const faces=new Map(), boundary=new Set();
+    for(const e of mesh.elements) {
+      const spec=TYPES[resolvedType(e)];
+      if(!spec||spec.line||!Array.isArray(e.nodes))continue;
+      if(!spec.solid) {e.nodes.forEach(id=>boundary.add(id));continue;}
+      const templates=spec.corners===4?TET_FACES:HEX_FACES;
+      for(const face of templates) {
+        const key=face.map(i=>e.nodes[i]).sort((a,b)=>a-b).join(':');
+        if(faces.has(key)){faces.get(key).count++;continue;}
+        const slots=new Set(face);
+        if(e.nodes.length>spec.corners)spec.edges.forEach(([a,b],i)=>{if(slots.has(a)&&slots.has(b))slots.add(spec.corners+i);});
+        faces.set(key,{count:1,nodes:[...slots].map(i=>e.nodes[i])});
+      }
+    }
+    faces.forEach(face=>{if(face.count===1)face.nodes.forEach(id=>boundary.add(id));});
+    return boundary;
+  }
+  /** RBE2 attachment discs and an explicitly oriented six-DOF CBUSH per bolt.
+   *  Stiffnesses are user-specified connector values, not calculated bolt/contact
+   *  behavior. The CROD alternative transfers axial force only (zero torsion).
+   */
+  function createBoltPattern(existingMesh,options={}) {
+    if(!existingMesh||!Array.isArray(existingMesh.nodes)||!Array.isArray(existingMesh.elements))throw new Error('Existing mesh nodes and elements are required for bolt attachments.');
+    const sourceNodes=new Map();
+    for(const n of existingMesh.nodes){if(!n||!Number.isSafeInteger(n.id)||n.id<1||![n.x,n.y,n.z].every(Number.isFinite)||sourceNodes.has(n.id))throw new Error('Attachment mesh contains invalid or duplicate nodes.');sourceNodes.set(n.id,n);}
+    const axis=unit(options.axis,'Bolt axis',[0,0,1]), orientation=perpendicular(axis), grip=positive(options.grip,'Grip length',10);
+    const radius=positive(options.attachmentRadius,'Attachment radius',5), tolerance=positive(options.tolerance,'Attachment plane tolerance',0.1);
+    if(tolerance>=grip/2)throw new Error('Attachment plane tolerance must be smaller than half the grip length.');
+    const components=String(options.components??'123');
+    if(!/^[1-6]+$/.test(components)||new Set(components).size!==components.length)throw new Error('Dependent components must contain unique digits from 1 to 6.');
+    const connection=String(options.connection||'CBUSH').toUpperCase();
+    if(!['CBUSH','CROD'].includes(connection))throw new Error('Bolt connection must be CBUSH or CROD.');
+    const pid=integer(options.pid,'Bolt property ID',1), centers=boltLocations(options);
+    const b=builder({...options,startNode:options.startNode??existingMesh.nodes.reduce((max,n)=>Math.max(max,n.id),0)+1,startElement:options.startElement??existingMesh.elements.reduce((max,e)=>Math.max(max,e.id),0)+1});
+    const boundary=options.boundaryOnly===false?new Set(sourceNodes.keys()):boundaryNodeIds(existingMesh);
+    function candidates(ids,label) {
+      if(ids==null)return new Set(boundary);
+      if(!Array.isArray(ids)||ids.some(id=>!sourceNodes.has(Number(id))))throw new Error(label+' must identify existing mesh nodes.');
+      return new Set(ids.map(Number));
+    }
+    const pools=[candidates(options.headNodes,'Head node IDs'),candidates(options.nutNodes,'Nut node IDs')], dependent=new Set();
+    for(const e of existingMesh.elements)if(e.type==='RBE2'&&String(e.cm||'123456').split('').some(c=>components.includes(c)))for(const id of (e.nodes||[]).slice(1))dependent.add(id);
+    function attachment(center,pool,label) {
+      const picked=[];
+      for(const id of pool){const n=sourceNodes.get(id), delta=sub(point(n),center), axial=dot(delta,axis);if(Math.abs(axial)<=tolerance&&norm(sub(delta,scale(axis,axial)))<=radius)picked.push(id);}
+      if(picked.length<3)throw new Error(label+' needs at least three nearby attachment nodes; found '+picked.length+'. Adjust radius, plane tolerance, or location.');
+      const origin=point(sourceNodes.get(picked[0])), span=picked.slice(1).map(id=>sub(point(sourceNodes.get(id)),origin));
+      if(!span.some(a=>span.some(b=>norm(cross(a,b))>radius*radius*1e-10)))throw new Error(label+' attachment nodes are collinear and cannot transmit a general connector moment.');
+      for(const id of picked){if(dependent.has(id))throw new Error('Node '+id+' would be dependent in overlapping rigid spiders. Reduce attachment radii or choose distinct candidate nodes.');dependent.add(id);}
+      return picked;
+    }
+    const bolts=[];
+    for(let i=0;i<centers.length;i++) {
+      const center=centers[i], headPoint=sub(center,scale(axis,grip/2)), nutPoint=add(center,scale(axis,grip/2));
+      const headNodes=attachment(headPoint,pools[0],'Bolt '+(i+1)+' head'),nutNodes=attachment(nutPoint,pools[1],'Bolt '+(i+1)+' nut');
+      const head=b.node(headPoint),nut=b.node(nutPoint);
+      if(sourceNodes.has(head)||sourceNodes.has(nut))throw new Error('Generated bolt node IDs overlap existing nodes.');
+      b.element(connection,[head,nut],pid,connection==='CBUSH'?{orient:{kind:'x',x:orientation.slice()}}:{});
+      b.element('RBE2',[head,...headNodes],0,{cm:components});b.element('RBE2',[nut,...nutNodes],0,{cm:components});
+      bolts.push({center,head,nut,headNodes,nutNodes});
+    }
+    const existingIds=new Set(existingMesh.elements.map(e=>e.id));if(b.mesh.elements.some(e=>existingIds.has(e.id)))throw new Error('Generated bolt element IDs overlap existing elements.');
+    b.mesh.name=options.name||'Simulated bolt pattern';b.mesh.bolts=bolts;
+    if(connection==='CBUSH') {
+      if(!Array.isArray(options.stiffness)||options.stiffness.length!==6)throw new Error('Specify all six connector stiffnesses K1 through K6 in the bolt coordinate system.');
+      const stiffness=options.stiffness.map((v,i)=>finite(v,'K'+(i+1)));
+      if(stiffness.some(k=>k<0)||!stiffness.some(k=>k>0))throw new Error('Connector stiffnesses must be nonnegative, with at least one positive value.');
+      b.mesh.properties=[{id:pid,type:'PBUSH',stiffness}];
+    } else b.mesh.area=positive(options.area,'Rod area',1);
+    return b.mesh;
+  }
+
   function hexJacobians(p) {
     const signs=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
     const g=1/Math.sqrt(3), samples=[[0,0,0]];
@@ -349,7 +465,7 @@
     stats.nodes=mesh.nodes.length;stats.elements=mesh.elements.length;
     if(!stats.nodes || !stats.elements) errors.push('Mesh must contain nodes and elements.');
     if(stats.nodes>MAX_NODES || stats.elements>MAX_ELEMENTS) errors.push('Mesh exceeds interactive limits.');
-    const nodes=new Map(), elementIds=new Set(), shellEdges=new Map(), faces=new Map(), used=new Set(), duplicateElements=new Set(), midsides=new Map();
+    const nodes=new Map(), elementIds=new Set(), shellEdges=new Map(), faces=new Map(), used=new Set(), duplicateElements=new Set(), midsides=new Map(), rigidDependencies=new Map();
     for(const n of mesh.nodes) {
       if(!n || !Number.isSafeInteger(n.id)||n.id<1||n.id>MAX_ID) {errors.push('Node has an invalid ID.');continue;}
       if(nodes.has(n.id)) errors.push('Duplicate node ID '+n.id+'.');
@@ -360,9 +476,17 @@
       if(!e || !Number.isSafeInteger(e.id)||e.id<1||e.id>MAX_ID) {errors.push('Element has an invalid ID.');continue;}
       if(elementIds.has(e.id)) errors.push('Duplicate element ID '+e.id+'.');
       elementIds.add(e.id);
-      if(!Number.isSafeInteger(e.pid)||e.pid<1||e.pid>MAX_ID) errors.push('Element '+e.id+' has an invalid property ID.');
       const type=resolvedType(e), spec=TYPES[type];
-      if(!spec) {errors.push('Element '+e.id+' uses '+e.type+'. This mesh checker and pattern tool support triangles, quads, tetrahedra, hexes, and CROD only; use the card editor for other structural types.');continue;}
+      if(type==='RBE2') {
+        stats.topologies[type]=(stats.topologies[type]||0)+1;
+        if(!Array.isArray(e.nodes)||e.nodes.length<2||new Set(e.nodes).size!==e.nodes.length||e.nodes.some(id=>!nodes.has(id)))errors.push('Rigid element '+e.id+' needs distinct existing independent and dependent nodes.');
+        else e.nodes.forEach(id=>used.add(id));
+        const cm=String(e.cm??'123456');if(!/^[1-6]+$/.test(cm)||new Set(cm).size!==cm.length)errors.push('Rigid element '+e.id+' has invalid dependent components.');
+        for(const id of (e.nodes||[]).slice(1))for(const component of cm){const key=id+':'+component;if(rigidDependencies.has(key))errors.push('Node '+id+' component '+component+' is dependent in multiple rigid elements.');rigidDependencies.set(key,e.id);}
+        continue;
+      }
+      if(!Number.isSafeInteger(e.pid)||e.pid<1||e.pid>MAX_ID) errors.push('Element '+e.id+' has an invalid property ID.');
+      if(!spec) {errors.push('Element '+e.id+' uses '+e.type+'. This mesh checker and pattern tool support triangles, quads, tetrahedra, hexes, CROD, CBUSH and RBE2; use the card editor for other structural types.');continue;}
       stats.topologies[type]=(stats.topologies[type]||0)+1;
       const quadratic=['CTRIA6','CQUAD8','CTETRA10','CHEXA20'].includes(type);
       const expected=spec.corners+(quadratic?spec.edges.length:0);
@@ -372,9 +496,17 @@
       let degenerate=new Set(e.nodes).size!==e.nodes.length;
       const corner=e.nodes.slice(0,spec.corners), p=corner.map(id=>point(nodes.get(id)));
       const length=Math.max(...spec.edges.map(([a,b])=>norm(sub(p[a],p[b]))));
+      if(type==='CBUSH') {
+        if(length===0&&!(Number.isInteger(e.cid)&&e.cid>=0))errors.push('Coincident CBUSH '+e.id+' requires an explicit coordinate system.');
+        if(length>0&&e.cid==null) {
+          const orient=e.orient?.kind==='x'?e.orient.x:e.orient?.kind==='g0'&&nodes.has(e.orient.g0)?sub(point(nodes.get(e.orient.g0)),p[0]):null;
+          if(!e.orient)warnings.push('CBUSH '+e.id+' has no transverse orientation; verify its property contains only axial/torsional stiffness.');
+          else if(!Array.isArray(orient)||orient.length!==3||!orient.every(Number.isFinite)||norm(cross(sub(p[1],p[0]),orient))<=length*norm(orient)*1e-12)errors.push('CBUSH '+e.id+' requires a nonparallel orientation vector or explicit coordinate system.');
+        }
+      }
       const eps=Math.max(Number.MIN_VALUE,length*length*1e-12);
       if(spec.line) {
-        if(length<=0 || !Number.isFinite(length)) degenerate=true;
+        if((length<=0&&type!=='CBUSH') || !Number.isFinite(length)) degenerate=true;
       } else if(!spec.solid) {
         const area=norm(cross(sub(p[1],p[0]),sub(p[2],p[0])))/2;
         if(area<=eps) degenerate=true;
@@ -415,7 +547,8 @@
     if(rho<0)throw new Error('Density cannot be negative.');
     const thickness=positive(options.thickness,'Shell thickness',1), area=positive(options.area,'Rod area',1), properties=new Map();
     for(const e of mesh.elements) {
-      const spec=TYPES[resolvedType(e)], kind=spec.solid?'solid':spec.line?'rod':'shell';
+      const type=resolvedType(e);if(type==='RBE2')continue;
+      const spec=TYPES[type], kind=type==='CBUSH'?'bush':spec.solid?'solid':spec.line?'rod':'shell';
       if(properties.has(e.pid)&&properties.get(e.pid)!==kind) throw new Error('Property '+e.pid+' is shared by incompatible element dimensions. Assign separate property IDs before export.');
       properties.set(e.pid,kind);
     }
@@ -428,13 +561,26 @@
       while(values.length>8) {const label='+W'+(++continuation);lines.push([head,...values.splice(0,8),label].join(','));head=label;}
       lines.push([head,...values].join(','));
     }
-    card('MAT1',[mid,E,'',nu,rho]);
-    properties.forEach((kind,pid)=>card(kind==='solid'?'PSOLID':kind==='rod'?'PROD':'PSHELL',kind==='solid'?[pid,mid]:kind==='rod'?[pid,mid,area]:[pid,mid,thickness,mid,1,mid,5/6]));
+    if([...properties.values()].some(kind=>kind!=='bush'))card('MAT1',[mid,E,'',nu,rho]);
+    properties.forEach((kind,pid)=>{
+      if(kind==='bush') {
+        const property=(mesh.properties||[]).find(p=>p.id===pid&&p.type==='PBUSH');
+        if(!property||!Array.isArray(property.stiffness)||property.stiffness.length!==6||property.stiffness.some(k=>!Number.isFinite(k)||k<0))throw new Error('CBUSH export requires its PBUSH property and six nonnegative stiffnesses.');
+        card('PBUSH',[pid,'K',...property.stiffness]);
+      } else card(kind==='solid'?'PSOLID':kind==='rod'?'PROD':'PSHELL',kind==='solid'?[pid,mid]:kind==='rod'?[pid,mid,mesh.area??area]:[pid,mid,thickness,mid,1,mid,5/6]);
+    });
     mesh.nodes.forEach(n=>card('GRID',[n.id,'',n.x,n.y,n.z]));
-    mesh.elements.forEach(e=>{const type=resolvedType(e);card(type.startsWith('CTETRA')?'CTETRA':type.startsWith('CHEXA')?'CHEXA':type,[e.id,e.pid,...e.nodes]);});
+    mesh.elements.forEach(e=>{
+      const type=resolvedType(e);
+      if(type==='RBE2')card(type,[e.id,e.nodes[0],e.cm??'123456',...e.nodes.slice(1)]);
+      else if(type==='CBUSH') {
+        const orientation=e.orient?.kind==='x'?e.orient.x.map(v=>{const text=number(v);return /[.eE]/.test(text)?text:text+'.';}):[e.orient?.g0??'','',''];
+        card(type,[e.id,e.pid,...e.nodes,...orientation,e.cid??'']);
+      } else card(type.startsWith('CTETRA')?'CTETRA':type.startsWith('CHEXA')?'CHEXA':type,[e.id,e.pid,...e.nodes]);
+    });
     lines.push('ENDDATA','');
     return lines.join('\n');
   }
 
-  return {createPrimitive,linearPattern,circularPattern,validateMesh,toBdf,limits:{maxNodes:MAX_NODES,maxElements:MAX_ELEMENTS}};
+  return {createPrimitive,linearPattern,circularPattern,boltLocations,createBoltPattern,validateMesh,toBdf,limits:{maxNodes:MAX_NODES,maxElements:MAX_ELEMENTS}};
 }));

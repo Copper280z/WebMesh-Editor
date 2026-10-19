@@ -76,7 +76,8 @@ button:disabled{opacity:.42;cursor:not-allowed}
 .wb-panel-foot{padding:14px 20px;border-top:1px solid var(--border);background:#151d28;display:flex;flex-direction:column;gap:8px}
 .wb-panel-foot .wb-btn{width:100%;min-height:37px}
 .wb-preview-info{font-size:10px;color:#93a7bf;text-align:center;min-height:15px}
-.wb-inspector{grid-column:4;grid-row:3;display:flex;flex-direction:column;min-height:0;background:#151d27}
+.wb-inspector{grid-column:4;grid-row:3;display:flex;flex-direction:column;min-height:0;background:#151d27;overflow-y:auto;scrollbar-width:thin}
+.wb-inspector-head,.wb-tree-search,.wb-outline,.wb-inspector-section,.wb-inspector-bottom{flex-shrink:0}
 .wb-inspector-head{display:flex;align-items:center;justify-content:space-between;padding:17px 17px 12px;font-size:11px;font-weight:600;color:#bac8d9}
 .wb-outline{padding:0 9px 13px;overflow:auto;max-height:38%;border-bottom:1px solid var(--border)}
 .wb-tree-root{display:flex;align-items:center;gap:8px;padding:8px;background:#223043;border:1px solid #33465e;border-radius:5px;color:#c4d4e7;font-size:11px;margin-bottom:7px}
@@ -263,6 +264,98 @@ button:disabled{opacity:.42;cursor:not-allowed}
 @media(max-width:950px){#app,#app.left-collapsed,#app.right-collapsed,#app.status-collapsed{grid-template-columns:48px 260px minmax(0,1fr)}.wb-inspector{display:none}.wb-tabs-end{display:none}.wb-topbar .wb-help-label{display:none}#app #flyoutLayer{left:308px;right:0}#contourLegend{right:15px!important}.wb-statusbar .wb-unit-label{display:none}.wb-brand small{display:none}}
 @media(max-width:680px){#app,#app.left-collapsed,#app.right-collapsed,#app.status-collapsed{grid-template-columns:44px 230px minmax(220px,1fr);grid-template-rows:50px 42px minmax(0,1fr) 28px;overflow-x:auto}.wb-topbar{gap:5px;padding:0 9px}.wb-brand{font-size:14px;gap:7px}.wb-topbar .wb-btn{padding:5px 8px;font-size:10px}.wb-topbar .wb-icon{width:14px}.wb-topbar .wb-hide-mobile{display:none}.wb-tab{padding:0 9px;font-size:11px;gap:4px}.wb-tab .wb-icon{display:none}.wb-tabs{padding:0 6px}.wb-panel-head{padding:14px}.wb-panel h2{font-size:15px}.wb-panel-body{padding:14px}.wb-primitive{padding:0 8px;font-size:10px}.wb-statusbar{gap:8px}.wb-view-head{left:12px;top:13px}.wb-empty{padding:24px}.wb-empty h2{font-size:19px}.wb-empty p{font-size:11px}.wb-panel-foot{padding:10px 14px}}
 /* One workspace navigation bar; no duplicate navigation rail. */
+/* Every schema create/modify card uses the same dense property grid, including
+   custom coordinate, beam, laminate and bulk selection controls. */
+.wm-compact-form .schema-fields{padding:0;overflow:visible}
+.wm-compact-form .schema-field-row,.wm-compact-form .schema-row{display:grid!important;grid-template-columns:78px minmax(0,1fr);align-items:center!important;gap:4px 7px!important;margin:0 0 5px!important;min-height:27px}
+.wm-compact-form .advanced-hidden{display:none!important}
+.wm-compact-form .schema-label-wrap{width:auto!important;min-width:0!important;min-height:0;gap:3px;padding:0!important;align-self:center!important}
+.wm-compact-form .schema-label-wrap label,.wm-compact-form .schema-setting-chip{display:block;min-width:0!important;min-height:0;width:auto;max-width:100%;padding:0!important;margin:0;border:0!important;border-radius:0;background:none!important;box-shadow:none;font-size:10px!important;line-height:1.3;font-weight:400;text-align:left;color:#9eafc4;white-space:normal;overflow-wrap:anywhere;letter-spacing:0}
+.wm-compact-form .schema-badge{display:none!important}
+.wm-compact-form .schema-label-wrap:has(.schema-badge.required) label::after{content:" ·";color:#c8a96f}
+.wm-compact-form input,.wm-compact-form select{box-sizing:border-box;width:100%;min-width:0!important;height:27px;min-height:27px;padding:4px 6px!important;font-size:11px!important;border-radius:3px;font-variant-numeric:tabular-nums}
+.wm-compact-form .schema-combo-field{width:100%;min-width:0}
+.wm-compact-form .schema-combo-field input{padding-right:25px!important}
+.wm-compact-form .schema-combo-trigger{width:22px;min-width:22px;min-height:0;padding:0!important;border:0!important;border-radius:2px;top:2px;right:2px;bottom:2px}
+.wm-compact-form .schema-combo-menu{font-size:11px!important;min-height:0;height:auto}
+.wm-compact-form .schema-card-description{display:none}
+.wm-compact-form .schema-toolbar-row{gap:5px;margin:0 0 6px}
+.wm-compact-form .schema-toolbar-card{flex-basis:100%;min-width:0}
+.wm-compact-form .schema-toolbar-card .row{display:grid;grid-template-columns:78px minmax(0,1fr);gap:7px;margin:0;width:100%}
+.wm-compact-form .schema-toolbar-card .row label{min-width:0;width:auto;font-size:10px}
+.wm-compact-form .schema-toolbar-group{gap:4px;min-width:0}
+.wm-compact-form .schema-toolbar-group button{min-width:0!important;max-width:none!important;width:auto;min-height:26px;padding:4px 7px!important;font-size:10px!important;line-height:1.3}
+.wm-compact-form .schema-special-row{grid-template-columns:1fr!important;border-top:1px solid #2a3748;padding-top:8px;margin-top:9px!important}
+.wm-compact-form .schema-special-row>.schema-label-wrap{width:100%!important}
+.wm-compact-form .schema-special-row>.schema-label-wrap label{font-weight:600;color:#b4c4d6}
+.wm-compact-form .schema-special-row>div{min-width:0;max-width:100%}
+.wm-compact-form .schema-special-note{font-size:9px;line-height:1.45;margin-top:3px;color:#71879e}
+.wm-compact-form .schema-node-list-editor{gap:4px}
+.wm-compact-form .schema-node-list-controls{gap:4px}
+.wm-compact-form .schema-node-list-controls input{flex-basis:100%;min-width:0}
+.wm-compact-form .schema-node-list-controls button{font-size:9px!important;padding:3px 5px!important;min-height:23px;width:auto}
+.wm-compact-form .schema-chip-list{max-height:84px;overflow:auto;gap:3px}
+.wm-compact-form .schema-chip{font-size:10px;border-radius:3px;padding:2px 5px;gap:3px}
+.wm-compact-form .schema-chip button{padding:0 3px!important;min-width:0;min-height:16px;font-size:10px!important}
+.wm-compact-form textarea{min-height:54px!important;padding:5px 6px!important;font-size:10px;border-radius:3px}
+.wm-compact-form .schema-pcomp-toolbar{gap:5px}
+.wm-compact-form .schema-pcomp-toolbar button{padding:3px 6px!important;font-size:10px!important;min-height:24px}
+.wm-compact-form .schema-pcomp-table-wrap{max-height:260px;min-height:65px;border-radius:3px}
+.wm-compact-form .schema-pcomp-table th,.wm-compact-form .schema-pcomp-table td{padding:3px 2px;font-size:9px}
+.wm-compact-form .schema-pcomp-table th:nth-child(-n+4){width:22%}
+.wm-compact-form .schema-pcomp-table th:last-child{width:12%}
+.wm-compact-form .schema-pcomp-table input,.wm-compact-form .schema-pcomp-table select{padding:3px!important;height:25px;min-height:25px;font-size:10px!important}
+.wm-compact-form .schema-pcomp-row-remove{font-size:0!important;width:22px!important;min-width:0;padding:2px!important;border:0!important;background:transparent}
+.wm-compact-form .schema-pcomp-row-remove::after{content:"×";font-size:14px;color:#93a7bc}
+.wm-compact-form .wm-vector-row{display:grid;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:7px;margin-bottom:5px}
+.wm-compact-form .wm-vector-title{font-size:10px;color:#9eafc4;line-height:1.3}
+.wm-compact-form .wm-vector-cells{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;min-width:0}
+.wm-compact-form .wm-vector-cell{display:flex!important;position:relative;gap:0!important;margin:0!important;min-width:0;min-height:27px}
+.wm-compact-form .wm-vector-cell .schema-label-wrap{position:absolute;left:5px;top:7px;z-index:1;pointer-events:none}
+.wm-compact-form .wm-vector-cell .schema-label-wrap label{font-size:8px!important;color:#6d849b}
+.wm-compact-form .wm-vector-cell .schema-label-wrap label::after{content:none!important}
+.wm-compact-form .wm-vector-cell input{padding-left:16px!important;padding-right:3px!important;appearance:textfield;-moz-appearance:textfield}
+.wm-compact-form .wm-vector-cell input::-webkit-inner-spin-button{appearance:none}
+.wm-compact-form .wm-dof-editor{display:flex;gap:4px;min-width:0;align-items:center}
+.wm-compact-form .wm-dof-editor>input,.wm-compact-form .wm-dof-editor>.schema-combo-field{flex:1;min-width:35px!important}
+.wm-compact-form .wm-dof-buttons{display:flex;gap:1px;flex:none}
+.wm-compact-form .wm-dof-buttons button{display:grid;place-items:center;width:17px;min-width:17px;height:25px;min-height:25px;padding:0!important;font-size:9px!important;border:1px solid #34465a;border-radius:2px;background:#162131;color:#8199b3}
+.wm-compact-form .wm-dof-buttons button[aria-pressed=true]{color:#80dec9;background:#20433f;border-color:#467b70}
+.wm-compact-form .wm-field-error{grid-column:2;font-size:9px;line-height:1.35;color:#f1a1a1}
+.wm-compact-form .wm-vector-cell .wm-field-error{position:static;flex-basis:100%;margin-top:3px}
+.wm-compact-form .wm-vector-cell:has(.wm-field-error:not([hidden])){flex-wrap:wrap}
+.wm-compact-form input[aria-invalid=true]{border-color:#d78585!important}
+.wm-compact-form .wm-submit-feedback{font-size:10px;line-height:1.5;color:#91d5c2;margin-top:8px;padding-top:7px;border-top:1px solid #304255;overflow-wrap:anywhere}
+.wm-compact-form .wm-submit-feedback.error{color:#f1a1a1}
+.wm-compact-form .wm-submit-feedback[hidden],.wm-compact-form .wm-field-error[hidden]{display:none!important}
+.wm-compact-form #schemaCreateHint{display:none}
+.wm-compact-form #schemaEditHint{font-size:9px!important;line-height:1.45;margin-top:8px;color:#7f95ae!important}
+.wm-compact-legacy .wm-property-row{display:grid!important;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:5px 7px!important;margin:0 0 5px!important;min-height:27px}
+.wm-compact-legacy .wm-property-row>label{width:auto!important;min-width:0!important;font-size:10px;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+.wm-compact-legacy input,.wm-compact-legacy select{width:100%;height:27px;min-height:27px;min-width:0!important;padding:4px 6px!important;font-size:11px!important;border-radius:3px}
+.wm-compact-legacy .grid-2{display:grid;grid-template-columns:1fr!important;gap:0}
+.wm-compact-legacy .grid-3{gap:4px}
+.wm-compact-legacy .grid-3>label{font-size:9px;color:#8fa5be;margin:0;min-width:0}
+.wm-compact-legacy .wm-legacy-vector{grid-template-columns:78px repeat(3,minmax(0,1fr))}
+.wm-compact-legacy .wm-legacy-axis{position:relative;display:block;min-width:0!important;width:auto!important}
+.wm-compact-legacy .wm-legacy-axis span{position:absolute;left:5px;top:7px;font-size:8px;color:#6d849b;pointer-events:none}
+.wm-compact-legacy .wm-legacy-axis input{padding-left:16px!important;padding-right:3px!important;appearance:textfield;-moz-appearance:textfield}
+.wm-compact-legacy .wm-legacy-axis input::-webkit-inner-spin-button{appearance:none}
+.wm-compact-legacy button{min-height:26px;padding:4px 7px!important;font-size:10px!important;line-height:1.4;border-radius:3px}
+.wm-compact-legacy .wm-property-row>button{width:fit-content;min-width:40px!important;justify-self:start}
+.wm-compact-legacy .wm-legacy-controls{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.wm-compact-legacy .wm-legacy-controls>*{flex:1;min-width:0!important}
+.wm-compact-legacy [data-transform-section]{margin-bottom:10px}
+.wm-compact-legacy [data-transform-section]>.row:first-child{margin:0 0 6px!important;padding-top:2px}
+.wm-compact-legacy [data-transform-section]>.row:first-child label{font-size:11px;font-weight:600}
+.wm-compact-legacy .muted{font-size:9px;line-height:1.4}
+/* Stiffness magnitudes need more horizontal room than XYZ coordinates. */
+.wb-bolt-stiffness{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 8px;min-width:0}
+.wb-bolt-stiffness-heading{font-size:10px;line-height:1.4;color:#91a3b8;margin-bottom:1px}
+.wb-bolt-stiffness>label{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:center;gap:4px;min-width:0}
+.wb-bolt-stiffness>label>span{font-size:10px;color:#91a3b8}
+.wb-bolt-stiffness input{width:100%;min-width:0;height:27px;padding:4px 6px;font-size:11px;font-variant-numeric:tabular-nums;appearance:textfield;-moz-appearance:textfield}
+.wb-bolt-stiffness input::-webkit-inner-spin-button{appearance:none}
 #app,#app.left-collapsed,#app.right-collapsed,#app.status-collapsed,#app.left-collapsed.right-collapsed{grid-template-columns:300px minmax(0,1fr) 240px}
 .wb-rail{display:none}
 .wb-panel{grid-column:1}

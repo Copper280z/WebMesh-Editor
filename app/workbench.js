@@ -46,7 +46,7 @@
   const patternMatrix = () => `<div class="wb-matrix" role="group" aria-label="Linear pattern directions"><div class="wb-matrix-row headings"><span>Direction</span><span>Count</span><span>ΔX</span><span>ΔY</span><span>ΔZ</span></div>${['A','B','C'].map((axis,i)=>`<div class="wb-matrix-row"><span>${axis}</span><input aria-label="Direction ${axis} count" title="Total instances including the original" data-key="counts${i}" type="number" min="1" step="1" value="${i===0?3:1}">${[0,1,2].map(j=>`<input aria-label="Direction ${axis} ${['X','Y','Z'][j]} spacing" data-key="vector${axis}${j}" type="number" step="any" value="${i===j?[120,80,50][i]:0}">`).join('')}</div>`).join('')}</div><div class="wb-footnote">Counts include the original. Set unused directions to 1.</div>`;
   const section = (title,body,note='') => `<section class="wb-section"><div class="wb-section-title">${title}${note?`<small>${note}</small>`:''}</div>${body}</section>`;
   const tool = (key,title,subtitle,name) => `<button class="wb-tool-card" data-tool="${key}">${icon(name)}<span><strong>${title}</strong><small>${subtitle}</small></span></button>`;
-  let activeTab = 'build', primitive = 'block', patternKind = 'linear', preview = null, cadFile = null, busy = false;
+  let activeTab = 'build', primitive = 'block', patternKind = 'linear', preview = null, busy = false;
   let projectName = 'Untitled model', historyItems = [], moved = [], lastState = '', operationRevision = 0;
   const savedForms = new Map();
   const formKey = () => activeTab+':'+(activeTab==='build'?primitive:activeTab==='pattern'?patternKind:'');
@@ -59,7 +59,7 @@
       <div class="wb-spacer"></div>
       <div class="wb-actions">
         ${button('wb-new','New','plus','ghost wb-hide-mobile')}${button('wb-open','Open','folder','ghost')}
-        ${button('wb-save','Save project','file','wb-hide-mobile')}${button('wb-export','Export deck','download','primary')}
+        ${button('wb-save','Save project','file')}${button('wb-export','Export deck','download','primary')}
         ${button('wb-help','<span class="wb-help-label">Help</span>','help','ghost')}
       </div>
     </div>
@@ -108,6 +108,7 @@
     busy=value;window.__WEBMESH_WORKBENCH_BUSY__=value;
     document.querySelectorAll('[data-operation],#wb-new,#wb-open,#wb-save,#wb-export,#wb-example,#wb-upload-cad,#wb-select-all,#wb-clear-selection').forEach(el=>el.disabled=value);
     $('wb-panel-body').querySelectorAll('input,select,button').forEach(el=>el.disabled=value);
+    if(!value&&activeTab==='mesh')cadWorkspace.updateAvailability();
     $('wb-undo').disabled=value||$('btnUndo').disabled;$('wb-redo').disabled=value||$('btnRedo').disabled;
   }
   async function run(fn) {
@@ -116,11 +117,13 @@
     try {await fn(revision);refresh(true);}catch(err){message(err.message||String(err),true);const report=$('wb-report');if(report){report.textContent=err.message||String(err);report.className='wb-report bad';}}
     finally{setBusy(false);refresh(true);}
   }
+  const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,isBusy:()=>busy});
+  const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
   function setTab(tab) {
     if(busy)return;
     closeDialog();app.classList.remove('parameters-hidden');
-    rememberForm();activeTab=tab;invalidatePreview();
+    rememberForm();cadWorkspace.activate(false);activeTab=tab;cadWorkspace.activate(tab==='mesh');invalidatePreview();
     document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
     $('wb-view-type').textContent={build:'Geometry',mesh:'Meshing',pattern:'Patterns',setup:'Model setup',results:'Post-processing'}[tab];
     renderPanel();
@@ -139,20 +142,21 @@
       html+=`<details class="wb-section"><summary class="wb-section-title">Material &amp; section</summary>${field('E','Young’s modulus',210000)}${field('nu','Poisson’s ratio',0.3)}${field('rho','Density',7.85e-9)}${field('thickness','Shell thickness',1)}<div class="wb-footnote">Creates a new property and material. Use consistent units.</div></details><div id="wb-report"></div>`;
       foot=`<div id="wb-preview-info" class="wb-preview-info">Conforming, connected elements</div>${button('wb-preview','Preview mesh','eye')}${button('wb-create','Add to model','plus','primary')}`;
     } else if(activeTab==='mesh') {
-      html=section('Source geometry',`<button id="wb-upload-cad" class="wb-upload" style="width:100%">${icon('upload')}<strong>${esc(cadFile?.name||'Choose a CAD file')}</strong><small>STEP · IGES · BREP · STL</small></button><p class="wb-hint">${cadFile?'Ready for meshing. Source geometry is kept with your project.':'CAD files are meshed locally. Structured quads and hexes require compatible CAD topology.'}</p><div style="display:flex;gap:6px;margin-top:9px">${button('wb-cad-example-block','Example block',null,'ghost')}${button('wb-cad-example-hole','Plate with hole',null,'ghost')}</div>`);
-      html+=section('Mesh',select('dimension','Dimension',[[3,'Volume · 3D'],[2,'Surface · 2D']],3)+select('cadTopology','Topology',[['tet','Tetrahedra'],['hex','Structured hex']], 'tet')+select('order','Order',[[1,'Linear · 1'],[2,'Quadratic · 2']],1)+field('meshSize','Element size',10,'number','min="0.000001"')+field('cadDivisions','Curve divisions',6,'number','min="1" step="1"')+help('Mapped surfaces need 3 or 4 boundary corners. Hex meshing requires compatible 6-sided CAD volumes. Target size controls unstructured meshes; curve divisions control structured hexes.'));
-      html+=section('Local engine',`<p class="wb-hint" id="wb-bridge-info">${location.protocol==='file:'?'For CAD meshing, run <code>python3 server.py</code> in the project folder, then open <code>http://127.0.0.1:8765</code>.':'Checking local Gmsh bridge…'}</p>`)+`<div id="wb-report"></div>`;
-      foot=`${button('wb-mesh-cad','Generate CAD mesh','mesh','primary')}`;
+      const view=cadWorkspace.render();html=view.body;foot=view.foot;
     } else if(activeTab==='pattern') {
-      html=section('Pattern',`<div class="wb-primitive-grid"><button data-pattern="linear" class="wb-primitive ${patternKind==='linear'?'active':''}">${icon('pattern')}Linear</button><button data-pattern="circular" class="wb-primitive ${patternKind==='circular'?'active':''}">${icon('rotate')}Circular</button></div>`);
+      html=section('Pattern',`<div class="wb-primitive-grid"><button data-pattern="linear" class="wb-primitive ${patternKind==='linear'?'active':''}">${icon('pattern')}Linear</button><button data-pattern="circular" class="wb-primitive ${patternKind==='circular'?'active':''}">${icon('rotate')}Circular</button><button data-pattern="bolts" class="wb-primitive ${patternKind==='bolts'?'active':''}">Bolts</button></div>`);
+      if(patternKind==='bolts'){const view=boltWorkspace.render();html+=view.body;foot=view.foot;}
+      else {
       html+=select('scope','Source',[['selected','Selected elements'],['all','Entire model']], 'selected');
       if(patternKind==='linear') html+=section('Directions',patternMatrix());
       else html+=section('Rotation',field('count','Instances',6,'number','min="2" step="1"')+field('angle','Sweep (°)',360)+vector('axis','Axis',[0,0,1])+vector('center','Center',[0,0,0])+`<div class="wb-footnote">360° closes the circle; partial sweeps include endpoints.</div>`);
       html+=section('Connectivity',field('mergeTolerance','Merge tolerance',0)+`<div class="wb-footnote">0 = separate nodes. Positive values weld coincident nodes.</div>`+help('Copies preserve element connectivity and properties. Loads and constraints stay on the source. Weld searches include all existing model nodes.'))+`<div id="wb-report"></div>`;
       foot=`<div id="wb-preview-info" class="wb-preview-info">Original entities stay in place</div>${button('wb-preview-pattern','Preview pattern','eye')}${button('wb-apply-pattern','Create pattern','pattern','primary')}`;
+      }
     } else if(activeTab==='setup') {
       html=section('Physical definitions',`<div class="wb-tool-list">${tool('material','Materials','Isotropic elasticity, density and material IDs','material')}${tool('property','Element properties','Shell thickness, solid regions and beam sections','plate')}</div>`);
       html+=section('Boundary conditions',`<div class="wb-tool-list">${tool('load','Loads','Forces, moments, pressure and load combinations','load')}${tool('constraint','Constraints','Single-point constraints and constrained DOFs','lock')}${tool('coordinate','Coordinate systems','Define local rectangular or cylindrical frames','cube')}</div>`);
+      html+=section('Connections',`<button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
       html+=section('Model editing',`<div class="wb-tool-list">${tool('cards','Create nodes','Individual GRID cards and coordinate references','node')}${tool('element','Create elements','Shells, solids, beams, rods and rigid elements','mesh')}${tool('modify','Modify entities','Edit existing cards with schema-driven forms','setup')}${tool('selection','Selection & inspection','Pick, select by ID, filter and edit node coordinates','select')}${tool('transform','Transform mesh','Move, rotate, reflect and merge nodes','rotate')}</div>`)+`<div id="wb-report"></div>`;
       foot=button('wb-check-mesh','Check mesh connectivity','check','primary');
     } else {
@@ -164,7 +168,8 @@
     $('wb-panel-body').innerHTML=html;$('wb-panel-foot').innerHTML=foot;
     $('wb-panel-foot').querySelectorAll('button').forEach(el=>el.dataset.operation='true');
     const saved=savedForms.get(formKey());if(saved){for(const el of $('wb-panel-body').querySelectorAll('[data-key]'))if(Object.hasOwn(saved,el.dataset.key))el.value=saved[el.dataset.key];}
-    if(activeTab==='mesh')updateCadTopology(saved?.cadTopology);
+    if(activeTab==='mesh')cadWorkspace.bind();
+    if(activeTab==='pattern'&&patternKind==='bolts')boltWorkspace.bind();
     bindPanel();
     if(activeTab==='mesh')checkBridge();
   }
@@ -202,27 +207,18 @@
     return mesh;
   }
   function bindPanel() {
+    $('wb-bolt-tool')?.addEventListener('click',()=>{if(!busy){patternKind='bolts';setTab('pattern');}});
     document.querySelectorAll('[data-primitive]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();primitive=el.dataset.primitive;invalidatePreview();renderPanel();});
     document.querySelectorAll('[data-pattern]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();patternKind=el.dataset.pattern;invalidatePreview();renderPanel();});
     $('wb-preview')?.addEventListener('click',()=>run(()=>{preview=previewInfo(modeling().createPrimitive(primitiveOptions()));message('Mesh preview ready. Add it to commit the operation.');}));
     $('wb-create')?.addEventListener('click',()=>run(addPrimitive));
     $('wb-preview-pattern')?.addEventListener('click',()=>run(()=>{preview=patternMesh();const info=$('wb-preview-info');if(info)info.textContent=`${preview.nodes.length} new nodes · ${preview.elements.length} new elements`;engine().previewMesh?.({...preview,nodes:[...engine().getMesh({selectedOnly:false}).nodes,...preview.nodes]});message('Pattern preview ready.');}));
     $('wb-apply-pattern')?.addEventListener('click',()=>run(async()=>{const mesh=patternMesh();await engine().appendMesh(mesh);engine().previewMesh?.(null);preview=null;engine().fitView?.();logOperation(`Created ${patternKind} pattern`);message(`Added ${mesh.elements.length.toLocaleString()} patterned elements.`);}));
-    $('wb-upload-cad')?.addEventListener('click',()=>{if(!busy)$('wb-cad-file').click();});
-    $('wb-panel-body').querySelector('[data-key="dimension"]')?.addEventListener('change',()=>updateCadTopology());
-    for(const [id,name] of [['wb-cad-example-block','block.step'],['wb-cad-example-hole','plate-hole.step']])$(id)?.addEventListener('click',()=>run(async()=>{if(location.protocol==='file:')throw Error('Open this page through python3 server.py to load example CAD.');const response=await fetch('examples/'+name);if(!response.ok)throw Error('Example CAD is unavailable.');cadFile=new File([await response.arrayBuffer()],name);rememberForm();nameProject(name.replace('.step',''));renderPanel();message(`${name} ready for meshing.`);}));
-    $('wb-mesh-cad')?.addEventListener('click',()=>run(meshCad));
     document.querySelectorAll('[data-tool]').forEach(el=>el.onclick=()=>openTool(el.dataset.tool).catch(error=>message(error.message,true)));
     $('wb-check-mesh')?.addEventListener('click',checkMesh);
     $('wb-load-results')?.addEventListener('click',()=>$('fileResults').click());
     $('wb-results-options')?.addEventListener('click',()=>openTool('results'));
   }
-  function updateCadTopology(preferred) {
-    const two=num('dimension')===2,el=$('wb-panel-body').querySelector('[data-key="cadTopology"]');
-    el.innerHTML=(two?[['tri','Unstructured triangles'],['quad','Recombined quadrilaterals']]:[['tet','Unstructured tetrahedra'],['hex','Structured hexahedra']]).map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
-    if(preferred&&Array.from(el.options).some(o=>o.value===preferred))el.value=preferred;
-  }
-
   async function checkBridge() {
     if(location.protocol==='file:')return;
     try {
@@ -234,38 +230,31 @@
       const el=$('wb-bridge-info');if(el)el.innerHTML='Start the CAD bridge with <code>python3 server.py</code>, then open <code>http://127.0.0.1:8765</code>. Scratch modeling works in the browser.';
     }
   }
-  function toBase64(buffer){let text='';const bytes=new Uint8Array(buffer);for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(text);}
-  async function meshCad(revision) {
-    if(!cadFile)throw Error('Choose a STEP, IGES, BREP or STL file first.');
-    if(location.protocol==='file:')throw Error('CAD meshing needs the local bridge. Run python3 server.py and open http://127.0.0.1:8765.');
-    const file=cadFile;
-    const dimension=num('dimension'),topology=get('cadTopology'),order=num('order'),size=num('meshSize'),divisions=num('cadDivisions');
-    message(`Meshing ${file.name} with Gmsh…`);
-    const format=({stp:'step',igs:'iges'}[file.name.split('.').pop().toLowerCase()]||file.name.split('.').pop().toLowerCase());
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),105000);let response;
-    try{response=await fetch('/api/mesh',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,format,content:toBase64(await file.arrayBuffer()),dimension,topology,order,size,divisions})});}
-    catch(error){throw Error(error.name==='AbortError'?'CAD meshing timed out. Try a larger element size or simpler geometry.':'Cannot reach the local CAD bridge. Start python3 server.py and try again.');}
-    finally{clearTimeout(timer);}
-    const result=await response.json();if(!response.ok||result.error)throw Error((result.error||'CAD mesh generation failed.')+(result.log?'\n'+result.log.slice(-3000):''));
-    if(revision!==operationRevision)throw Error('The model changed while meshing. Generate the mesh again.');
+  async function appendCadMesh(result,filename,{topology,order,previousMesh,ownerTag}) {
+    const owned=engine().getMeshOwner(ownerTag);
+    previousMesh=owned.elements.length?{...previousMesh,properties:owned.properties}:null;
     const ids=engine().getNextIds(),nodeMap=new Map(),nodeIds=result.mesh.nodes.map((node,i)=>{nodeMap.set(node.id,ids.node+i);return {...node,id:ids.node+i};});
-    const regions=new Map();for(const el of result.mesh.elements)if(!regions.has(el.pid))regions.set(el.pid,ids.property+regions.size);
-    const mesh={name:file.name,nodes:nodeIds,elements:result.mesh.elements.map((el,i)=>({...el,id:ids.element+i,pid:regions.get(el.pid),nodes:el.nodes.map(id=>nodeMap.get(id))}))};
-    await engine().appendMesh(mesh,{material:{id:ids.material,E:210000,nu:0.3,rho:7.85e-9},thickness:1});
-    engine().fitView?.();logOperation(`Meshed ${file.name}`);message(`CAD mesh added: ${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} elements.`);
-    const report=$('wb-report');if(report){report.className='wb-report good';report.textContent=`${file.name}\n${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} ${topology} elements\nOrder ${order}${result.log?'\n\n'+result.log.slice(-1600):''}`;}
+    const definitions=engine().getState();const regionType=['hex','tet'].includes(topology)?'PSOLID':'PSHELL';
+    const reusable=(previousMesh?.properties||[]).filter(id=>definitions.properties.some(p=>p.id===id&&p.type===regionType));
+    const regions=new Map();let nextProperty=ids.property;for(const el of result.mesh.elements)if(!regions.has(el.pid))regions.set(el.pid,reusable[regions.size]??nextProperty++);
+    const mesh={name:filename,nodes:nodeIds,elements:result.mesh.elements.map((el,i)=>({...el,id:ids.element+i,pid:regions.get(el.pid),nodes:el.nodes.map(id=>nodeMap.get(id))}))};
+    const material=definitions.materials.some(m=>m.id===previousMesh?.material)?previousMesh.material:ids.material;
+    await engine().appendMesh(mesh,{material:{id:material,E:210000,nu:0.3,rho:7.85e-9},thickness:1,ownerTag,replaceOwner:true});
+    engine().fitView?.();logOperation(`Meshed ${filename}`);message(`CAD mesh added: ${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} elements.`);
+    const report=$('wb-report');if(report){report.className='wb-report good';report.textContent=`${filename}\n${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} ${topology} elements\nOrder ${order}${result.log?'\n\n'+result.log.slice(-1600):''}`;}
+    return {elements:mesh.elements.map(el=>el.id),properties:[...regions.values()],material};
   }
 
   function closeDialog() {
     engine()?.closeTool?.();
     for(const {node,marker,classes} of moved){marker.replaceWith(node);node.className=classes;}moved=[];
-    $('wb-dialog').close();
+    $('wb-dialog').close();if(activeTab==='mesh')cadWorkspace.activate(true);
   }
   function dialog(title,content) {
     closeDialog();$('wb-dialog').classList.remove('docked');$('wb-dialog-title').textContent=title;$('wb-dialog-body').classList.remove('grouped');$('wb-dialog-body').innerHTML=content;$('wb-dialog').showModal();
   }
   function mountLegacy(id,title) {
-    closeDialog();const nodes=(Array.isArray(id)?id:[id]).map($).filter(Boolean);if(!nodes.length){message('This editor is still initializing. Try again shortly.',true);return;}
+    closeDialog();cadWorkspace.activate(false);const nodes=(Array.isArray(id)?id:[id]).map($).filter(Boolean);if(!nodes.length){message('This editor is still initializing. Try again shortly.',true);return;}
     for(const node of nodes){const marker=document.createComment('workbench tool position');node.replaceWith(marker);moved.push({node,marker,classes:node.className});node.classList.remove('collapsed');}
     app.classList.remove('parameters-hidden');$('wb-dialog').classList.add('docked');$('wb-dialog-title').textContent=title;$('wb-dialog-body').classList.toggle('grouped',nodes.length>1);$('wb-dialog-body').replaceChildren(...nodes);$('wb-dialog').show();
   }
@@ -293,7 +282,7 @@
     const selection=state.selection||{},selectedNodes=selection.nodes||[],selectedElements=selection.elems||selection.elements||[];
     const key=JSON.stringify([nodes,elements,properties.length,materials.length,selectedNodes.length,selectedElements.length,state.history]);if(key===lastState&&!force)return;lastState=key;
     $('wb-nodes').textContent=nodes.toLocaleString();$('wb-elements').textContent=elements.toLocaleString();$('wb-properties').textContent=properties.length;$('wb-materials').textContent=materials.length;
-    $('wb-empty').style.display=nodes||elements||preview?'none':'flex';
+    $('wb-empty').style.display=nodes||elements||preview||cadWorkspace.hasGeometry()?'none':'flex';
     $('wb-selection-info').innerHTML=selectedNodes.length||selectedElements.length?`${selectedNodes.length.toLocaleString()} nodes · ${selectedElements.length.toLocaleString()} elements selected<br><span style="color:#5cd9bb">Ready to inspect or pattern.</span>`:'Click an entity to inspect it.<br>Alt + drag to select a region.';
     const rows=[['cube','Elements',elements,'selection'],['node','Nodes',nodes,'selection'],['plate','Properties',properties.length,'property'],['material','Materials',materials.length,'material'],['load','Loads',counts.loads||0,'load'],['lock','Constraints',counts.constraints||0,'constraint']];
     $('wb-tree').innerHTML=rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
@@ -304,12 +293,12 @@
   function download(text,filename,type='text/plain') {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
   async function saveProject() {
     const deck=await engine().exportDeck();
-    let cad=null;if(cadFile)cad={filename:cadFile.name,content:toBase64(await cadFile.arrayBuffer())};
+    const cad=await cadWorkspace.serialize();
     download(JSON.stringify({format:'webmesh-project',version:1,name:projectName,deck,cad,history:historyItems},null,2),projectName.replace(/[^\w.-]+/g,'_')+'.webmesh','application/json');
     message('Project saved with the model deck and source CAD.');
   }
   async function example() {
-    if((engine().getState().counts?.elements||engine().getState().elements)>0)throw Error('Start a new model before loading the example.');
+    if(cadWorkspace.hasGeometry()||(engine().getState().counts?.elements||engine().getState().elements)>0)throw Error('Start a new model before loading the example.');
     const ids=engine().getNextIds();
     const mesh=modeling().createPrimitive({kind:'annulus',origin:[0,0,0],radius:45,innerRadius:26,length:1,segments:32,radialDivisions:4,axialDivisions:1,topology:'quad',order:2,pid:ids.property,startNode:ids.node,startElement:ids.element});
     mesh.name='Annular flange';
@@ -325,32 +314,31 @@
   $('wb-dialog').addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
   $('wb-dialog').addEventListener('click',event=>{if(event.target===$('wb-dialog')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog();}});
   $('wb-open').onclick=()=>{if(!busy)dialog('Open a model or project',`<p style="color:#8da4be">Open a Nastran deck with its INCLUDE files, or restore a saved WebMesh project.</p><div style="display:flex;gap:10px;margin-top:20px">${button('wb-open-deck-dialog','Open Nastran deck','folder','primary')}${button('wb-open-project-dialog','Open project','file')}</div>`);};
-  $('wb-dialog-body').addEventListener('click',event=>{if(event.target.closest('#wb-open-deck-dialog')){closeDialog();$('file').click();}if(event.target.closest('#wb-open-project-dialog')){closeDialog();$('wb-project-file').click();}});
+  $('wb-dialog-body').addEventListener('click',event=>{if(event.target.closest('#wb-help-example')){closeDialog();run(example);}if(event.target.closest('#wb-open-deck-dialog')){closeDialog();$('file').click();}if(event.target.closest('#wb-open-project-dialog')){closeDialog();$('wb-project-file').click();}});
   $('wb-new').onclick=()=>{
     if(busy)return;
     const state=engine()?.getState(),counts=state?.counts||state||{};
-    if(!counts.nodes&&!counts.elements){nameProject('Untitled model');return;}
+    if(!counts.nodes&&!counts.elements&&!cadWorkspace.hasGeometry()){nameProject('Untitled model');return;}
     dialog('Start a new model',`<p style="color:#9cb2ca">Save your project to keep the current model before clearing the workspace.</p><div style="display:flex;gap:10px;margin-top:20px">${button('wb-save-before-new','Save project','file')}${button('wb-confirm-new','Clear workspace','plus','primary')}</div>`);
   };
   $('wb-dialog-body').addEventListener('click',event=>{
     if(busy)return;
     if(event.target.closest('#wb-save-before-new'))run(saveProject);
-    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();cadFile=null;historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');refresh(true);}
+    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();cadWorkspace.clear();historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');renderPanel();refresh(true);}
   });
   $('wb-export').onclick=()=>run(async()=>{download(await engine().exportDeck(),projectName.replace(/[^\w.-]+/g,'_')+'.bdf');message('Nastran deck exported.');});
   $('wb-save').onclick=()=>run(saveProject);
   $('wb-project-file').onchange=event=>run(async()=>{
-    const file=event.target.files[0];if(!file)return;
+    const file=event.target.files[0];event.target.value='';if(!file)return;
     const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||data.version!==1||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
+    const cadRestore=await cadWorkspace.stageRestore(data.cad);
     await engine().loadDeck(data.deck,data.name||file.name);nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
-    if(data.cad?.filename&&data.cad?.content){const raw=atob(data.cad.content);cadFile=new File([Uint8Array.from(raw,c=>c.charCodeAt(0))],data.cad.filename);}else cadFile=null;
+    if(cadRestore&&Array.isArray(data.cad?.mesh?.elements))await engine().bindMeshOwner(cadRestore.imported.cadId,data.cad.mesh.elements);
+    cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
     operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';
   });
-  $('wb-cad-file').onchange=event=>{
-    const file=event.target.files[0];if(!file||busy)return;if(file.size>23*1024*1024){message('Choose a CAD file smaller than 23 MB.',true);return;}
-    operationRevision++;cadFile=file;rememberForm();nameProject(file.name.replace(/\.[^.]+$/,''));renderPanel();message(`${file.name} ready for meshing.`);event.target.value='';
-  };
-  $('file').addEventListener('change',event=>{if(event.target.files[0]){operationRevision++;invalidatePreview();cadFile=null;nameProject(event.target.files[0].name.replace(/\.[^.]+$/,''));}});
+  $('wb-cad-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file&&!busy)run(()=>cadWorkspace.importFile(file));};
+  $('file').addEventListener('change',event=>{if(event.target.files[0]){operationRevision++;invalidatePreview();cadWorkspace.clear();nameProject(event.target.files[0].name.replace(/\.[^.]+$/,''));}});
   $('fileResults').addEventListener('change',()=>{logOperation('Imported results file');message('Results file selected. Open result controls to inspect output.');});
   $('wb-example').onclick=()=>run(example);
   $('wb-undo').onclick=()=>{if(busy)return;$('btnUndo').click();invalidatePreview();refresh(true);message('Undid the last model operation.');};
@@ -360,16 +348,16 @@
   $('wb-projection').onclick=()=>{$('parallelToggle').click();$('wb-projection').textContent=$('parallelToggle').getAttribute('aria-pressed')==='true'?'Orthographic':'Perspective';};
   $('wb-display').onclick=()=>openTool('display');$('wb-measure').onclick=()=>openTool('measure');$('wb-quality').onclick=checkMesh;
   $('wb-selection-more').onclick=()=>openTool('selection');$('wb-clear-selection').onclick=()=>{if(!busy)$('btnClearSelectionToolbar').click();};$('wb-select-all').onclick=()=>{if(busy)return;const mesh=engine().getMesh();engine().select($('selEntity').value==='element'?{elements:mesh.elements.map(e=>e.id)}:{nodes:mesh.nodes.map(n=>n.id)});refresh(true);};
-  document.querySelectorAll('[data-select]').forEach(el=>el.onclick=()=>{const selectEl=$('selEntity');selectEl.value=el.dataset.select;selectEl.dispatchEvent(new Event('change',{bubbles:true}));document.querySelectorAll('[data-select]').forEach(other=>other.classList.toggle('active',other===el));});
+  document.querySelectorAll('[data-select]').forEach(el=>el.onclick=()=>{if(busy)return;engine()?.setCadSelectionMode?.('none');const selectEl=$('selEntity');selectEl.value=el.dataset.select;selectEl.dispatchEvent(new Event('change',{bubbles:true}));document.querySelectorAll('[data-select]').forEach(other=>other.classList.toggle('active',other===el));});
   $('wb-log').onclick=()=>mountLegacy('statusDock','Activity log');
-  $('wb-help').onclick=()=>dialog('WebMesh Studio',`<p style="color:#9fb3ca">Build a mesh in Geometry, repeat it with Pattern, and finish your solver definitions in Model setup. Open existing Nastran decks and MYSTRAN F06 results through Open and Post-process.</p><h3 style="font-size:12px;margin-top:24px">Viewport controls</h3><div class="wb-shortcuts"><span>Orbit</span><kbd>Left drag</kbd><span>Pan</span><kbd>Ctrl + left drag</kbd><span>Zoom</span><kbd>Scroll wheel</kbd><span>Box select</span><kbd>Alt + drag</kbd><span>Polygon select</span><kbd>Ctrl + Shift + click</kbd><span>Set pivot</span><kbd>Double-click</kbd><span>Fit model</span><kbd>F</kbd><span>Undo / redo</span><kbd>Ctrl + Z / Shift + Z</kbd></div><h3 style="font-size:12px;margin-top:24px">CAD meshing</h3><p style="color:#829cb8;font-size:12px">Run <code>python3 server.py</code> in the project directory and open <code>http://127.0.0.1:8765</code>. Gmsh must be on PATH. Surface quads and structured hexes require compatible CAD topology.</p><p style="color:#829cb8;font-size:12px">The editor uses consistent units of your choice. Default material values assume mm, N, s and tonne. It prepares and reviews models; run your analysis in an external Nastran-compatible solver.</p>`);
+  $('wb-help').onclick=()=>dialog('WebMesh Studio',`<p style="color:#9fb3ca">Build a mesh in Geometry, repeat it with Pattern, and finish your solver definitions in Model setup. Open existing Nastran decks and MYSTRAN F06 results through Open and Post-process.</p><div style="margin-top:12px">${button('wb-help-example','Load example model',null)}</div><h3 style="font-size:12px;margin-top:24px">Viewport controls</h3><div class="wb-shortcuts"><span>Orbit</span><kbd>Left drag</kbd><span>Pan</span><kbd>Ctrl + left drag</kbd><span>Zoom</span><kbd>Scroll wheel</kbd><span>Box select</span><kbd>Alt + drag</kbd><span>Polygon select</span><kbd>Ctrl + Shift + click</kbd><span>Set pivot</span><kbd>Double-click</kbd><span>Fit model</span><kbd>F</kbd><span>Undo / redo</span><kbd>Ctrl + Z / Shift + Z</kbd></div><h3 style="font-size:12px;margin-top:24px">CAD meshing</h3><p style="color:#829cb8;font-size:12px">Run <code>python3 server.py</code> in the project directory and open <code>http://127.0.0.1:8765</code>. Gmsh must be on PATH. Import CAD to see and select its faces. Use Prepare geometry to remove features or split solids; then sweep quadrilateral faces or map prepared blocks to create hex elements.</p><p style="color:#829cb8;font-size:12px">The editor uses consistent units of your choice. Default material values assume mm, N, s and tonne. It prepares and reviews models; run your analysis in an external Nastran-compatible solver.</p>`);
   document.addEventListener('keydown',event=>{
     if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)||$('wb-dialog').open)return;
     if(event.key.toLowerCase()==='f'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();$('btnReset').click();}
   });
   window.addEventListener('webmesh:change',()=>{operationRevision++;refresh(true);});
   $('wb-tree-filter').addEventListener('input',event=>{const term=event.target.value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));});
-  window.WebMeshWorkbench={setTab,openTool,refresh,example:()=>run(example)};
+  window.WebMeshWorkbench={setTab,openTool,refresh,cad:cadWorkspace,example:()=>run(example)};
   $('wb-panel-body').addEventListener('input',invalidatePreview);
   $('flyoutCloseBtn').click();nameProject('Untitled model');
   renderPanel();refresh(true);checkBridge();setInterval(()=>refresh(),700);

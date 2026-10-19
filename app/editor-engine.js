@@ -487,6 +487,8 @@
     }
   }
   var workerCards = {
+    indexedStream: null,
+    indexedLength: -1,
     gridByNid: /* @__PURE__ */ new Map(),
     ctria3ByEid: /* @__PURE__ */ new Map(),
     cquad4ByEid: /* @__PURE__ */ new Map(),
@@ -512,6 +514,8 @@
     workerCards.ctria3ByEid.clear();
     workerCards.cquad4ByEid.clear();
     workerCards.byKey.clear();
+    workerCards.indexedStream = null;
+    workerCards.indexedLength = -1;
     derivedPcompThicknessByPid = /* @__PURE__ */ new Map();
     try {
       if (runtime && runtime.cache && runtime.cache.render) runtime.cache.render.coreSoa = null;
@@ -1177,29 +1181,30 @@
     };
   } catch {
   }
+  function indexWorkerCardRecord(rec) {
+    if (!rec || rec.kind !== "card") return;
+    const name = String(rec.name || "").toUpperCase();
+    const directId = Number(rec.directCardId);
+    let id = Number.isFinite(directId) ? directId : NaN;
+    if (!Number.isFinite(id)) {
+      const tokens = rec.tokens;
+      if (!Array.isArray(tokens) || tokens.length < 2) return;
+      id = parseInt(tokens[1], 10);
+    }
+    if (!Number.isFinite(id)) return;
+    workerCards.byKey.set(`${name}:${id}`, rec);
+    if (name === "GRID") workerCards.gridByNid.set(id, rec);
+    else if (name === "CTRIA3") workerCards.ctria3ByEid.set(id, rec);
+    else if (name === "CQUAD4") workerCards.cquad4ByEid.set(id, rec);
+  }
   function indexWorkerCardStream(cardStream) {
     workerCards.gridByNid.clear();
     workerCards.ctria3ByEid.clear();
     workerCards.cquad4ByEid.clear();
     workerCards.byKey.clear();
-    const toKey = (name, id) => `${String(name).toUpperCase()}:${String(id)}`;
-    for (const rec of cardStream) {
-      if (!rec || rec.kind !== "card") continue;
-      const name = String(rec.name || "").toUpperCase();
-      const directId = Number(rec.directCardId);
-      let id = Number.isFinite(directId) ? directId : NaN;
-      if (!Number.isFinite(id)) {
-        const t = rec.tokens;
-        if (!Array.isArray(t) || t.length < 2) continue;
-        id = parseInt(t[1], 10);
-      }
-      if (!Number.isFinite(id)) continue;
-      const key = toKey(name, id);
-      workerCards.byKey.set(key, rec);
-      if (name === "GRID") workerCards.gridByNid.set(id, rec);
-      else if (name === "CTRIA3") workerCards.ctria3ByEid.set(id, rec);
-      else if (name === "CQUAD4") workerCards.cquad4ByEid.set(id, rec);
-    }
+    for (const rec of cardStream) indexWorkerCardRecord(rec);
+    workerCards.indexedStream = cardStream;
+    workerCards.indexedLength = cardStream.length;
   }
   function parseCardEngine(text, entryName, vfsFiles, parseOptions = null) {
     const w = ensureCardEngineWorker();
@@ -2991,7 +2996,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
         { kind: "card", name: "ENDDATA", fmt: "small", tokens: ["ENDDATA"] }
       ];
       indexWorkerCardStream(workerModel.cardStream);
-    } else if (Array.isArray(workerModel.cardStream)) {
+    } else if (Array.isArray(workerModel.cardStream) && (workerCards.indexedStream !== workerModel.cardStream || workerCards.indexedLength !== workerModel.cardStream.length)) {
       indexWorkerCardStream(workerModel.cardStream);
     }
     if (!workerModel.indexes || typeof workerModel.indexes !== "object") workerModel.indexes = {};
@@ -3287,6 +3292,12 @@ function nearestTemperatureTriangle(point, vertices, values) {
       }
     }
     cs.splice(idx, 0, rec);
+    // Incremental insertion keeps authoring linear in the number of cards.
+    // Rebuilding the entire index on each GRID/element insertion makes a
+    // moderate CAD mesh take minutes to append.
+    indexWorkerCardRecord(rec);
+    workerCards.indexedStream = cs;
+    workerCards.indexedLength = cs.length;
   }
   function deleteWorkerCardByNameId(name, id) {
     ensureWorkerBackedModelReady();
@@ -3314,6 +3325,8 @@ function nearestTemperatureTriangle(point, vertices, values) {
       if (upperName === "GRID") workerCards.gridByNid.delete(idNum);
       else if (upperName === "CTRIA3") workerCards.ctria3ByEid.delete(idNum);
       else if (upperName === "CQUAD4") workerCards.cquad4ByEid.delete(idNum);
+      workerCards.indexedStream = cs;
+      workerCards.indexedLength = cs.length;
     }
     return removed;
   }
@@ -5187,6 +5200,17 @@ This will also delete any elements that reference them.`);
             getIntOrBlank(p.mid4)
           ]);
         }
+      } else if (t === "PSOLID") {
+        upsertSimpleIdCardTokens("PSOLID", pid, [
+          "PSOLID", asIntToken(pid), asIntToken(p.mid), asIntToken(p.cordm ?? 0),
+          p.integ == null ? "" : String(p.integ), p.stress == null ? "" : String(p.stress),
+          p.isop == null ? "" : String(p.isop), p.fctn == null ? "" : String(p.fctn)
+        ]);
+      } else if (t === "PROD") {
+        upsertSimpleIdCardTokens("PROD", pid, [
+          "PROD", asIntToken(pid), asIntToken(p.mid), asFloatToken(p.A ?? p.a),
+          asFloatToken(p.j), asFloatToken(p.c), asFloatToken(p.nsm)
+        ]);
       } else if (t === "PBAR") {
         const toFloatOr = (v, dflt) => Number.isFinite(Number(v)) ? asFloatToken(v) : asFloatToken(dflt);
         upsertSimpleIdCardTokens("PBAR", pid, [
@@ -5369,7 +5393,9 @@ This will also delete any elements that reference them.`);
     };
     const nodeIds = new Set(Array.from(model.nodes.keys()).map((v) => Number(v)));
     const triIds = semanticElementIdSetForType("CTRIA3");
+    const tri6Ids = semanticElementIdSetForType("CTRIA6");
     const quadIds = semanticElementIdSetForType("CQUAD4");
+    const quad8Ids = semanticElementIdSetForType("CQUAD8");
     const hexIds = semanticElementIdSetForType("CHEXA");
     const tetIds = semanticElementIdSetForType("CTETRA");
     const pentaIds = semanticElementIdSetForType("CPENTA");
@@ -5396,7 +5422,9 @@ This will also delete any elements that reference them.`);
       if (!Number.isFinite(id)) return true;
       if (name === "GRID") return nodeIds.has(id);
       if (name === "CTRIA3") return triIds.has(id);
+      if (name === "CTRIA6") return tri6Ids.has(id);
       if (name === "CQUAD4") return quadIds.has(id);
+      if (name === "CQUAD8") return quad8Ids.has(id);
       if (name === "CHEXA") return hexIds.has(id);
       if (name === "CTETRA") return tetIds.has(id);
       if (name === "CPENTA") return pentaIds.has(id);
@@ -10382,10 +10410,42 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     }
   }
   function schemaReadSpecialIdList(vals, fields, listKey, textKey, fieldNames, label) {
-    if (vals && Array.isArray(vals[listKey])) return schemaNormalizePositiveIdList(vals[listKey], label);
-    if (vals && Object.prototype.hasOwnProperty.call(vals, textKey)) return schemaParsePositiveIdList(String(vals[textKey] || ""), label);
     const txt = schemaBuildListTextFromFieldNames(vals, fields, fieldNames);
+    let cached = null;
+    if (vals && Array.isArray(vals[listKey])) cached = schemaNormalizePositiveIdList(vals[listKey], label);
+    else if (vals && Object.prototype.hasOwnProperty.call(vals, textKey)) cached = schemaParsePositiveIdList(String(vals[textKey] || ""), label);
+    const snapshots = vals && vals.__specialIdFieldSnapshots;
+    if (cached && snapshots && Object.prototype.hasOwnProperty.call(snapshots, listKey) && snapshots[listKey] !== txt) {
+      // Editing a scalar G/EID slot updates the visible prefix of a bulk list.
+      // IDs beyond the schema's fixed slots remain in the bulk editor.
+      const updated = schemaMergeUniqueIds(schemaParsePositiveIdList(txt, label), cached.slice(fieldNames.length));
+      if (!vals.__specialIdScalarEdits) vals.__specialIdScalarEdits = {};
+      vals.__specialIdScalarEdits[listKey] = true;
+      return updated;
+    }
+    if (cached) return cached;
     return schemaParsePositiveIdList(txt, label);
+  }
+  function schemaSyncSpecialIdFields(vals, fields, fieldNames, ids, listKey, hostEl) {
+    schemaApplyBulkIdsToFields(vals, fields, fieldNames, ids);
+    if (!vals.__specialIdFieldSnapshots) vals.__specialIdFieldSnapshots = {};
+    vals.__specialIdFieldSnapshots[listKey] = schemaBuildListTextFromFieldNames(vals, fields, fieldNames);
+    if (!hostEl) return;
+    const keys = new Map(fields.filter((f) => fieldNames.includes(f.nameLower)).map((f) => [f.key, f]));
+    for (const input of hostEl.querySelectorAll("input[data-schema-field-key]")) {
+      const field = keys.get(input.dataset.schemaFieldKey);
+      if (field) input.value = schemaGetRawFieldValue(vals, fields, field.nameLower);
+    }
+  }
+  function schemaBindSpecialIdFields(hostEl, fields, fieldNames, update) {
+    const keys = new Set(fields.filter((f) => fieldNames.includes(f.nameLower)).map((f) => f.key));
+    for (const input of hostEl.querySelectorAll("input[data-schema-field-key]")) {
+      if (!keys.has(input.dataset.schemaFieldKey)) continue;
+      input.addEventListener("input", () => { try { update(); } catch {} });
+      input.addEventListener("change", () => {
+        try { update(); } catch (error) { statusMsg(String(error && error.message || error), true); }
+      });
+    }
   }
   function schemaWriteSpecialIdList(vals, listKey, textKey, ids) {
     const norm = schemaNormalizePositiveIdList(ids, "Node list");
@@ -10654,11 +10714,14 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       };
       const write = () => {
         ids = schemaWriteSpecialIdList(vals, listKey, textKey, ids);
+        schemaSyncSpecialIdFields(vals, fields, fieldNames, ids, listKey, hostEl);
         if (touchKey) vals[touchKey] = !!vals[touchKey];
         count.textContent = `${ids.length} node${ids.length === 1 ? "" : "s"}.`;
       };
       const markTouched = () => {
         if (touchKey) vals[touchKey] = true;
+        if (!vals.__specialIdScalarEdits) vals.__specialIdScalarEdits = {};
+        vals.__specialIdScalarEdits[listKey] = false;
       };
       const render = () => {
         chips.innerHTML = "";
@@ -10742,6 +10805,12 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         write();
         render();
       });
+      schemaBindSpecialIdFields(hostEl, fields, fieldNames, () => {
+        ids = schemaReadSpecialIdList(vals, fields, listKey, textKey, fieldNames, label);
+        const blocked = readExcluded();
+        ids = ids.filter((id) => id !== blocked);
+        markTouched(); vals.__specialIdScalarEdits[listKey] = true; write(); render();
+      });
       write();
       render();
     };
@@ -10803,11 +10872,14 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       let ids = schemaReadSpecialIdList(vals, fields, listKey, textKey, fieldNames, label);
       const write = () => {
         ids = schemaWriteSpecialIdList(vals, listKey, textKey, ids);
+        schemaSyncSpecialIdFields(vals, fields, fieldNames, ids, listKey, hostEl);
         if (touchKey) vals[touchKey] = !!vals[touchKey];
         count.textContent = `${ids.length} element${ids.length === 1 ? "" : "s"}.`;
       };
       const markTouched = () => {
         if (touchKey) vals[touchKey] = true;
+        if (!vals.__specialIdScalarEdits) vals.__specialIdScalarEdits = {};
+        vals.__specialIdScalarEdits[listKey] = false;
       };
       const render = () => {
         chips.innerHTML = "";
@@ -10889,6 +10961,10 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         markTouched();
         write();
         render();
+      });
+      schemaBindSpecialIdFields(hostEl, fields, fieldNames, () => {
+        ids = schemaReadSpecialIdList(vals, fields, listKey, textKey, fieldNames, label);
+        markTouched(); vals.__specialIdScalarEdits[listKey] = true; write(); render();
       });
       write();
       render();
@@ -11321,6 +11397,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       }));
     }
     if (vals && Array.isArray(vals.__targetNodeList)) out.target_nodes = vals.__targetNodeList.slice();
+    if (vals && vals.__specialIdScalarEdits) out.target_nodes_scalar_edit = !!vals.__specialIdScalarEdits.__targetNodeList;
     if (vals && Object.prototype.hasOwnProperty.call(vals, "__targetNodeTouched")) out.target_nodes_touched = !!vals.__targetNodeTouched;
     if (vals && Array.isArray(vals.__targetElemList)) out.target_elems = vals.__targetElemList.slice();
     if (vals && Object.prototype.hasOwnProperty.call(vals, "__targetElemTouched")) out.target_elems_touched = !!vals.__targetElemTouched;
@@ -12235,7 +12312,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       const c2 = parsed.get("c2");
       const d2 = floatOrNull(parsed.get("d2"));
       const specialTargets = typeof parsed.getSpecial === "function" ? parsed.getSpecial("target_nodes") : null;
-      const hasBulkTargets = Array.isArray(specialTargets) && specialTargets.length > 0;
+      const hasBulkTargets = Array.isArray(specialTargets) && specialTargets.length > 0 && !(typeof parsed.getSpecial === "function" && parsed.getSpecial("target_nodes_scalar_edit"));
       let targets = [];
       if (Array.isArray(specialTargets) && specialTargets.length > 0) {
         targets = schemaNormalizePositiveIdList(specialTargets, "SPC target GRID list");
@@ -12258,7 +12335,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         }
         return { message: `Updated SPC SID ${sid} on ${normalizedTargets.length} GRID${normalizedTargets.length === 1 ? "" : "s"}.` };
       }
-      if (!hasBulkTargets && Number.isFinite(g1) && Number.isFinite(g2)) {
+      if (!hasBulkTargets && targets.length === 2 && Number.isFinite(g1) && Number.isFinite(g2)) {
         model.spc.push({ sid, g: g1, c: String(c1 || "0"), d: Number.isFinite(d1) ? d1 : 0 });
         model.spc.push({ sid, g: g2, c: String(c2 || "0"), d: Number.isFinite(d2) ? d2 : 0 });
         return { message: `Added SPC (SID ${sid}) on 2 GRIDs.` };
@@ -14669,6 +14746,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
   renderer.localClippingEnabled = false;
   renderer.setClearColor(987413, 1);
   var scene = new Scene();
+  var cadViewport = null;
   scene.background = new Color(987413);
   var skyboxLoader = new TextureLoader();
   var skyboxHdrLoader = typeof HDRLoader === "function" ? new HDRLoader() : null;
@@ -16215,6 +16293,46 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     };
     return { add, result };
   }
+  function semanticSolidFaceKey(nodeIds) {
+    return nodeIds.slice().sort((a, b) => a - b).join(":");
+  }
+  function collectSemanticSolidBoundaryFaces(elems, shown, hiddenElements) {
+    const templates = {
+      hex: { visible: "chexa", corners: 8, faces: [[0,1,2,3],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]], edges: [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]] },
+      tet: { visible: "ctetra", corners: 4, faces: [[0,1,2],[0,1,3],[1,2,3],[0,2,3]], edges: [[0,1],[1,2],[2,0],[0,3],[1,3],[2,3]] },
+      penta: { visible: "cpenta", corners: 6, faces: [[0,1,2],[3,4,5],[0,1,4,3],[1,2,5,4],[2,0,3,5]], edges: [[0,1],[1,2],[2,0],[3,4],[4,5],[5,3],[0,3],[1,4],[2,5]] },
+      pyram: { visible: "cpyram", corners: 5, faces: [[0,1,2,3],[0,1,4],[1,2,4],[2,3,4],[3,0,4]], edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,4],[2,4],[3,4]] }
+    };
+    const faces = new Map();
+    for (const [bucket, shape] of Object.entries(templates)) {
+      if (!shown[shape.visible]) continue;
+      for (const element of elems[bucket] || []) {
+        if (!element || hiddenElements.has(Number(element.eid)) || !Array.isArray(element.n) || element.n.length < shape.corners) continue;
+        for (const slots of shape.faces) {
+          const key = semanticSolidFaceKey(slots.map(i => element.n[i]));
+          const previous = faces.get(key);
+          if (previous) previous.count++;
+          else faces.set(key, { count: 1, element, shape, slots });
+        }
+      }
+    }
+    const boundary = new Set(), edges = new Set();
+    for (const [key, face] of faces) {
+      if (face.count !== 1) continue;
+      boundary.add(key);
+      const { element, shape, slots } = face;
+      for (let i = 0; i < slots.length; i++) {
+        const a = slots[i], b = slots[(i + 1) % slots.length];
+        const mid = element.n.length === shape.corners + shape.edges.length ? shape.edges.findIndex(([x, y]) => x === a && y === b || x === b && y === a) : -1;
+        if (mid < 0) edges.add(semanticSolidFaceKey([element.n[a], element.n[b]]));
+        else {
+          const node = element.n[shape.corners + mid];
+          edges.add(semanticSolidFaceKey([element.n[a], node])); edges.add(semanticSolidFaceKey([node, element.n[b]]));
+        }
+      }
+    }
+    return { faces: boundary, edges };
+  }
   function buildGeometries(preserveView = false) {
     invalidateElementLookup();
     invalidateShellFaceSelectionCache();
@@ -16238,6 +16356,8 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       window.__WEBMESH_EDITOR_RENDER_STATS__.solidTriangleCount = 0;
       window.__WEBMESH_EDITOR_RENDER_STATS__.solidBoundaryTriangles = 0;
       window.__WEBMESH_EDITOR_RENDER_STATS__.solidClipSlabTriangles = 0;
+      window.__WEBMESH_EDITOR_RENDER_STATS__.solidFullFallbackSkipped = false;
+      window.__WEBMESH_EDITOR_RENDER_STATS__.semanticSolidBoundaryFaces = 0;
       window.__WEBMESH_EDITOR_RENDER_STATS__.selectedOverlayTriangles = 0;
       window.__WEBMESH_EDITOR_RENDER_STATS__.selectedOverlaySubsetBoundaryTriangles = 0;
       window.__WEBMESH_EDITOR_RENDER_STATS__.selectedOverlayClipSlabTriangles = 0;
@@ -16891,6 +17011,15 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     const effectiveBoundaryFaces = subsetBoundaryFaces && subsetBoundaryFaces.length >= 6 ? subsetBoundaryFaces : workerBoundaryFaces;
     const hasWorkerBoundaryFaces = Boolean(effectiveBoundaryFaces && typeof effectiveBoundaryFaces.length === "number" && effectiveBoundaryFaces.length >= 6);
     const preferBoundarySolids = !!(coreSoa && coreSoa.active && coreSoa.deferAoS);
+    // Authored/modified solids have no current worker boundary snapshot. Build
+    // their exposed faces from authoritative connectivity, retaining quadratic
+    // midsides instead of dropping all surfaces above the full-face limit.
+    const semanticSolidAuthority = !preferBoundarySolids;
+    // The existing semantic section-view path needs cell faces within the
+    // clipping slab; only cull interior faces for the ordinary exterior view.
+    const semanticBoundary = semanticSolidAuthority && !renderer.localClippingEnabled ? collectSemanticSolidBoundaryFaces(model.elems, visibility, hidden.elems) : null;
+    const isSemanticBoundaryFace = indices => !semanticBoundary || semanticBoundary.faces.has(semanticSolidFaceKey(indices.map(i => model.indexToNid[i])));
+    if (semanticBoundary) window.__WEBMESH_EDITOR_RENDER_STATS__.semanticSolidBoundaryFaces = semanticBoundary.faces.size;
     const estimateFullSolidTriangles = () => {
       let total = 0;
       const scan = (arr, visible, triPerLinear, triPerHighOrder) => {
@@ -16908,10 +17037,10 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       return total;
     };
     const MAX_FULL_SOLID_FALLBACK_TRIANGLES = 5e5;
-    const fullSolidFallbackTriangles = hasWorkerBoundaryFaces ? 0 : estimateFullSolidTriangles();
-    const fullSolidFallbackTooLarge = fullSolidFallbackTriangles > MAX_FULL_SOLID_FALLBACK_TRIANGLES;
-    const skipSolids = preferBoundarySolids && hasWorkerBoundaryFaces || fullSolidFallbackTooLarge;
-    if (fullSolidFallbackTooLarge) {
+    const fullSolidFallbackTriangles = preferBoundarySolids && hasWorkerBoundaryFaces ? 0 : estimateFullSolidTriangles();
+    const fullSolidFallbackTooLarge = !semanticSolidAuthority && fullSolidFallbackTriangles > MAX_FULL_SOLID_FALLBACK_TRIANGLES;
+    const skipSolids = preferBoundarySolids && hasWorkerBoundaryFaces || fullSolidFallbackTooLarge && !semanticBoundary;
+    if (fullSolidFallbackTooLarge && !semanticBoundary) {
       statusMsg(`Skipped full solid-face fallback (${fullSolidFallbackTriangles} triangles). Boundary extraction is required for large solid models.`, true);
       try {
         window.__WEBMESH_EDITOR_RENDER_STATS__ = window.__WEBMESH_EDITOR_RENDER_STATS__ || {};
@@ -16936,8 +17065,9 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         contourNodeColors[3 * nodeIndex + 2]
       ];
     };
-    const addSolidTri = (idxA, idxB, idxC, elem) => {
+    const addSolidTri = (idxA, idxB, idxC, elem, boundaryPart = false) => {
       if (skipSolids) return;
+      if (!boundaryPart && !isSemanticBoundaryFace([idxA, idxB, idxC])) return;
       const p1 = pOf(idxA), p2 = pOf(idxB), p3 = pOf(idxC);
       let cr, cg, cb;
       if (usePropColors) {
@@ -16988,14 +17118,21 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       solidFaceToElem.push({ etype: elem.type, eid: elem.eid, pid: elem.pid, nodes: elem.n.slice() });
     };
     const addSolidQuad = (idxA, idxB, idxC, idxD, elem) => {
-      addSolidTri(idxA, idxB, idxC, elem);
-      addSolidTri(idxA, idxC, idxD, elem);
+      if (!isSemanticBoundaryFace([idxA, idxB, idxC, idxD])) return;
+      addSolidTri(idxA, idxB, idxC, elem, true);
+      addSolidTri(idxA, idxC, idxD, elem, true);
     };
     const solidEdgePositions = [];
+    const emittedSemanticSolidEdges = new Set();
     const useBoundaryFaceEdges = preferBoundarySolids;
     const addSolidEdge = (idxA, idxB) => {
       if (useBoundaryFaceEdges) return;
       if (idxA === void 0 || idxB === void 0) return;
+      if (semanticBoundary) {
+        const edgeKey = semanticSolidFaceKey([model.indexToNid[idxA], model.indexToNid[idxB]]);
+        if (!semanticBoundary.edges.has(edgeKey) || emittedSemanticSolidEdges.has(edgeKey)) return;
+        emittedSemanticSolidEdges.add(edgeKey);
+      }
       solidEdgePositions.push(
         pos[3 * idxA],
         pos[3 * idxA + 1],
@@ -17020,6 +17157,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
           const ok = midIdx.every((v) => v !== void 0);
           if (ok) {
             const quad8 = (a, ab, b, bc, c, cd, d, da) => {
+              if (!isSemanticBoundaryFace([a, b, c, d])) return;
               const pA = pOf(a), pB = pOf(b), pC = pOf(c), pD = pOf(d);
               const pAB = pOf(ab), pBC = pOf(bc), pCD = pOf(cd), pDA = pOf(da);
               const pO = quadraticQuadCenter([pA, pB, pC, pD], [pAB, pBC, pCD, pDA]);
@@ -17129,10 +17267,11 @@ Press OK to override warnings and continue export, or Cancel to abort.`
           const ok = midIdx.every((v) => v !== void 0);
           if (ok) {
             const tri6 = (a, ab, b, bc, c, ca) => {
-              addSolidTri(a, ab, ca, e);
-              addSolidTri(ab, b, bc, e);
-              addSolidTri(ca, bc, c, e);
-              addSolidTri(ab, bc, ca, e);
+              if (!isSemanticBoundaryFace([a, b, c])) return;
+              addSolidTri(a, ab, ca, e, true);
+              addSolidTri(ab, b, bc, e, true);
+              addSolidTri(ca, bc, c, e, true);
+              addSolidTri(ab, bc, ca, e, true);
             };
             tri6(idx[0], midIdx[0], idx[1], midIdx[1], idx[2], midIdx[2]);
             tri6(idx[0], midIdx[0], idx[1], midIdx[4], idx[3], midIdx[3]);
@@ -18897,39 +19036,45 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     }, 3e3);
   }
   function fitView() {
-    if (!model.bbox) return;
-    const box = model.bbox.clone();
-    if (box.isEmpty()) {
-      if (model.nodes.size > 0) {
-        const firstNodePos = nodePosition(0);
-        box.set(firstNodePos, firstNodePos);
-      } else {
-        box.set(new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5));
-      }
-    }
-    if (box.min.equals(box.max)) {
-      box.expandByScalar(0.5);
-    }
-    const size = box.getSize(new Vector3()).length();
+    let box = workbenchViewportBounds(true);
+    if (!box || box.isEmpty()) box = new Box3(new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5));
+    if (box.min.equals(box.max)) box.expandByScalar(0.5);
+    camera.updateMatrixWorld(true);
+    // Project the bounds into the current camera frame. Using the model
+    // diagonal as viewport height crops wide models in portrait layouts and
+    // resetting to an isometric position discards the user's current view.
+    const outward = camera.getWorldDirection(new Vector3()).negate();
+    const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const screenUp = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    const size = box.getSize(new Vector3());
+    const extent = axis => Math.abs(axis.x) * size.x + Math.abs(axis.y) * size.y + Math.abs(axis.z) * size.z;
+    const aspect = Math.max(1e-6, Number(canvas.clientWidth) / Math.max(1, Number(canvas.clientHeight)));
+    const halfHeight = Math.max(1e-6, extent(screenUp), extent(right) / aspect) * 0.625;
+    const tangent = Math.tan((camera.isPerspectiveCamera ? camera.fov : perspectiveCamera.fov) * Math.PI / 360);
+    const distance = extent(outward) * 0.5 + halfHeight / Math.max(1e-6, tangent);
     const center = box.getCenter(new Vector3());
     controls.target.copy(center);
-    const fitOffset = 1.25;
-    const effectiveSize = size * fitOffset;
-    const aspect3 = canvas.clientWidth / canvas.clientHeight;
-    const fov2 = perspectiveCamera.fov * (Math.PI / 180);
-    const distance = camera.isOrthographicCamera ? effectiveSize / 2 / Math.tan(Math.PI / 18) : effectiveSize / 2 / Math.tan(fov2 / 2);
-    camera.position.copy(controls.target).add(new Vector3(1, 1, 1).normalize().multiplyScalar(distance));
+    camera.position.copy(center).add(outward.multiplyScalar(distance));
+    camera.zoom = 1;
     if (camera.isOrthographicCamera) {
-      const h = effectiveSize * 0.5;
-      camera.left = -h * aspect3;
-      camera.right = h * aspect3;
-      camera.top = h;
-      camera.bottom = -h;
-      camera.zoom = 1;
-    }
+      camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect;
+      camera.top = halfHeight; camera.bottom = -halfHeight;
+    } else camera.aspect = aspect;
     camera.updateProjectionMatrix();
     controls.update();
+    camera.updateMatrixWorld(true);
     updateCameraClipping();
+  }
+  function workbenchViewportBounds(includePreview = false) {
+    const haveModel = !model.nodes || model.nodes.size > 0;
+    let box = haveModel && model.bbox && !model.bbox.isEmpty() ? model.bbox.clone() : null;
+    const cadBounds = cadViewport ? cadViewport.getBounds() : null;
+    if (cadBounds) box = box ? box.union(cadBounds) : cadBounds;
+    if (includePreview && workbenchPreview) {
+      const previewBox = new Box3().setFromObject(workbenchPreview);
+      if (!previewBox.isEmpty()) box = box ? box.union(previewBox) : previewBox;
+    }
+    return box;
   }
   function workbenchSetView(direction = "iso") {
     // Conventional engineering views use the global Z-up model frame.
@@ -18946,11 +19091,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     const up = new Vector3(...views[key][1]);
     const right = up.clone().cross(outward).normalize();
     const screenUp = outward.clone().cross(right).normalize();
-    let box = model.bbox && !model.bbox.isEmpty() ? model.bbox.clone() : null;
-    if (workbenchPreview) {
-      const previewBox = new Box3().setFromObject(workbenchPreview);
-      if (!previewBox.isEmpty()) box = box ? box.union(previewBox) : previewBox;
-    }
+    let box = workbenchViewportBounds(true);
     if (!box) box = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
     const center = box.getCenter(new Vector3());
     const size = box.getSize(new Vector3());
@@ -19097,8 +19238,9 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     select.disabled = subcases.length === 0;
   }
   function updateCameraClipping() {
-    if (!model.bbox || model.bbox.isEmpty()) return;
-    const box = model.bbox.clone();
+    const box = workbenchViewportBounds(true);
+    if (!box) return;
+    camera.updateMatrixWorld(true);
     box.union(new Box3().setFromObject(axesGroup));
     const viewMatrix = camera.matrixWorldInverse;
     const corners = [
@@ -21573,6 +21715,11 @@ ${formatRanges(v.ranges, 200)}`;
       addPolygonPoint(ev);
       return;
     }
+    if (cadViewport && cadViewport.isPicking()) {
+      if (window.__WEBMESH_WORKBENCH_BUSY__) return;
+      cadViewport.pickAt(ev.clientX, ev.clientY, { additive: !!(ev.shiftKey || ev.ctrlKey || ev.metaKey) });
+      return;
+    }
     syncSelectModeFromUI();
     if (contextMenu && contextMenu.style.display === "block") {
       contextMenu.style.display = "none";
@@ -21941,6 +22088,16 @@ ${formatRanges(v.ranges, 200)}`;
       polygonIgnoreClickUntil = Date.now() + 250;
       return;
     }
+    if (cadViewport) {
+      const hit = cadViewport.hitAt(ev.clientX, ev.clientY, "face");
+      if (hit) {
+        controls.target.set(...hit.point);
+        suppressPivotResetUntil = Date.now() + 300;
+        controls.update();
+        statusMsg("Rotation point set on CAD geometry.");
+        return;
+      }
+    }
     const rect = canvas.getBoundingClientRect();
     mouse.x = (ev.clientX - rect.left) / rect.width * 2 - 1;
     mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -22094,6 +22251,7 @@ ${formatRanges(v.ranges, 200)}`;
   var hoverLastEv = null;
   function onHoverMove(ev) {
     if (!ev) return;
+    if (cadViewport && cadViewport.isPicking()) { clearHoverOutline(); return; }
     if (selectMode !== "element") {
       clearHoverOutline();
       return;
@@ -27947,7 +28105,7 @@ ${formatRanges(v.ranges, 500)}`;
       cancelPolygonSelection();
     }
     if (e.key === "Delete") {
-      if (busy || isEditableTextTarget(document.activeElement)) return;
+      if (busy || cadViewport && cadViewport.isPicking() || isEditableTextTarget(document.activeElement)) return;
       const mode = String(selectionManager && selectionManager.state ? selectionManager.state.mode || selectMode || "node" : selectMode || "node");
       if (!["node", "element", "load", "constraint"].includes(mode)) return;
       if (mode === "node" && selection.nodes.size === 0 || mode === "element" && selection.elems.size === 0 || mode === "load" && selection.loads.size === 0 || mode === "constraint" && selection.constraints.size === 0) return;
@@ -28146,6 +28304,7 @@ ${formatRanges(v.ranges, 500)}`;
     }
     try {
       clearScene();
+      if (cadViewport) cadViewport.dispose();
     } catch {
     }
     try {
@@ -28264,7 +28423,12 @@ ${formatRanges(v.ranges, 500)}`;
     const expanded = selectedOnly ? getExpandedSelection() : null;
     const chosenIds = expanded ? new Set(Array.from(expanded.selElems, (e) => Number(e.eid))) : null;
     const elements = all.filter((e) => !chosenIds || chosenIds.has(Number(e.eid))).map((e) => ({
-      id: Number(e.eid), type: String(e.type), pid: Number(e.pid) || 0, nodes: collectSemanticElementNodeIds(e)
+      id: Number(e.eid), type: String(e.type), pid: Number(e.pid) || 0,
+      nodes: Array.isArray(e.n) ? e.n.slice() : collectSemanticElementNodeIds(e),
+      ...(e.orient ? { orient: structuredClone(e.orient) } : {}),
+      ...(e.type === "RBE2" ? { cm: String(e.cm || "123456") } : {}),
+      ...(e.type === "CBUSH" ? Object.fromEntries(["cid", "s", "ocid", "si"].filter(key => e[key] != null).map(key => [key, e[key]])) : {}),
+      ...(e.webmeshOwner ? { ownerTag: e.webmeshOwner } : {})
     }));
     const needed = expanded ? expanded.selNodes : new Set(model.nodes.keys());
     for (const e of elements) for (const id of e.nodes) needed.add(id);
@@ -28276,6 +28440,33 @@ ${formatRanges(v.ranges, 500)}`;
     });
     return { nodes, elements };
   }
+  function workbenchOwnerTag(raw) {
+    const ownerTag = raw == null ? "" : String(raw);
+    if (!ownerTag.trim() || ownerTag.length > 256) throw new Error("Mesh ownerTag must be a nonempty identifier up to 256 characters.");
+    return ownerTag;
+  }
+  function workbenchGetMeshOwner(rawOwnerTag) {
+    const ownerTag = workbenchOwnerTag(rawOwnerTag);
+    const elements = [], nodes = new Set(), properties = new Set();
+    for (const e of collectAuthoritativeElementRefs()) {
+      if (e.webmeshOwner !== ownerTag) continue;
+      elements.push(Number(e.eid)); properties.add(Number(e.pid));
+      for (const nid of collectSemanticElementNodeIds(e)) nodes.add(nid);
+    }
+    return { ownerTag, elements, nodes: Array.from(nodes), properties: Array.from(properties) };
+  }
+  async function workbenchBindMeshOwner(rawOwnerTag, elementIds) {
+    const ownerTag = workbenchOwnerTag(rawOwnerTag);
+    if (!Array.isArray(elementIds) || elementIds.some(id => !Number.isInteger(Number(id)) || Number(id) <= 0 || Number(id) > 2147483647)) throw new Error("Mesh ownership requires an array of positive element IDs.");
+    await ensureRichEditableSemanticElementAuthority("workbench-restore-owner");
+    const requested = new Set(elementIds.map(Number));
+    const elements = collectAuthoritativeElementRefs().filter(e => requested.has(Number(e.eid)));
+    if (elements.some(e => e.webmeshOwner && e.webmeshOwner !== ownerTag)) throw new Error("The restored mesh includes elements owned by another CAD source.");
+    // Ownership is restored alongside a project, before any authoring action.
+    // It is metadata, so the next history baseline includes it automatically.
+    for (const e of elements) e.webmeshOwner = ownerTag;
+    return workbenchGetMeshOwner(ownerTag);
+  }
   async function workbenchAppendMesh(mesh, options = {}) {
     if (!mesh || !Array.isArray(mesh.nodes) || !Array.isArray(mesh.elements)) throw new Error("A mesh needs nodes and elements arrays.");
     if (!mesh.elements.length) throw new Error("Generate a nonempty mesh first.");
@@ -28286,37 +28477,107 @@ ${formatRanges(v.ranges, 500)}`;
       return value;
     };
     const finite = (raw, label) => { const value = Number(raw); if (!Number.isFinite(value)) throw new Error(`${label} must be finite.`); return value; };
+    const ownerTag = options.ownerTag == null ? null : workbenchOwnerTag(options.ownerTag);
+    if (options.replaceOwner && !ownerTag) throw new Error("Replacing a mesh owner requires ownerTag.");
+    if (options.replaceElements != null && !Array.isArray(options.replaceElements)) throw new Error("replaceElements must be an array of element IDs.");
+    const requestedReplacements = new Set((options.replaceElements || []).map(value => validId(value, "Replacement element ID")));
+    const previousElements = collectAuthoritativeElementRefs();
+    const replacements = new Set();
+    for (const e of previousElements) {
+      const eid = Number(e.eid), requested = requestedReplacements.has(eid);
+      if (ownerTag && requested && e.webmeshOwner && e.webmeshOwner !== ownerTag) throw new Error(`Element ${eid} belongs to another CAD source and cannot be replaced.`);
+      // An undo can free IDs that are later reused by unrelated geometry. A
+      // stale CAD generation list must never adopt or delete those elements.
+      if (ownerTag ? e.webmeshOwner === ownerTag && (options.replaceOwner || requested) : requested) replacements.add(eid);
+    }
+    const removedElements = previousElements.filter(e => replacements.has(Number(e.eid)));
+    for (const loads of Object.values(model.loads)) for (const load of loads || []) {
+      const refs = [load.eid, ...(Array.isArray(load.eids) ? load.eids : [])].map(Number);
+      if (refs.some(eid => replacements.has(eid))) throw new Error("The previous mesh has element-based loads. Remove or reassign those loads before remeshing.");
+    }
     const newNodes = new Map();
     for (const row of mesh.nodes) {
       const id = validId(row.id, "Node ID");
       if (model.nodes.has(id) || newNodes.has(id)) throw new Error(`Node ID ${id} already exists. Regenerate the mesh to refresh IDs.`);
       newNodes.set(id, { x: finite(row.x, "X"), y: finite(row.y, "Y"), z: finite(row.z, "Z"), cp: 0, cd: 0, ps: "" });
     }
-    const connectivity = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CROD: [2] };
+    const connectivity = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CROD: [2], CBUSH: [2], RBE2: [] };
+    const providedProperties = new Map();
+    if (mesh.properties != null && !Array.isArray(mesh.properties)) throw new Error("Mesh properties must be an array.");
+    for (const p of mesh.properties || []) {
+      const pid = validId(p.id, "Property ID");
+      if (String(p.type || "").toUpperCase() !== "PBUSH" || !Array.isArray(p.stiffness) || p.stiffness.length !== 6) throw new Error("Generated connector properties require PBUSH and six stiffnesses.");
+      const stiffness = p.stiffness.map((value, i) => finite(value, `K${i + 1}`));
+      if (stiffness.some(value => value < 0) || !stiffness.some(value => value > 0)) throw new Error("PBUSH stiffnesses must be nonnegative with at least one positive value.");
+      if (providedProperties.has(pid)) throw new Error(`Property ID ${pid} is repeated.`);
+      const record = { pid, type: "PBUSH", K: "K", ...Object.fromEntries(stiffness.map((value, i) => [`K${i + 1}`, value])) };
+      const previous = model.properties.get(pid);
+      if (previous && (previous.type !== "PBUSH" || stiffness.some((value, i) => Number(previous[`K${i + 1}`] ?? previous[`k${i + 1}`] ?? 0) !== value))) throw new Error(`Property ${pid} already exists with different connector stiffnesses.`);
+      providedProperties.set(pid, record);
+    }
     const existingElements = new Set([...getAllElementIds(), ...model.masses.keys()]);
     const newElementIds = new Set();
     const propertyTypes = new Map();
     const records = mesh.elements.map((row) => {
       const eid = validId(row.id, "Element ID");
-      if (existingElements.has(eid) || newElementIds.has(eid)) throw new Error(`Element ID ${eid} already exists. Regenerate the mesh to refresh IDs.`);
+      if (model.masses.has(eid) || existingElements.has(eid) && !replacements.has(eid) || newElementIds.has(eid)) throw new Error(`Element ID ${eid} already exists. Regenerate the mesh to refresh IDs.`);
       newElementIds.add(eid);
       const inputType = String(row.type || "").toUpperCase();
       const type = ({ CHEXA20: "CHEXA", CHEXA8: "CHEXA", CTETRA10: "CTETRA", CTETRA4: "CTETRA" })[inputType] || inputType;
       const expected = connectivity[type];
       if (!expected) throw new Error(`Unsupported generated element type ${inputType}.`);
       const nodes = Array.isArray(row.nodes) ? row.nodes.map((id) => validId(id, "Connectivity node")) : [];
-      if (!expected.includes(nodes.length)) throw new Error(`${type} needs ${expected.join(" or ")} nodes.`);
+      if (type === "RBE2" ? nodes.length < 2 : !expected.includes(nodes.length)) throw new Error(`${type} needs ${type === "RBE2" ? "an independent node and dependent" : expected.join(" or ")} nodes.`);
       if (new Set(nodes).size !== nodes.length) throw new Error(`${type} ${eid} repeats a node.`);
       for (const id of nodes) if (!newNodes.has(id) && !model.nodes.has(id)) throw new Error(`${type} ${eid} references missing node ${id}.`);
+      if (type === "RBE2") {
+        const cm = String(row.cm ?? "123");
+        if (!/^[1-6]+$/.test(cm) || new Set(cm).size !== cm.length) throw new Error("RBE2 dependent components must contain unique digits from 1 to 6.");
+        return { eid, type, gn: nodes[0], cm, deps: nodes.slice(1), ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
+      }
       const pid = validId(row.pid, "Property ID");
-      const propertyType = type === "CHEXA" || type === "CTETRA" ? "PSOLID" : type === "CROD" ? "PROD" : "PSHELL";
+      const propertyType = type === "CHEXA" || type === "CTETRA" ? "PSOLID" : type === "CROD" ? "PROD" : type === "CBUSH" ? "PBUSH" : "PSHELL";
       if (propertyTypes.has(pid) && propertyTypes.get(pid) !== propertyType) throw new Error(`Property ${pid} is shared by incompatible element dimensions.`);
       propertyTypes.set(pid, propertyType);
-      const old = model.properties.get(pid);
+      const old = model.properties.get(pid) || providedProperties.get(pid);
       if (old && old.type !== propertyType && !(propertyType === "PSHELL" && old.type === "PCOMP")) throw new Error(`Property ${pid} is ${old.type}; ${type} needs ${propertyType}.`);
-      return { eid, pid, type, n: nodes };
+      if (type === "CBUSH") {
+        if (!old) throw new Error(`CBUSH ${eid} needs an existing or supplied PBUSH property ${pid}.`);
+        const orientation = row.orient && row.orient.kind === "x" && row.orient.x;
+        if (!Array.isArray(orientation) || orientation.length !== 3) throw new Error("Generated CBUSH requires a three-component orientation vector.");
+        const x = orientation.map(value => finite(value, "CBUSH orientation"));
+        const a = newNodes.get(nodes[0]) || model.nodes.get(nodes[0]), b = newNodes.get(nodes[1]) || model.nodes.get(nodes[1]);
+        const line = [b.x - a.x, b.y - a.y, b.z - a.z];
+        const cross = [line[1] * x[2] - line[2] * x[1], line[2] * x[0] - line[0] * x[2], line[0] * x[1] - line[1] * x[0]];
+        if (!Math.hypot(...line) || Math.hypot(...cross) <= Math.hypot(...line) * Math.hypot(...x) * 1e-12) throw new Error("CBUSH orientation must be a nonzero vector not parallel to the bolt axis.");
+        return { eid, pid, type, n: nodes, orient: { kind: "x", x }, cid: null, s: 0.5, ocid: -1, ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
+      }
+      return { eid, pid, type, n: nodes, ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
     });
-    const missingProperties = Array.from(propertyTypes).filter(([id]) => !model.properties.has(id));
+    const rigidDependent = new Map();
+    const reserveDependent = (nid, cm, label) => {
+      if (!rigidDependent.has(nid)) rigidDependent.set(nid, new Set());
+      const existing = rigidDependent.get(nid);
+      for (const component of cm) { if (existing.has(component)) throw new Error(`${label}: GRID ${nid} component ${component} is already constrained or dependent.`); existing.add(component); }
+    };
+    for (const e of previousElements) if (e.type === "RBE2" && !replacements.has(Number(e.eid))) for (const nid of e.deps || []) {
+      if (!rigidDependent.has(nid)) rigidDependent.set(nid, new Set());
+      for (const c of String(e.cm || "123456")) rigidDependent.get(nid).add(c);
+    }
+    for (const spc of model.spc || []) {
+      const nid = Number(spc.g ?? spc.nid); if (!rigidDependent.has(nid)) rigidDependent.set(nid, new Set());
+      for (const c of String(spc.c ?? spc.components ?? "")) rigidDependent.get(nid).add(c);
+    }
+    for (const spc of model.spc1 || []) for (const nid of spc.nodes || []) {
+      if (!rigidDependent.has(nid)) rigidDependent.set(nid, new Set());
+      for (const c of String(spc.components || "")) rigidDependent.get(nid).add(c);
+    }
+    for (const e of records) if (e.type === "RBE2") for (const nid of e.deps) {
+      const ps = String((newNodes.get(nid) || model.nodes.get(nid)).ps || "");
+      if (Array.from(e.cm).some(c => ps.includes(c))) throw new Error(`RBE2 ${e.eid}: GRID ${nid} has overlapping permanent constraints.`);
+      reserveDependent(nid, e.cm, `RBE2 ${e.eid}`);
+    }
+    const missingProperties = Array.from(propertyTypes).filter(([id]) => !model.properties.has(id) && !providedProperties.has(id));
     let material = null;
     if (missingProperties.length) {
       const input = options.material || {};
@@ -28332,6 +28593,27 @@ ${formatRanges(v.ranges, 500)}`;
       if (!(area > 0)) throw new Error("Rod area must be positive.");
       for (const entry of missingProperties) entry.push(entry[1] === "PSHELL" ? { type: "PSHELL", pid: entry[0], mid1: mid, mid2: mid, t: thickness } : entry[1] === "PROD" ? { type: "PROD", pid: entry[0], mid, A: area } : { type: "PSOLID", pid: entry[0], mid });
     }
+    const orphanNodes = new Set(removedElements.flatMap(e => collectSemanticElementNodeIds(e)));
+    const protect = values => { for (const value of values) orphanNodes.delete(Number(value)); };
+    for (const e of previousElements) if (!replacements.has(Number(e.eid))) protect(collectSemanticElementNodeIds(e));
+    for (const e of records) protect(collectSemanticElementNodeIds(e));
+    for (const loads of Object.values(model.loads)) for (const load of loads || []) protect([load.nid, load.g, load.g1, load.g34, ...(load.nodes || [])]);
+    for (const constraint of model.spc || []) protect([constraint.g, constraint.nid]);
+    for (const constraint of model.spc1 || []) protect(constraint.nodes || []);
+    for (const coord of model.coords.values()) protect(coord.nodes || []);
+    for (const mass of model.masses.values()) protect([mass.g, mass.nid, ...(mass.nodes || [])]);
+    for (const temperature of model.temperatures || []) protect(temperature.nodeIds || []);
+    for (const nid of Array.from(orphanNodes)) {
+      const node = model.nodes.get(nid);
+      if (node && (String(node.ps || "").trim() || Number(node.seid || 0) !== 0)) orphanNodes.delete(nid);
+    }
+    // Unknown solver cards may contain node references (for example SUPORT or
+    // MPC). Keeping an extra GRID is preferable to invalidating such a card.
+    if (removedElements.length && workerModel && Array.isArray(workerModel.cardStream)) {
+      for (const card of workerModel.cardStream) {
+        if (card && card.kind === "card" && semanticFamilyForCardName(card.name) === "mixed") protect((card.tokens || []).slice(1));
+      }
+    }
     historyManager.recordAction(() => {
       markCoreNodeSnapshotDirty();
       // Generated entities are now authored in the semantic model. The import
@@ -28339,6 +28621,17 @@ ${formatRanges(v.ranges, 500)}`;
       if (model.coreSoa) {
         model.coreSoa.active = false;
         clearRuntimeRenderCoordinateCache();
+      }
+      if (removedElements.length) {
+        for (const key of Object.keys(model.elems)) model.elems[key] = model.elems[key].filter(e => !replacements.has(Number(e.eid)));
+        for (const eid of replacements) {
+          selection.elems.delete(eid);
+          if (hidden && hidden.elems) hidden.elems.delete(eid);
+        }
+        for (const nid of orphanNodes) {
+          model.nodes.delete(nid); selection.nodes.delete(nid);
+          if (hidden && hidden.nodes) hidden.nodes.delete(nid);
+        }
       }
       for (const [id, node] of newNodes) model.nodes.set(id, node);
       for (const record of records) {
@@ -28348,6 +28641,7 @@ ${formatRanges(v.ranges, 500)}`;
       }
       if (material) model.materials.set(material.mid, material);
       for (const [id, , prop] of missingProperties) model.properties.set(id, prop);
+      for (const [id, prop] of providedProperties) if (!model.properties.has(id)) model.properties.set(id, prop);
       rebuildNodeIndexFromModel();
       invalidateElementLookup();
       refreshSemanticRelationshipIndexes("workbench-append");
@@ -28355,11 +28649,11 @@ ${formatRanges(v.ranges, 500)}`;
       syncWorkerFromEditorModel();
       refreshCounts();
       populateModelTree();
-      statusMsg(`Added ${newNodes.size} nodes and ${records.length} elements.`);
-    }, { kind: "generate-mesh", family: "mixed", summary: options.label || "Generate mesh" });
+      statusMsg(`${removedElements.length ? `Replaced ${removedElements.length} elements; added` : "Added"} ${newNodes.size} nodes and ${records.length} elements.`);
+    }, { kind: removedElements.length ? "replace-mesh" : "generate-mesh", family: "mixed", summary: options.label || (removedElements.length ? "Replace CAD mesh" : "Generate mesh") });
     workbenchPreviewMesh(null);
     fitView();
-    return workbenchState();
+    return { ...workbenchState(), operation: { addedNodes: Array.from(newNodes.keys()), addedElements: records.map(e => e.eid), replacedElements: removedElements.map(e => e.eid), removedNodes: Array.from(orphanNodes), ownerTag } };
   }
   var workbenchPreview = null;
   function workbenchPreviewMesh(mesh) {
@@ -28374,11 +28668,11 @@ ${formatRanges(v.ranges, 500)}`;
       CTRIA3: [[0, 1], [1, 2], [2, 0]], CTRIA6: [[0, 3], [3, 1], [1, 4], [4, 2], [2, 5], [5, 0]],
       CQUAD4: [[0, 1], [1, 2], [2, 3], [3, 0]], CQUAD8: [[0, 4], [4, 1], [1, 5], [5, 2], [2, 6], [6, 3], [3, 7], [7, 0]],
       CTETRA: [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]],
-      CHEXA: [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]], CROD: [[0, 1]]
+      CHEXA: [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]], CROD: [[0, 1]], CBUSH: [[0, 1]]
     };
     for (const e of mesh.elements) {
       const type = String(e.type).replace(/^(CHEXA)(8|20)$|^(CTETRA)(4|10)$/, (_, h, a, t) => h || t);
-      const edges = patterns[type] || [];
+      const edges = type === "RBE2" ? e.nodes.slice(1).map((_, i) => [0, i + 1]) : patterns[type] || [];
       const highOrder = (type === "CHEXA" && e.nodes.length === 20) || (type === "CTETRA" && e.nodes.length === 10);
       const offset = type === "CHEXA" ? 8 : 4;
       const segments = highOrder ? edges.flatMap(([a, b], i) => [[a, offset + i], [offset + i, b]]) : edges;
@@ -28403,10 +28697,31 @@ ${formatRanges(v.ranges, 500)}`;
       model.bbox = oldBox;
     }
   }
+  if (window.WebMeshCadViewport) {
+    cadViewport = window.WebMeshCadViewport.createCadViewport({
+      THREE: window.WebMeshThree, scene, getCamera: () => camera,
+      getViewport: () => canvas.getBoundingClientRect(),
+      onSelection: (detail) => window.dispatchEvent(new CustomEvent("webmesh:cad-selection", { detail })),
+      onChange: (reason) => emitWorkbenchChange(reason)
+    });
+  }
   window.WebMeshAPI = Object.freeze({
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
+    bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner,
     appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, fitView,
     setView: workbenchSetView, setTheme: workbenchSetTheme,
+    setCadGeometry: (preview, options = {}) => {
+      if (!cadViewport) throw new Error("CAD renderer unavailable. Restore app/cad-viewport.js and reload.");
+      const result = cadViewport.load(preview, options);
+      if (options.fit !== false) workbenchSetView("iso");
+      return result;
+    },
+    clearCadGeometry: () => { if (cadViewport) cadViewport.clear(); },
+    setCadVisible: (visible) => cadViewport ? cadViewport.setVisible(visible) : null,
+    setCadSelectionMode: (mode) => cadViewport ? cadViewport.setMode(mode) : null,
+    selectCad: (selection) => cadViewport ? cadViewport.select(selection) : null,
+    getCadState: () => cadViewport ? cadViewport.getState() : { loaded: false, visible: false, mode: "none", faces: [], edges: [], counts: { faces: 0, edges: 0, triangles: 0, segments: 0 } },
+    setCadSplitPlane: (plane) => cadViewport ? cadViewport.setSplitPlane(plane) : null,
     loadDeck: async (text, name = "model.bdf") => {
       const content = String(text || "");
       if (!/(?:^|\n)\s*(?:BEGIN\s+BULK|GRID[,*\s]|CEND\b)/i.test(content)) throw new Error("The project contains no recognizable Nastran model deck.");

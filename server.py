@@ -6,9 +6,9 @@ or supplied using --gmsh. The server deliberately binds only to IPv4 loopback.
 Uploaded GEO programs are not accepted: CAD is read from fixed-name data files,
 and every GEO command is generated here from validated numeric parameters.
 
-The structured hex path is transfinite, so CAD must already consist of compatible
-six-face blocks with four-sided faces. It is not an automatic hex decomposition
-service. Quad meshing uses recombination followed by all-quad subdivision. Requests
+The legacy /api/mesh hex path uses transfinite six-face blocks. Editable CAD
+sessions additionally support verified source-face and layered column sweeps.
+Quad meshing uses recombination followed by all-quad subdivision. Requests
 are rejected if the result has any unexpected top-dimensional element type.
 
 Gmsh options, MSH 2.2 layout, and the source of the node-order permutations:
@@ -27,15 +27,19 @@ from collections import Counter
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import importlib.util
 import math
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from urllib.parse import unquote, urlsplit
+
+from cad_sessions import CadError, CadSessions
 
 
 ROOT = Path(__file__).resolve().parent
@@ -100,11 +104,14 @@ def health(gmsh):
                 version = (result.stdout + result.stderr).strip()[:160]
         except (OSError, subprocess.TimeoutExpired):
             pass
+    kernel = importlib.util.find_spec("gmsh") is not None or any((Path(folder) / "gmsh.py").is_file()
+                for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
     return {"ok": True, "gmsh": {"available": version is not None, "version": version},
+            "cad": {"available": kernel, "operations": ["preview", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped"]},
             "formats": ["step", "iges", "brep", "stl"], "topologies": ["tri", "quad", "tet", "hex"],
             "orders": [1, 2], "limits": {"cadBytes": MAX_CAD, "timeoutSeconds": MESH_TIMEOUT,
                                         "meshBytes": MAX_MESH, "residentBytes": MAX_RSS},
-            "notes": ["Hex meshing requires compatible transfinite CAD blocks.",
+            "notes": ["Hex meshing requires compatible mapped blocks, a verified sweep, or prepared common-base columns.",
                       "STL remeshing requires a manifold surface; volume meshing requires a closed shell.",
                       "Executable .geo files are intentionally not accepted."]}
 
@@ -290,7 +297,7 @@ def watch_process(process, directory):
     next_rss_check = 0
     try:
         while True:
-            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG)):
+            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG), ("worker-result.json", MAX_MESH)):
                 try:
                     size = (directory / filename).stat().st_size
                 except FileNotFoundError:
@@ -356,6 +363,37 @@ def generate_mesh(data, gmsh):
                 "stats": {"nodes": len(mesh["nodes"]), "elements": len(mesh["elements"]),
                           "dimension": dimension, "topology": topology, "order": order,
                           "parts": len({element["pid"] for element in mesh["elements"]})}}
+
+
+def run_cad_worker(request, source, output):
+    """Execute a single CAD task in the same bounded process envelope as meshing."""
+    with tempfile.TemporaryDirectory(prefix="webmesh-cad-task-") as temporary:
+        directory = Path(temporary)
+        request = {**request, "input": str(source), "output": str(output) if output else None}
+        request_path = directory / "request.json"
+        request_path.write_text(json.dumps(request, allow_nan=False))
+        log_path = directory / "gmsh.log"
+        with log_path.open("wb") as log:
+            process = subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), str(request_path)],
+                                       cwd=directory, stdout=log, stderr=subprocess.STDOUT)
+            code = watch_process(process, directory)
+        result_path = directory / "worker-result.json"
+        if code or not result_path.is_file():
+            raise CadError("The CAD kernel could not complete this operation. Check the Gmsh Python bindings.", log=log_tail(log_path))
+        result = json.loads(result_path.read_text())
+        if result.get("error"):
+            raise CadError(result["error"], log=result.get("log", log_tail(log_path)))
+        if output and output.is_file() and output.stat().st_size > MAX_CAD:
+            raise CadError("The prepared geometry exceeds 24 MiB. Simplify it or prepare smaller regions so exported projects remain importable.")
+        if request["action"] == "mesh":
+            topology_name = request.get("topology", "tet")
+            dimension = 2 if topology_name in {"tri", "quad"} else 3
+            order = request.get("order", 1)
+            result["mesh"] = parse_msh(directory / "mesh.msh", topology_name, dimension, order)
+            result["stats"] = {"nodes": len(result["mesh"]["nodes"]), "elements": len(result["mesh"]["elements"]),
+                               "topology": topology_name, "dimension": dimension, "order": order,
+                               "parts": len({element["pid"] for element in result["mesh"]["elements"]})}
+        return result
 
 
 class WebMeshHandler(SimpleHTTPRequestHandler):
@@ -427,7 +465,8 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if not self.trusted_request():
             return
-        if urlsplit(self.path).path != "/api/mesh":
+        endpoint = urlsplit(self.path).path
+        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/undo", "/api/cad/export", "/api/cad/mesh"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
@@ -460,8 +499,18 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 self.json_response(400, {"error": "Invalid or incomplete JSON request."})
                 return
             try:
-                self.json_response(200, generate_mesh(data, self.gmsh))
-            except MeshError as exc:
+                if not isinstance(data, dict):
+                    raise MeshError("The request must be a JSON object.", status=400)
+                if endpoint == "/api/mesh":
+                    result = generate_mesh(data, self.gmsh)
+                else:
+                    if endpoint == "/api/cad/mesh":
+                        validate_request(data)
+                    method = endpoint.rsplit("/", 1)[1]
+                    handler = self.server.cad_sessions.import_cad if method == "import" else getattr(self.server.cad_sessions, method)
+                    result = handler(data)
+                self.json_response(200, result)
+            except (MeshError, CadError) as exc:
                 self.json_response(exc.status, {"error": str(exc), "log": exc.log})
             except Exception as exc:
                 self.log_error("Meshing failed: %s", type(exc).__name__)
@@ -473,6 +522,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
 def make_server(port=8765, gmsh=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), partial(WebMeshHandler, gmsh=gmsh))
     server.mesh_slot = threading.BoundedSemaphore(1)
+    server.cad_sessions = CadSessions(run_cad_worker)
     server.daemon_threads = True
     return server
 
