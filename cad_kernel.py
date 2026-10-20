@@ -142,8 +142,13 @@ def topology(gmsh):
                           "radius": f.get("radius")} for f in faces if f["type"] != "Plane"]}
 
 
-def tessellation(gmsh, data):
-    """Display triangles of every face, as flat positions and owning face ids."""
+def tessellation(gmsh, data, cache=None, keys=None, out=None):
+    """Display triangles of every face, as flat positions and owning face ids.
+
+    Faces with an analytic surface whose triangles the previous revision
+    already computed (`cache`, keyed by the Signatures `keys`) are not meshed
+    again; only new or changed faces are. Triangles go into `out` for the next.
+    """
     model = gmsh.model
     bounds = data["bounds"]
     diagonal = math.sqrt(sum((bounds[i + 3] - bounds[i]) ** 2 for i in range(3)))
@@ -152,20 +157,34 @@ def tessellation(gmsh, data):
     gmsh.option.setNumber("Mesh.MeshSizeMax", size)
     gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 48)
     gmsh.option.setNumber("Mesh.ElementOrder", 1)
+    previous = (cache or {}).get("triangles", {}) if keys is not None and out is not None else {}
+    analytic = {face["id"] for face in data["faces"] if face.get("surface", {}).get("kind") in {"plane", "cylinder", "sphere"}}
+    reused = {tag: previous[keys.face[tag]] for tag in analytic if keys.face.get(tag) in previous}
     if not data.get("discrete"):
-        model.mesh.generate(2)
+        faces = [tag for _, tag in model.getEntities(2)]
+        if reused:
+            gmsh.option.setNumber("Mesh.MeshOnlyVisible", 1)
+            model.setVisibility([(2, tag) for tag in reused], 0)
+        if len(reused) < len(faces):
+            model.mesh.generate(2)
     node_ids, coordinates, _ = model.mesh.getNodes()
     nodes = {int(nid): list(map(float, coordinates[3 * i:3 * i + 3])) for i, nid in enumerate(node_ids)}
     positions, face_ids = [], []
     for _, tag in model.getEntities(2):
-        types, _, connectivity = model.mesh.getElements(2, tag)
-        for element_type, node_list in zip(types, connectivity):
-            if element_type != 2:
-                raise ValueError("CAD preview returned unexpected non-triangle elements.")
-            for i in range(0, len(node_list), 3):
-                for nid in node_list[i:i + 3]:
-                    positions.extend(nodes[int(nid)])
-                face_ids.append(tag)
+        if tag in reused:
+            triangles = reused[tag]
+        else:
+            triangles = []
+            types, _, connectivity = model.mesh.getElements(2, tag)
+            for element_type, node_list in zip(types, connectivity):
+                if element_type != 2:
+                    raise ValueError("CAD preview returned unexpected non-triangle elements.")
+                for nid in node_list:
+                    triangles.extend(nodes[int(nid)])
+        positions.extend(triangles)
+        face_ids.extend([tag] * (len(triangles) // 9))
+        if tag in analytic and out is not None:
+            out["triangles"][keys.face[tag]] = triangles
     if len(face_ids) > 250_000:
         raise ValueError("CAD preview exceeds 250,000 triangles. Simplify the geometry first.")
     return positions, face_ids
@@ -192,10 +211,10 @@ def edge_polylines(gmsh, data):
     return edges
 
 
-def preview(gmsh, data, edges=None):
+def preview(gmsh, data, edges=None, cache=None, keys=None, out=None):
     """Display tessellation and edge polylines. Edges are sampled once the mesh
     exists, since discrete (STL) curves follow it; OpenCASCADE curves do not."""
-    positions, face_ids = tessellation(gmsh, data)
+    positions, face_ids = tessellation(gmsh, data, cache, keys, out)
     if edges is None:
         edges = edge_polylines(gmsh, data)
     if not data.get("discrete"):
@@ -701,6 +720,23 @@ def mesh(gmsh, request):
     return generate(gmsh, request, topology, mesh_quality)
 
 
+def read_cache(path):
+    """Per-entity results of the previous revision; a missing or bad cache is just a miss."""
+    if not path:
+        return None
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def write_cache(path, cache):
+    try:
+        Path(path).write_text(json.dumps(cache, allow_nan=False, separators=(",", ":")))
+    except (OSError, ValueError):
+        Path(path).unlink(missing_ok=True)
+
+
 def execute(request):
     gmsh = gmsh_module()
     gmsh.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
@@ -749,26 +785,31 @@ def execute(request):
                 gmsh.model.occ.synchronize()
             data = topology(gmsh)
             data["discrete"] = discrete
+            cache = keys = out = None
             if not discrete:
                 from cad_mapping import augment
-                augment(gmsh, data)
+                cache = read_cache(request.get("cache"))
+                augment(gmsh, data, cache)
+                keys, out = data.pop("_signatures"), data.pop("_cache")
             if request.get("early") and not discrete:
                 # Lite preview: report the topology first, then finish the
                 # display tessellation that committing this result needs.
                 edges = edge_polylines(gmsh, data)
                 write_early(request["early"], {"topology": data, "preview": {"lite": True, "edges": edges},
                                                "log": "\n".join(gmsh.logger.get())[-24_000:]})
-                result = {"topology": data, "preview": preview(gmsh, data, edges)}
+                result = {"topology": data, "preview": preview(gmsh, data, edges, cache, keys, out)}
             else:
-                result = {"topology": data, "preview": preview(gmsh, data)}
+                result = {"topology": data, "preview": preview(gmsh, data, None, cache, keys, out)}
+            if out is not None and request.get("cacheOut"):
+                write_cache(request["cacheOut"], out)
         result["log"] = "\n".join(gmsh.logger.get())[-24_000:]
         return result
     finally:
         gmsh.finalize()
 
 
-def main():
-    request = json.loads(Path(sys.argv[1]).read_text())
+def main(request_path=None):
+    request = json.loads(Path(request_path or sys.argv[1]).read_text())
     try:
         result = execute(request)
     except Exception as error:
@@ -776,5 +817,30 @@ def main():
     Path("worker-result.json").write_text(json.dumps(result, allow_nan=False, separators=(",", ":")))
 
 
+def serve():
+    """A worker started ahead of time: libraries are loaded before the task
+    exists. It reads one request path from stdin, runs it in that task's
+    directory with output to its log, and exits like a cold worker would."""
+    sources = [Path(__file__), Path(__file__).with_name("cad_mapping.py")]
+    stamps = [path.stat().st_mtime for path in sources]
+    gmsh_module()
+    import cad_mapping  # noqa: F401  (loads numpy too)
+    line = sys.stdin.readline().strip()
+    if not line:
+        return
+    request_path = Path(line)
+    os.chdir(request_path.parent)
+    log = os.open(request_path.parent / "gmsh.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.dup2(log, 1)
+    os.dup2(log, 2)
+    if [path.stat().st_mtime for path in sources] != stamps:
+        # The kernel changed on disk while this worker waited: run the new code.
+        os.execv(sys.executable, [sys.executable, str(Path(__file__)), str(request_path)])
+    main(request_path)
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--serve"]:
+        serve()
+    else:
+        main()

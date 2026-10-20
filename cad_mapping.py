@@ -452,10 +452,72 @@ def _dihedral(geometry, volume, edge, faces):
     return angle if inside else 360.0 - angle
 
 
-def augment(gmsh, data):
-    """Add mapped-meshing classification data to a topology record in place."""
+CACHE_VERSION = 3
+
+
+class Signatures:
+    """Tag-independent keys for faces, edges and vertices, so results computed
+    for one revision can be reused for the unchanged entities of the next.
+
+    Entity tags are renumbered on every import, but an entity that an
+    operation did not touch keeps its type, bounds, size and (for faces)
+    center and normal exactly. Two different entities agreeing on all of them
+    to within 1e-7 of the model size does not happen in practice.
+    """
+
+    def __init__(self, data, quantum):
+        self.q = quantum
+        self.face = {face["id"]: self._face(face) for face in data["faces"]}
+        self.edge = {edge["id"]: self._edge(edge) for edge in data["edges"]}
+
+    def _round(self, values, scale=1.0):
+        return ",".join(str(round(float(v) / (self.q * scale))) for v in values)
+
+    def _face(self, face):
+        normal = face.get("normal") or [0, 0, 0]
+        return "|".join([str(face.get("type")), self._round(face["bounds"]), self._round(face["center"]),
+                         str(round(float(face.get("area", 0)) / (self.q * self.q * 1e5))),
+                         ",".join(str(round(float(v) * 1e6)) for v in normal)])
+
+    def _edge(self, edge):
+        return "|".join([str(edge.get("type")), self._round(edge["bounds"]), str(round(float(edge.get("length", 0)) / self.q))])
+
+    def point(self, point):
+        return self._round(point)
+
+
+def empty_cache(quantum):
+    return {"version": CACHE_VERSION, "quantum": quantum, "concave": {}, "corners": {}, "dihedrals": {}, "triangles": {}}
+
+
+def usable_cache(cache, span):
+    """The previous revision's cache if it is compatible, else a fresh one."""
+    if (isinstance(cache, dict) and cache.get("version") == CACHE_VERSION and isinstance(cache.get("quantum"), float)
+            and span * 1e-8 < cache["quantum"] < span * 1e-6):
+        return cache
+    return empty_cache(max(span * 1e-7, 1e-10))
+
+
+def augment(gmsh, data, cache=None):
+    """Add mapped-meshing classification data to a topology record in place.
+
+    `cache` holds results for entities of an earlier revision (see
+    Signatures); the cache for this revision is returned in data["_cache"]
+    for the caller to store, and is not part of the topology.
+    """
     geometry = _Geometry(gmsh, data)
     model = geometry.model
+    cache = usable_cache(cache, geometry.span)
+    keys = Signatures(data, cache["quantum"])
+    out = empty_cache(cache["quantum"])
+
+    def cached(table, key, compute):
+        if key in cache[table]:
+            value = cache[table][key]
+        else:
+            value = compute()
+        out[table][key] = value
+        return value
     data["vertices"] = [{"id": tag, "point": point.tolist()} for tag, point in geometry.vertices.items()]
     for edge in data["edges"]:
         try:
@@ -464,6 +526,8 @@ def augment(gmsh, data):
             edge.update({"vertices": [None, None], "closed": False, "curve": {"kind": "unknown"}})
     faces = {face["id"]: face for face in data["faces"]}
     for face in data["faces"]:
+        # Not cached: cheap, and its reference point follows the face's parametrization,
+        # which a heal can shift without changing the face.
         face["surface"] = _surface(geometry, face["id"], face.get("type"))
         geometry.surface_kinds[face["id"]] = face["surface"]["kind"]
         geometry.types[face["id"]] = face.get("type")
@@ -500,23 +564,38 @@ def augment(gmsh, data):
                     info = geometry.edges[outgoing[0]]
                     angles.append([info["start"], 180.0])
                     continue
-                try:
-                    vertex, angle = _corner_angle(geometry, tag, incoming, outgoing)
-                except Exception:
-                    vertex, angle = None, None
-                angles.append([vertex, None if angle is None else round(angle, 4)])
+                info_out = geometry.edges.get(outgoing[0], {})
+                vertex = info_out.get("start") if outgoing[1] > 0 else info_out.get("end")
+                corner_key = None
+                if vertex in geometry.vertices and incoming[0] in keys.edge and outgoing[0] in keys.edge:
+                    pair = sorted((keys.edge[incoming[0]], keys.edge[outgoing[0]]))
+                    corner_key = "|".join([keys.face[tag], keys.point(geometry.vertices[vertex]), *pair])
+                if corner_key is not None and corner_key in cache["corners"]:
+                    angle = cache["corners"][corner_key]
+                else:
+                    try:
+                        vertex, angle = _corner_angle(geometry, tag, incoming, outgoing)
+                        angle = None if angle is None else round(angle, 4)
+                    except Exception:
+                        vertex, angle = None, None
+                if corner_key is not None and angle is not None:
+                    out["corners"][corner_key] = angle
+                angles.append([vertex, angle])
             corners.append(angles)
         face["orientedLoops"] = loops
         face["corners"] = corners
         if face["surface"]["kind"] == "cylinder" and face.get("volumes"):
-            try:
-                lower, upper = model.getParametrizationBounds(2, tag)
-                mid = [(lower[0] + upper[0]) / 2, (lower[1] + upper[1]) / 2]
-                point = np.array(model.getValue(2, tag, mid), dtype=float)
-                step = min(face["surface"]["radius"] * 0.05, geometry.span * 2e-3)
-                face["concave"] = _material_outside(geometry, face["volumes"][0], face["surface"], point, step)
-            except Exception:
-                face["concave"] = None
+            def concave():
+                try:
+                    lower, upper = model.getParametrizationBounds(2, tag)
+                    mid = [(lower[0] + upper[0]) / 2, (lower[1] + upper[1]) / 2]
+                    point = np.array(model.getValue(2, tag, mid), dtype=float)
+                    step = min(face["surface"]["radius"] * 0.05, geometry.span * 2e-3)
+                    return _material_outside(geometry, face["volumes"][0], face["surface"], point, step)
+                except Exception:
+                    return None
+            # Material side of a face shared by two solids depends on which one is first.
+            face["concave"] = cached("concave", keys.face[tag], concave) if len(face["volumes"]) == 1 else concave()
     for volume in data["volumes"]:
         uses = {}
         for face_id in volume["faces"]:
@@ -531,11 +610,26 @@ def augment(gmsh, data):
             if len(owners) != 2:
                 angles.append([edge, None])
                 continue
-            try:
-                angle = _dihedral(geometry, volume["id"], edge, owners)
-            except Exception:
-                angle = None
-            angles.append([edge, None if angle is None else round(angle, 4)])
+            dihedral_key = None
+            # Both faces can be shared with a neighbor that has the same edge on
+            # the other side (270° here, 90° there): each face's orientation in
+            # this solid tells the two apart.
+            senses = [geometry.solid_sense(volume["id"], owner) for owner in owners]
+            if edge in keys.edge and all(owner in keys.face for owner in owners) and None not in senses:
+                dihedral_key = "|".join([keys.edge[edge], *sorted(f"{keys.face[owner]}:{sense}" for owner, sense in zip(owners, senses))])
+            if dihedral_key is not None and dihedral_key in cache["dihedrals"]:
+                angle = cache["dihedrals"][dihedral_key]
+            else:
+                try:
+                    angle = _dihedral(geometry, volume["id"], edge, owners)
+                    angle = None if angle is None else round(angle, 4)
+                except Exception:
+                    angle = None
+            if dihedral_key is not None and angle is not None:
+                out["dihedrals"][dihedral_key] = angle
+            angles.append([edge, angle])
         volume["edgeAngles"] = angles
     data["mapping"] = {"version": 1}
+    data["_cache"] = out
+    data["_signatures"] = keys
     return data

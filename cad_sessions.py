@@ -43,6 +43,12 @@ def lite_view(result):
     return {**result, "preview": {"lite": True, "edges": preview.get("edges", [])}}
 
 
+def drop_snapshot(path):
+    """Remove a snapshot together with the kernel's per-entity cache beside it."""
+    path.unlink(missing_ok=True)
+    path.with_suffix(".cache.json").unlink(missing_ok=True)
+
+
 class CadSessions:
     def __init__(self, runner):
         self.temporary = tempfile.TemporaryDirectory(prefix="webmesh-cad-sessions-")
@@ -92,9 +98,10 @@ class CadSessions:
     def payload(self, key, record):
         state = record["states"][record["cursor"]]
         result = json.loads(state["json"].read_text())
-        result.update(cadId=key, revision=record["revision"], filename=record["filename"],
+        # History lists every kept state; those after `cursor` were undone and can be redone.
+        result.update(cadId=key, revision=record["revision"], filename=record["filename"], cursor=record["cursor"],
                       history=[{"revision": item["revision"], "operation": item["operation"], "label": item["label"]}
-                               for item in record["states"][:record["cursor"] + 1]])
+                               for item in record["states"]])
         return result
 
     def import_cad(self, data):
@@ -147,7 +154,7 @@ class CadSessions:
         entry["discarded"] = True
         if not entry["ready"].is_set() and entry["cancel"]:
             entry["cancel"]()
-        entry["path"].unlink(missing_ok=True)
+        drop_snapshot(entry["path"])
         entry["json"].unlink(missing_ok=True)
 
     def discard_staged(self, record):
@@ -220,7 +227,7 @@ class CadSessions:
                 result = self.runner(request, source, output, started=started)
                 entry["json"].write_text(dumps(result))
             except Exception as error:
-                output.unlink(missing_ok=True)
+                drop_snapshot(output)
                 entry["json"].unlink(missing_ok=True)
                 with self.lock:
                     moved = self.moved_on(key, record, base)
@@ -254,7 +261,7 @@ class CadSessions:
             except Exception as error:
                 with self.lock:
                     entry["failed"] = self.moved_on(key, record, base) or error
-                    output.unlink(missing_ok=True)
+                    drop_snapshot(output)
                     entry["json"].unlink(missing_ok=True)
                 handoff.put(("error", entry["failed"]))
             else:
@@ -334,13 +341,13 @@ class CadSessions:
             result = self.runner({"action": "prepare", "operation": operation}, source, output)
             json_path.write_text(dumps(result))
         except Exception:
-            output.unlink(missing_ok=True)
+            drop_snapshot(output)
             json_path.unlink(missing_ok=True)
             raise
         with self.lock:
             moved = self.moved_on(key, record, base)
             if moved:
-                output.unlink(missing_ok=True)
+                drop_snapshot(output)
                 json_path.unlink(missing_ok=True)
                 raise moved
             return self.commit(key, record, operation, output, json_path)
@@ -353,13 +360,16 @@ class CadSessions:
         json_path = folder / f"state-{revision}.json"
         brep.replace(output)
         result_json.replace(json_path)
+        cache = brep.with_suffix(".cache.json")
+        if cache.is_file():
+            cache.replace(output.with_suffix(".cache.json"))
         if self.total_size() > 512 * 1024 * 1024:
-            output.unlink(missing_ok=True)
+            drop_snapshot(output)
             json_path.unlink(missing_ok=True)
             raise CadError("CAD snapshot storage reached 512 MiB. Export prepared geometry and reimport it to continue.")
         self.discard_staged(record)
         for discarded in record["states"][record["cursor"] + 1:]:
-            discarded["path"].unlink(missing_ok=True)
+            drop_snapshot(discarded["path"])
             discarded["json"].unlink(missing_ok=True)
         record["states"] = record["states"][:record["cursor"] + 1]
         kind = operation.get("kind", "prepare")
@@ -384,12 +394,32 @@ class CadSessions:
     def undo(self, data):
         with self.lock:
             key, record = self.lookup(data)
-            self.discard_staged(record)
             if not record["cursor"]:
                 raise CadError("There are no geometry preparation operations to undo.", 400)
-            record["cursor"] -= 1
-            record["revision"] += 1
-            return self.payload(key, record)
+            return self.move(key, record, record["cursor"] - 1)
+
+    def redo(self, data):
+        with self.lock:
+            key, record = self.lookup(data)
+            if record["cursor"] + 1 >= len(record["states"]):
+                raise CadError("There is nothing to redo.", 400)
+            return self.move(key, record, record["cursor"] + 1)
+
+    def revert(self, data):
+        """Go to any kept state (back, or forward over undone ones); a new operation drops those ahead."""
+        with self.lock:
+            key, record = self.lookup(data)
+            target = data.get("to")
+            if type(target) is not int or not 0 <= target < len(record["states"]):
+                raise CadError("Choose a step from the history.", 400)
+            return self.move(key, record, target)
+
+    def move(self, key, record, cursor):
+        """Make kept state `cursor` current. Lock held."""
+        self.discard_staged(record)
+        record["cursor"] = cursor
+        record["revision"] += 1
+        return self.payload(key, record)
 
     def export(self, data):
         with self.lock:
@@ -399,7 +429,7 @@ class CadSessions:
             return {"filename": record["filename"] if discrete else Path(record["filename"]).stem + "-prepared.brep",
                     "format": "stl" if discrete else "brep",
                     "content": base64.b64encode((record["source"] if discrete else state["path"]).read_bytes()).decode(),
-                    "history": self.payload(key, record)["history"]}
+                    "history": self.payload(key, record)["history"][:record["cursor"] + 1]}
 
     def mesh(self, data):
         with self.lock:

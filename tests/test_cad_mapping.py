@@ -126,6 +126,35 @@ class MappingTopologyTests(unittest.TestCase):
             self.assertTrue(all(edges[e]["curve"]["kind"] == "line" for e, _ in outer), f"face {face['id']} lists its hole first")
             self.assertTrue(all(edges[e]["curve"]["kind"] == "circle" for loop in inner for e, _ in loop))
 
+    def test_cached_results_match_a_fresh_computation_where_solids_share_a_corner(self):
+        import json
+        import tempfile
+        import cad_kernel
+        gmsh = cad_kernel.gmsh_module()
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            # An L with a block in its notch: both faces at the re-entrant edge are
+            # shared, so the same edge is 270° in the L and 90° in the block.
+            gmsh.initialize(["cache-test", "-nopopup"], readConfigFiles=False)
+            gmsh.option.setNumber("General.Terminal", 0)
+            occ = gmsh.model.occ
+            plate, notch = occ.addBox(0, 0, 0, 10, 10, 2), occ.addBox(5, 5, -1, 6, 6, 4)
+            occ.cut([(3, plate)], [(3, notch)])
+            block = occ.addBox(5, 5, 0, 5, 5, 2)
+            occ.fragment(occ.getEntities(3), [(3, block)])
+            occ.synchronize()
+            gmsh.write(str(folder / "pair.brep"))
+            gmsh.finalize()
+            first = cad_kernel.execute({"action": "import", "input": str(folder / "pair.brep"), "output": str(folder / "a.brep"),
+                                        "cacheOut": str(folder / "a.cache.json")})
+            second = cad_kernel.execute({"action": "import", "input": str(folder / "a.brep"), "output": str(folder / "b.brep"),
+                                         "cache": str(folder / "a.cache.json")})
+            third = cad_kernel.execute({"action": "import", "input": str(folder / "a.brep"), "output": str(folder / "c.brep")})
+        self.assertEqual(json.dumps(second["topology"], sort_keys=True), json.dumps(third["topology"], sort_keys=True))
+        angles = sorted(round(a) for v in second["topology"]["volumes"] for _, a in v["edgeAngles"] if a is not None)
+        self.assertIn(270, angles)
+        self.assertEqual(len(first["topology"]["volumes"]), 2)
+
     def test_crossing_passages_are_cut_as_one_opening(self):
         cad = self.import_file(ROOT / "examples/block.step")
         b = cad["topology"]["bounds"]

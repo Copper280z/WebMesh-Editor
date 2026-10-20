@@ -57,7 +57,7 @@ The pattern and connectivity tools support triangle, quad, tetrahedral, hexahedr
 
 The **CAD & mesh** workspace is a hex-meshing toolbox in three steps. Every solid is checked continuously and colored in the viewport: green solids are mapped blocks, red solids need preparation, amber solids are blocks whose edge counts conflict.
 
-**1 · Prepare.** Pick a solid, face, edge or vertex (`1`–`4` switch the pick type; Shift/Ctrl adds). The context card describes the pick and proposes what to do with it:
+**1 · Prepare.** Pick in **Auto** mode (`0`: the smallest entity near the pointer wins, a point before an edge before a face) or a fixed type (`1`–`4`: solid, face, edge, vertex); Shift/Ctrl adds. The context card describes the pick and proposes what to do with it:
 
 | Pick | Inferred actions |
 | --- | --- |
@@ -70,20 +70,28 @@ The **CAD & mesh** workspace is a hex-meshing toolbox in three steps. Every soli
 | Two or more solids | Fuse them back into one, to redo a cut differently (they must share faces); slice them together |
 | Red solid | Its reasons (with the offending faces, edges and corners marked in yellow) and concrete fixes in a sensible order: remove blends, join two re-entrant corners, slice re-entrant edges, cut along imprint lines, box and split around holes |
 
-Every geometry change is previewed before it is applied: cutting planes and section outlines appear immediately, faces to be removed turn red, and the server computes the actual result in the background. The result preview shows the new solids colored by whether they will be mapped blocks (“1 → 4 solids · 4/4 mappable”). **Apply** (or Enter) commits the previewed result instantly; Esc cancels. The Slice tool takes any normal, an offset slider that snaps to vertices, a point on a picked edge, and a scope of all or selected solids.
+Every geometry change is previewed before it is applied: cutting planes and section outlines appear immediately, faces to be removed turn red, and the server computes the actual result in the background. The result preview shows the new solids colored by whether they will be mapped blocks (“1 → 4 solids · 4/4 mappable”). **Apply** (or Enter) commits the previewed result instantly and ends the action: the tool closes and nothing from it stays armed for the next pick. Esc cancels and closes the tool. The Slice tool takes any normal, an offset slider that snaps to vertices, a point on a picked edge, and a scope of all or selected solids.
 
 **Cut** makes bounded cuts where a plane would go too far. Pick straight edges (or Shift-pick two vertices of a face) and choose **Cut along edges** / **Cut between vertices**: each segment is swept through the solid along the normal of the face it lies in, and stops where the segment stops, so an L-shaped imprint or a cut across one corner of a wall ring leaves everything past it alone. While the tool is open, further picks offer **Add to cut**, and all segments are applied as one operation; segment ends that meet are joined exactly, free ends reach just past the boundary. The preview reports a cut that would leave a region open (a slit) or divide nothing. Three fixes use the same cuts: **Cut along N imprint edges** (every imprint on a blocked face’s plane, in one step), **Cut between re-entrant edges** (two re-entrant corners that see each other across a cap), and **Box N holes in square cells** before splitting around them.
 
+**Model tree and history.** The panel is a model tree above an inspector, each scrolling on its own (drag the divider between them to resize), so the tree stays in view while you work in the inspector. Panel updates patch the page in place: a field you are typing in keeps its focus and lists keep their scroll position when a preview or result arrives. The tree lists:
+
+- every solid with its status (green: mapped block, with its element counts; red: why it is not; amber: count conflict) and an eye toggle. **H** hides the picked solids (or the solids of picked faces), **Shift+H** shows all, and the context card has Isolate and Hide;
+- the recognized features (click one to select its faces);
+- the history. Every step has **Back here**; the steps after it stay available as **Redo to here** until a new change replaces them.
+
+Undo and redo (the buttons next to the file name, **Ctrl+Z** / **Ctrl+Shift+Z**, and the view toolbar arrows) walk the geometry history in Prepare and Size; in Mesh they undo model changes such as an added mesh.
+
 **Auto-fix** prepares solids for mapped meshing in passes, keeping a step only when its previewed result is better, and records each step in the undoable history:
 
-1. Remove fillets and chamfers (optional, one batched defeature).
+1. Remove small fillets and chamfers (optional, one batched defeature). Only blends no wider than 1.5 elements are removed; larger ones, such as the corner bracket's chamfered corner, are design geometry and stay.
 2. Make every solid a mapped block: separate walls from a pocket floor (one bounded cut along the floor outline and across each wall corner), slice through square openings at their floor and ceiling (continued around the walls), join re-entrant corners that see each other, slice re-entrant edges (preferring the smaller cut of the two face planes), cut along imprints that stop short, separate several holes that share a face, box holes in square cells and split around them (optional), split pieces of a hole (for example sectors fused back together) by radial cuts to their corners, and split triangular or five-or-more-sided prisms into blocks from their center, continuing each cut into the adjacent solid so it leaves no T-junction.
 3. Remove T-junction cycles that would make the edge-count equations contradictory. No step may introduce such a conflict or a knife edge.
 4. Square up badly shaped blocks (strongly tapered, or bent sides) when the trial mesh at the current size improves.
 
 Candidate steps are previewed up to four at a time (once the first candidate from a state is rejected, the next ones are previewed ahead), but judged in the same order as one at a time, so the outcome does not depend on timing. Candidate previews omit the display tessellation; the server keeps the last eight previews of each session staged, and applying one commits its full result.
 
-When Auto-fix stops short (no step helps, it reaches its 40-step limit, or the kernel refuses a step), it says which, keeps every change it made in the history, and lists the solids still red. Continue from its cuts by hand: select a red solid for its fixes, Shift-pick neighboring solids and **Fuse** them to redo a cut differently (running Auto-fix again re-cuts them its own way), or undo its steps one at a time. A fuse unifies the faces the removed interfaces leave behind and keeps the surrounding solids conforming.
+**Undo Auto-fix** returns to the geometry before the run; its steps stay available to redo. When Auto-fix stops short (no step helps, it reaches its 40-step limit, or the kernel refuses a step), it says which, keeps every change it made in the history, and lists the solids still red. Continue from its cuts by hand: select a red solid for its fixes, Shift-pick neighboring solids and **Fuse** them to redo a cut differently (running Auto-fix again re-cuts them its own way), or undo its steps one at a time. A fuse unifies the faces the removed interfaces leave behind and keeps the surrounding solids conforming.
 
 Results on the included parts (target size 4 unless noted):
 
@@ -92,7 +100,7 @@ Results on the included parts (target size 4 unless noted):
 | `examples/l-bracket.step`, bore kept | Auto-fix: remove the R3 fillet, slice off the web, box the bore, split around it | 7 | 696 | 0.71 |
 | `examples/l-bracket.step`, bore removed | Remove the bore, then Auto-fix | 2 | 790 | 0.99 |
 | `long corner bracket.step`, all holes removed | Remove the 12 holes (one defeature), then Auto-fix: one cut separates the floor and splits the wall ring; both chamfers kept | 5 | 1,190 | 0.58 (0.59 at size 2) |
-| `long corner bracket.step`, holes kept | Square passages for the Ø8.5 bores, then Auto-fix (18 steps, about 13 s; size 2.5) | 64 | 2,064 | 0.27 |
+| `long corner bracket.step`, holes kept | Square passages for the Ø8.5 bores, then Auto-fix (18 steps, about 8 s; size 2.5) | 64 | 2,064 | 0.27 |
 | `flexure.step` | Auto-fix with fillet removal and hole splits (size 1.5); stops with 4 solids left | 64 of 68 | 3,258 | 0.11 |
 
 HEX20 versions of each have the same blocks and quality. Every equation of the corner bracket with its holes kept (80 equality groups, 56 sums, 656 face equations) is solved without conflicts.
@@ -113,7 +121,7 @@ A solid is a mapped block when every face has exactly four corners, no edge is r
 
 **3 · Mesh.** Mapped hex meshing runs in the browser without Gmsh. Each CAD edge is divided by arc length (exactly on lines and circles), each face is filled by transfinite interpolation and projected onto its plane, cylinder or sphere (other surfaces use the CAD tessellation), and each block interior by 3D transfinite interpolation. Shared CAD edges and faces give the same nodes to neighboring blocks, so interfaces conform. HEX20 midside nodes lie on the CAD curves and surfaces. The live preview colors faces by scaled Jacobian and lists the worst blocks; inverted meshes cannot be added. **Add to model** creates CHEXA elements with one PSOLID (or one per solid) and replaces the previous CAD mesh in one undo step. Mappable solids can be meshed alone or all together; unmappable solids are skipped.
 
-Geometry operations still use OpenCASCADE through Gmsh’s Python API (the only B-rep kernel available locally). Classification uses kernel geometry queries — evaluation, projection and point containment — not the Gmsh mesher. The Gmsh tet/tri/quad, sweep and column-sweep methods remain under **Mesh → Other (Gmsh)** and reuse fixed edge counts as exact divisions.
+Geometry operations still use OpenCASCADE through Gmsh’s Python API (the only B-rep kernel available locally). Each request runs in its own kernel process, started ahead of time so Python, Gmsh and NumPy are already loaded when the request arrives. Results for faces and edges an operation leaves unchanged (corner and edge angles, cylinder sidedness, display triangles) are reused from the previous revision; they are keyed by geometry, since entity IDs renumber on every revision, and checked in the tests against a fresh computation. On the corner bracket a slice preview takes about 0.45 s (0.9 s without the cache), and a hole removal about 0.6 s. Classification uses kernel geometry queries — evaluation, projection and point containment — not the Gmsh mesher. The Gmsh tet/tri/quad, sweep and column-sweep methods remain under **Mesh → Other (Gmsh)** and reuse fixed edge counts as exact divisions.
 
 ## CAD meshing with Gmsh
 

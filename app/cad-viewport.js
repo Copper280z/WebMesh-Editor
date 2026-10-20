@@ -213,7 +213,7 @@
         colors.setXYZ(i, c.r, c.g, c.b);
       });
       colors.needsUpdate = true;
-      vertexPoints.visible = mode === 'vertex' || selectedVertices.size > 0;
+      vertexPoints.visible = mode === 'vertex' || mode === 'auto' || selectedVertices.size > 0;
     }
     function paintSelection() {
       if (!data) return;
@@ -308,7 +308,7 @@
       return state();
     }
     function setMode(value) {
-      if (!['none', 'face', 'edge', 'vertex', 'solid'].includes(value)) throw Error('CAD selection mode must be none, solid, face, edge or vertex.');
+      if (!['none', 'auto', 'face', 'edge', 'vertex', 'solid'].includes(value)) throw Error('CAD selection mode must be none, auto, solid, face, edge or vertex.');
       mode = value; setHover(null); paintVertices(); emitSelection('mode'); onChange('cad-mode'); return state();
     }
     function setVisible(value) {
@@ -534,7 +534,11 @@
       const distance = camera.position.distanceTo(bounds.getCenter(new Vector3()));
       return camera.isOrthographicCamera ? Math.abs(camera.top - camera.bottom) / Math.max(1e-8, camera.zoom) / rect.height : 2 * distance * Math.tan(camera.fov * Math.PI / 360) / rect.height;
     }
-    function hitAt(clientX, clientY, requestedMode = mode) {
+    function hitAt(clientX, clientY, requestedMode = mode, reach = {}) {
+      if (requestedMode === 'auto') {
+        // No filter: the smallest entity near the pointer wins (point, then edge, then face).
+        return hitAt(clientX, clientY, 'vertex', { pixels: 7 }) || hitAt(clientX, clientY, 'edge', { pixels: 4 }) || hitAt(clientX, clientY, 'face');
+      }
       if (!data || !visible || !group || !['face', 'edge', 'vertex', 'solid'].includes(requestedMode)) return null;
       const view = ray(clientX, clientY);
       if (!view) return null;
@@ -549,7 +553,7 @@
       }
       if (requestedMode === 'vertex') {
         if (!vertexOrder.length) return null;
-        const camera = view.camera, rect = view.rect, threshold = 12;
+        const camera = view.camera, rect = view.rect, threshold = reach.pixels || 12;
         let best = null;
         const projected = new Vector3();
         for (const tag of vertexOrder) {
@@ -571,7 +575,7 @@
         return best;
       }
       if (!edgeLines) return null;
-      raycaster.params.Line.threshold = Math.max(1e-10, worldPerPixel(view.rect, view.camera) * 6);
+      raycaster.params.Line.threshold = Math.max(1e-10, worldPerPixel(view.rect, view.camera) * (reach.pixels || 6));
       const candidates = raycaster.intersectObject(edgeLines, false);
       const edgeHit = candidates.find(hit => xray || !faceHit || hit.distance <= faceHit.distance + raycaster.params.Line.threshold * 2);
       return edgeHit ? { kind: 'edge', id: segmentEdgeIds[Math.floor(edgeHit.index / 2)], point: edgeHit.point.toArray(), distance: edgeHit.distance } : null;
@@ -604,7 +608,8 @@
       const hit = hitAt(clientX, clientY);
       const sets = { face: selectedFaces, edge: selectedEdgeIds, vertex: selectedVertices, solid: selectedVolumes };
       const next = {};
-      for (const [kind, set] of Object.entries(sets)) next[kind] = additive && kind === mode ? new Set(set) : new Set();
+      // Shift adds to the picked kind; in auto mode, to whatever kind was hit.
+      for (const [kind, set] of Object.entries(sets)) next[kind] = additive && (kind === mode || (mode === 'auto' && hit && kind === hit.kind)) ? new Set(set) : new Set();
       if (hit) {
         const chosen = next[hit.kind];
         if (additive && chosen.has(hit.id)) chosen.delete(hit.id); else chosen.add(hit.id);

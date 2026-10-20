@@ -1121,9 +1121,13 @@
       return pending;
     };
     const approximated = topology => (topology.faces || []).some(f => f.surface?.kind === 'mesh');
+    // Only blends no wider than 1.5 elements are removed: larger fillets and
+    // chamfers (a chamfered corner, say) are design geometry that maps as is.
+    const smallBlend = (feature, topology) => !!feature && (feature.kind === 'fillet' || feature.kind === 'chamfer')
+      && (Number(feature.radius ?? feature.width) || Infinity) <= 1.5 * sizeFor(topology);
     const allowed = a => {
       if (!a.operation) return false;
-      if (a.operation.kind === 'defeature') return blends && (a.feature === 'fillet' || a.feature === 'chamfer');
+      if (a.operation.kind === 'defeature') return blends && (a.feature === 'fillet' || a.feature === 'chamfer') && smallBlend(st.recognized.features.find(f => f.id === a.featureId), st.topology);
       if (a.key.startsWith('split-hole-ring') || a.tool) return false;
       if (a.key.startsWith('split-hole')) return holes;
       return a.operation.kind === 'slice';
@@ -1140,7 +1144,7 @@
       if (blends) {
         // One defeature for every blend on a blocked solid is far faster than one per blend.
         const blocked = new Set(solids(st.analysis).filter(v => !v.mappable).map(v => v.id));
-        const list = st.recognized.features.filter(f => (f.kind === 'fillet' || f.kind === 'chamfer') && f.solids.some(v => blocked.has(v)));
+        const list = st.recognized.features.filter(f => smallBlend(f, st.topology) && f.solids.some(v => blocked.has(v)));
         if (list.length > 1) {
           progress(`Removing ${list.length} fillets and chamfers…`);
           try { await commit({ kind: 'defeature', faceIds: [...new Set(list.flatMap(f => f.faces))].sort((a, b) => a - b), label: `Removed ${list.length} fillets and chamfers` }, `Removed ${list.length} fillets and chamfers`); }

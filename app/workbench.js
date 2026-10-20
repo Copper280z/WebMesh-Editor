@@ -109,7 +109,7 @@
     document.querySelectorAll('[data-operation],#wb-new,#wb-open,#wb-save,#wb-export,#wb-example,#wb-upload-cad,#wb-select-all,#wb-clear-selection').forEach(el=>el.disabled=value);
     $('wb-panel-body').querySelectorAll('input,select,button').forEach(el=>el.disabled=value);
     if(!value&&activeTab==='mesh')cadWorkspace.updateAvailability();
-    $('wb-undo').disabled=value||$('btnUndo').disabled;$('wb-redo').disabled=value||$('btnRedo').disabled;
+    syncUndoButtons();
   }
   async function run(fn) {
     if(busy)return;
@@ -129,6 +129,12 @@
     renderPanel();
   }
   function topologyOptions(kind) {return kind==='plate'?[['quad','Quadrilateral'],['tri','Triangle']]:kind==='annulus'?[['quad','Quad ring shell'],['tri','Triangle ring shell'],['hex','Hollow structured hex'],['tet','Hollow tetrahedra']]:[['hex','Structured hex'],['tet','Tetrahedron'],...(kind==='cylinder'?[['quad','Quad shell'],['tri','Triangle shell']]:[])];}
+  function syncUndoButtons() {
+    const cad=activeTab==='mesh'&&cadWorkspace?.historyActive?.();
+    $('wb-undo').disabled=busy||(cad?!cadWorkspace.canUndo():$('btnUndo').disabled);
+    $('wb-redo').disabled=busy||(cad?!cadWorkspace.canRedo():$('btnRedo').disabled);
+    $('wb-undo').title=cad?'Undo geometry change (Ctrl+Z)':'Undo (Ctrl+Z)';$('wb-redo').title=cad?'Redo geometry change (Ctrl+Shift+Z)':'Redo (Ctrl+Shift+Z)';
+  }
   function renderPanel() {
     const titles={build:['CREATE','Geometry','Parametric primitives and structured meshes.'],mesh:['CAD WORKFLOW','Hex meshing','Prepare CAD, solve edge counts and map hex elements.'],pattern:['REPEAT & ASSEMBLE','Pattern','Repeat mesh instances and connect interfaces.'],setup:['PRE-PROCESS','Model setup','Materials, sections and boundary conditions.'],results:['POST-PROCESS','Results','MYSTRAN output and load contours.']};
     const [eyebrow,title,description]=titles[activeTab];
@@ -165,13 +171,17 @@
       html+=section('Model interchange',`<div class="wb-tool-list">${tool('file','Deck & results files','INCLUDE-aware multi-file and folder import','folder')}${tool('csv','Spreadsheet exchange','Import and export schema CSV for bulk editing','grid')}</div>`);
       foot=button('wb-results-options','Open result controls','results','primary');
     }
-    $('wb-panel-body').innerHTML=html;$('wb-panel-foot').innerHTML=foot;
+    // The CAD workspace re-renders often (every server reply): patch it in place so
+    // fields keep focus and scrolled lists keep their place.
+    if(activeTab==='mesh'&&window.WebMeshDom){window.WebMeshDom.morph($('wb-panel-body'),html);window.WebMeshDom.morph($('wb-panel-foot'),foot);}
+    else{$('wb-panel-body').innerHTML=html;$('wb-panel-foot').innerHTML=foot;}
     $('wb-panel-foot').querySelectorAll('button').forEach(el=>el.dataset.operation='true');
     const saved=savedForms.get(formKey());if(saved){for(const el of $('wb-panel-body').querySelectorAll('[data-key]'))if(Object.hasOwn(saved,el.dataset.key))el.value=saved[el.dataset.key];}
     if(activeTab==='mesh')cadWorkspace.bind();
     if(activeTab==='pattern'&&patternKind==='bolts')boltWorkspace.bind();
     bindPanel();
     if(activeTab==='mesh')checkBridge();
+    syncUndoButtons();
   }
 
   function primitiveOptions() {
@@ -288,7 +298,7 @@
     $('wb-tree').innerHTML=rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
     $('wb-tree').querySelectorAll('[data-outline-tool]').forEach(el=>el.onclick=()=>openTool(el.dataset.outlineTool));
     $('wb-tree').querySelectorAll('[data-property-id]').forEach(el=>el.onclick=async()=>{if(busy)return;const id=Number(el.dataset.propertyId),property=properties.find(p=>Number(p.id??p.pid)===id);engine().select?.({props:[id],mode:'property'});mountLegacy('schemaEditCardPanel',`Property ${id}`);try{await engine().editCard(property.type,'modify');}catch(error){message(error.message,true);}});
-    $('wb-undo').disabled=busy||$('btnUndo').disabled;$('wb-redo').disabled=busy||$('btnRedo').disabled;
+    syncUndoButtons();
   }
   function download(text,filename,type='text/plain') {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
   async function saveProject() {
@@ -341,8 +351,10 @@
   $('file').addEventListener('change',event=>{if(event.target.files[0]){operationRevision++;invalidatePreview();cadWorkspace.clear();nameProject(event.target.files[0].name.replace(/\.[^.]+$/,''));}});
   $('fileResults').addEventListener('change',()=>{logOperation('Imported results file');message('Results file selected. Open result controls to inspect output.');});
   $('wb-example').onclick=()=>run(example);
-  $('wb-undo').onclick=()=>{if(busy)return;$('btnUndo').click();invalidatePreview();refresh(true);message('Undid the last model operation.');};
-  $('wb-redo').onclick=()=>{if(busy)return;$('btnRedo').click();invalidatePreview();refresh(true);message('Redid the model operation.');};
+  // While preparing CAD, the view's undo/redo walk the geometry history instead of the model's.
+  const cadHistory=()=>activeTab==='mesh'&&cadWorkspace.historyActive?.();
+  $('wb-undo').onclick=()=>{if(busy)return;if(cadHistory()){cadWorkspace.undo();return;}$('btnUndo').click();invalidatePreview();refresh(true);message('Undid the last model operation.');};
+  $('wb-redo').onclick=()=>{if(busy)return;if(cadHistory()){cadWorkspace.redo();return;}$('btnRedo').click();invalidatePreview();refresh(true);message('Redid the model operation.');};
   $('wb-fit').onclick=()=>$('btnReset').click();$('wb-view-iso').onclick=()=>engine().setView?.('iso');
   $('wb-edges').onclick=()=>$('showFilledEdges').click();$('wb-shading').onclick=()=>$('shadingToggle').click();
   $('wb-projection').onclick=()=>{$('parallelToggle').click();$('wb-projection').textContent=$('parallelToggle').getAttribute('aria-pressed')==='true'?'Orthographic':'Perspective';};

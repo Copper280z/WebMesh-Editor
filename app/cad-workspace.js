@@ -32,7 +32,7 @@
     hide: 'M3 3l18 18M10.6 6.1A9.6 9.6 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-3.2 3.7M6.3 6.4C3.7 8.1 2 12 2 12s4 7 10 7c1.7 0 3.2-.5 4.5-1.2',
     xray: 'M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Zm0 0v18M4 7.5l16 9m0-9-16 9',
     check: 'm5 12 4 4L19 6', warn: 'M12 4 2 20h20L12 4Zm0 6v4m0 3h.01', x: 'm6 6 12 12M18 6 6 18',
-    target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', undo: 'M8 4 3 9l5 5M3 9h10a7 7 0 0 1 0 14',
+    target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', undo: 'M8 4 3 9l5 5M3 9h10a7 7 0 0 1 0 14', redo: 'm16 4 5 5-5 5m5-5H11a7 7 0 0 0 0 14',
     arrow: 'M4 12h16m-6-6 6 6-6 6', minus: 'M5 12h14', plus: 'M12 5v14M5 12h14', flip: 'M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3',
     file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6'
   };
@@ -62,7 +62,9 @@
     let meshSettings = { method: 'mapped', order: 1, scope: 'all', live: true, pidPerSolid: false };
     let legacy = { method: 'tet', size: null, layers: 4, sourceFace: '', targetFace: '', sweepAxis: 'z', layerCounts: {} };
     let meshPreview = null, meshError = null, meshTimer = null, generated = null, committingMesh = false, report = null, auditHistory = [];
-    let expanded = { blocked: false, groups: false, sums: false, history: false };
+    let expanded = { blocked: false, groups: false, sums: false, history: true, solids: true, features: false };
+    let treeFilter = 'all', treeShare = 0.42;
+    try { const share = Number(localStorage.getItem('webmesh.cad.treeShare')); if (share > 0.15 && share < 0.85) treeShare = share; } catch { /* storage unavailable */ }
     let bound = false, tooltip = null, viewTools = null;
     const autoState = { running: false, message: '', blends: true, holes: true };
 
@@ -136,6 +138,33 @@
       sizing.edges = moved; sizing.faces = new Map();
       return lost;
     }
+
+    /** Solids of the current pick: picked solids, or the solids owning picked faces. */
+    function selectedSolids() {
+      if (selection.kind === 'solid') return selection.ids.slice();
+      if (selection.kind === 'face') return [...new Set(selection.ids.flatMap(f => session.topology.faces.find(x => x.id === f)?.volumes || []))];
+      return [];
+    }
+    /** Undo, redo or go to a history step on the server; later steps stay available to redo. */
+    async function moveHistory(kind, index) {
+      if (!session) return;
+      pending = null; clearPreview(); tool = null;
+      const data = await api(kind, kind === 'revert' ? { ...token(), to: index } : token());
+      accept(data, { fit: false, keepStep: true });
+      if (generated) generated.stale = true;
+      hooks.render();
+      const label = (data.history || [])[data.cursor]?.label;
+      hooks.message(kind === 'undo' ? 'Undid the last geometry change.' : kind === 'redo' ? `Redid: ${label || 'change'}.` : `Went to step ${index}: ${label || 'change'}. Later steps can still be redone.`);
+    }
+    function historyActive() { return active && !!session && !discrete() && step !== 'mesh'; }
+    /** One action at a time: forget the open tool, its draft and its pending change. */
+    function closeTool() {
+      pending = null; clearPreview();
+      tool = null; cutDraft = null; sliceDraft = null; passages = []; checkedFeatures = new Set();
+      updatePendingOverlay();
+    }
+    function canUndo() { return !!session && !discrete() && historyCursor() > 0; }
+    function canRedo() { return !!session && !discrete() && historyCursor() + 1 < (session.history || []).length; }
 
     /* ------------------------------------------------------------ accept -- */
     function accept(data, { fit = true, keepStep = false } = {}) {
@@ -411,7 +440,9 @@
     const numberField = (field, label, value, attrs = '') => `<label class="cad-field"><span>${label}</span><input data-field="${field}" type="number" step="any" value="${esc(value)}" ${attrs}></label>`;
     function renderPart(id, fn) {
       const el = document.getElementById(id);
-      if (el) el.innerHTML = fn();
+      if (!el) return;
+      if (window.WebMeshDom) window.WebMeshDom.morph(el, fn());
+      else el.innerHTML = fn();
     }
 
     function render() {
@@ -433,19 +464,27 @@
         size: discrete() ? '' : conflicts ? chip(`${conflicts} conflict${conflicts === 1 ? '' : 's'}`, 'bad') : intervals?.region.volumes.length ? chip('Solved', 'ok') : chip('—', 'muted'),
         mesh: generated && !generated.stale ? chip('In model', 'ok') : meshPreview ? chip('Preview', 'info') : ''
       };
-      let body = `<div class="cad-wb">
+      const cursor = historyCursor(), states = session.history || [];
+      const undoLabel = cursor > 0 ? states[cursor]?.label : '', redoLabel = cursor + 1 < states.length ? states[cursor + 1]?.label : '';
+      let body = `<div class="cad-wb cad-layout">
+        <div class="cad-top">
         <section class="cad-file">
-          <div class="cad-file-row">${icon('file')}<div class="cad-file-name"><strong title="${esc(source?.name)}">${esc(source?.name || session.filename)}</strong><small>${t.volumes.length} solid${t.volumes.length === 1 ? '' : 's'} · ${t.faces.length} faces · ${t.edges.length} edges · rev ${session.revision}</small></div>
-          ${btn('undo', '', { cls: 'icon ghost', iconName: 'undo', title: 'Undo last geometry change', disabled: (session.history?.length || 0) < 2 })}${btn('import', 'Replace', { cls: 'ghost small' })}</div>
+          <div class="cad-file-row">${icon('file')}<div class="cad-file-name"><strong title="${esc(source?.name)}">${esc(source?.name || session.filename)}</strong><small>${t.volumes.length} solid${t.volumes.length === 1 ? '' : 's'} · ${t.faces.length} faces · ${t.edges.length} edges</small></div>
+          ${btn('undo', '', { cls: 'icon ghost', iconName: 'undo', title: undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo', disabled: !undoLabel })}${btn('redo', '', { cls: 'icon ghost', iconName: 'redo', title: redoLabel ? `Redo: ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo', disabled: !redoLabel })}${btn('import', 'Replace', { cls: 'ghost small' })}</div>
         </section>
         <nav class="cad-steps" role="tablist">${[['prepare', '1', 'Prepare'], ['size', '2', 'Size'], ['mesh', '3', 'Mesh']].map(([key, n, label]) =>
-          `<button role="tab" data-act="step" data-value="${key}" aria-selected="${step === key}" ${discrete() && key !== 'mesh' ? 'disabled' : ''}><span class="n">${n}</span><span class="l">${label}</span>${stepStatus[key] || ''}</button>`).join('')}</nav>`;
-      if (!discrete()) body += `<div class="cad-pickbar"><span>Pick</span>${seg('pick', [['solid', 'Solid', 'solid', 'Pick solids (1)'], ['face', 'Face', 'face', 'Pick faces (2)'], ['edge', 'Edge', 'edge', 'Pick edges (3)'], ['vertex', 'Point', 'vertex', 'Pick vertices (4)']], pick, 'pick')}</div>
-        <section id="cad-context" class="cad-context">${contextCard()}</section>`;
+          `<button role="tab" data-act="step" data-value="${key}" aria-selected="${step === key}" ${discrete() && key !== 'mesh' ? 'disabled' : ''}><span class="n">${n}</span><span class="l">${label}</span>${stepStatus[key] || ''}</button>`).join('')}</nav>
+        ${discrete() ? '' : `<div class="cad-pickbar"><span>Pick</span>${seg('pick', [['auto', 'Auto', 'target', 'Nearest point, edge or face (0)'], ['solid', 'Solid', 'solid', 'Pick solids (1)'], ['face', 'Face', 'face', 'Pick faces (2)'], ['edge', 'Edge', 'edge', 'Pick edges (3)'], ['vertex', 'Point', 'vertex', 'Pick vertices (4)']], pick, 'pick')}</div>`}
+        </div>
+        <div class="cad-split" style="--tree-share:${treeShare}">
+          <section id="cad-tree" class="cad-tree" aria-label="Model tree">${treeHtml()}</section>
+          <div class="cad-resize" data-resize="tree" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+          <section id="cad-inspector" class="cad-inspector">`;
+      if (!discrete()) body += `<section id="cad-context" class="cad-context">${contextCard()}</section>`;
       if (step === 'prepare') body += prepareBody();
       else if (step === 'size') body += sizeBody();
       else body += meshBody();
-      body += '<div id="wb-report"></div></div>';
+      body += '<div id="wb-report"></div></section></div></div>';
       return { body, foot: footer(), ready: true };
     }
 
@@ -468,7 +507,7 @@
       if (!session || discrete()) return '';
       if (!selection.ids.length) {
         if (pending && !tool && step === 'prepare') return pendingCard();
-        const hint = { solid: 'Click a solid to see whether it is a mapped block and how to fix it. Shift-pick neighbors to fuse them.', face: 'Click a face: holes, fillets and planes get matching tools.', edge: step === 'size' ? 'Click edges to set their element counts. Shift adds to the selection.' : 'Click edges to cut along them, or one to slice across it.', vertex: 'Click a vertex to slice through it; Shift-pick a second to cut between them.' }[pick];
+        const hint = { auto: 'Click near a point, edge or face: the smallest one under the pointer is picked. Shift adds.', solid: 'Click a solid to see whether it is a mapped block and how to fix it. Shift-pick neighbors to fuse them.', face: 'Click a face: holes, fillets and planes get matching tools.', edge: step === 'size' ? 'Click edges to set their element counts. Shift adds to the selection.' : 'Click edges to cut along them, or one to slice across it.', vertex: 'Click a vertex to slice through it; Shift-pick a second to cut between them.' }[pick];
         return `<div class="cad-hint">${icon('target')}<span>${hint}<br><small>Shift/Ctrl adds · Esc clears · 1–4 switch pick type</small></span></div>`;
       }
       const info = F() && analysis ? F().infer(session.topology, recognized, analysis, selection) : null;
@@ -518,8 +557,51 @@
         ['project', 'Project', 'project', 'Partition by face outlines'], ['heal', 'Heal', 'heal', 'Sew and repair']].map(([key, label, iconName, title]) =>
         `<button type="button" class="cad-tool ${tool === key ? 'active' : ''}" data-act="tool" data-value="${key}" title="${title}">${icon(iconName)}<span>${label}</span></button>`).join('')}</div></section>`;
       html += `<section id="cad-tool">${toolCard()}</section>`;
-      const history = [...auditHistory, ...(session.history || [])];
-      if (history.length > 1) html += `<details class="cad-card cad-history" ${expanded.history ? 'open' : ''} data-expand="history"><summary>History <small>${history.length - 1} change${history.length === 2 ? '' : 's'}</small></summary><ol>${history.map(item => `<li>${esc(typeof item === 'string' ? item : item.label || item.kind)}</li>`).join('')}</ol></details>`;
+      return html;
+    }
+
+    /* ---------------------------------------------------------- model tree -- */
+    function historyCursor() {
+      const states = session?.history || [];
+      return Number.isInteger(session?.cursor) ? session.cursor : states.length - 1;
+    }
+    function treeGroup(key, title, count, inner, tools = '') {
+      return `<details class="cad-tree-group" data-expand="${key}" ${expanded[key] !== false ? 'open' : ''}><summary><span>${title}</span><small>${count}</small>${tools}</summary>${inner}</details>`;
+    }
+    function treeHtml() {
+      if (!session) return '';
+      const vols = session.topology.volumes;
+      const stateOf = id => {
+        const v = analysis?.volumes.get(id);
+        if (!v) return ['other', ''];
+        if (!v.mappable) return ['bad', shortReason(v)];
+        if (intervals?.conflicts.some(c => (c.volumes || []).includes(id))) return ['warn', 'count conflict'];
+        const dims = blockDims(v);
+        return [v.warnings?.length ? 'taper' : 'ok', dims ? dims.join(' × ') : 'mapped block'];
+      };
+      const list = treeFilter === 'blocked' ? vols.filter(v => !analysis?.volumes.get(v.id)?.mappable) : vols;
+      const rows = list.map(v => {
+        const [tone, note] = stateOf(v.id), hidden = display.hidden.has(v.id);
+        const picked = selection.kind === 'solid' && selection.ids.includes(v.id);
+        return `<div class="cad-tree-row ${picked ? 'selected' : ''} ${hidden ? 'hidden' : ''}" data-solid-row="${v.id}">
+          <button type="button" class="cad-tree-main" data-act="select-solid" data-id="${v.id}" title="Select solid ${v.id} (Shift adds)"><i class="dot ${tone}"></i><strong>Solid ${v.id}</strong><span>${esc(note)}</span></button>
+          <button type="button" class="cad-eye" data-act="toggle-visible" data-id="${v.id}" aria-pressed="${!hidden}" title="${hidden ? 'Show' : 'Hide'} solid ${v.id} (H)">${icon(hidden ? 'hide' : 'eye')}</button></div>`;
+      }).join('');
+      const blocked = vols.filter(v => !analysis?.volumes.get(v.id)?.mappable).length;
+      const solidTools = `<span class="cad-tree-tools">${seg('tree-filter', [['all', 'All'], ['blocked', `Red ${blocked}`]], treeFilter, 'compact mini')}${display.hidden.size ? btn('show-all', `Show ${display.hidden.size}`, { cls: 'ghost mini', title: 'Show hidden solids (Shift+H)' }) : ''}</span>`;
+      let html = treeGroup('solids', 'Solids', `${vols.length - blocked}/${vols.length} mapped`, `<div class="cad-tree-list">${rows || '<p class="cad-note">No solids need work.</p>'}</div>`, solidTools);
+      const features = recognized?.features || [];
+      if (features.length) {
+        html += treeGroup('features', 'Features', features.length, `<div class="cad-tree-list">${features.map(f => `<div class="cad-tree-row" data-hover-faces="${f.faces.join(',')}"><button type="button" class="cad-tree-main" data-act="feature-locate" data-id="${f.id}" title="Select its faces"><i class="kind ${f.kind}"></i><strong>${esc(f.label)}</strong><span>${f.faces.length} face${f.faces.length === 1 ? '' : 's'}</span></button></div>`).join('')}</div>`);
+      }
+      const states = session.history || [], cursor = historyCursor();
+      const saved = auditHistory.map(item => `<li class="saved"><span>${esc(item.label || item)}</span></li>`).join('');
+      const steps = states.map((item, i) => {
+        const where = i === cursor ? 'current' : i > cursor ? 'undone' : '';
+        const action = i === cursor ? '<small>current</small>' : `<button type="button" class="cad-history-go" data-act="history-go" data-index="${i}" title="${i < cursor ? 'Go back to this step; later steps stay available to redo' : 'Redo up to this step'}">${icon(i < cursor ? 'undo' : 'redo')}${i < cursor ? 'Back here' : 'Redo to here'}</button>`;
+        return `<li class="${where}"><span class="n">${i}</span><span class="cad-history-label" title="${esc(item.label || item.operation?.kind || '')}">${esc(item.label || item.operation?.kind || 'Change')}</span>${action}</li>`;
+      }).reverse().join('');
+      html += treeGroup('history', 'History', `${cursor} change${cursor === 1 ? '' : 's'}${states.length - 1 > cursor ? ` · ${states.length - 1 - cursor} undone` : ''}`, `<ol class="cad-history-list">${steps}${saved}</ol>`);
       return html;
     }
     function readinessCard() {
@@ -528,7 +610,10 @@
       const blocked = [...analysis.volumes.values()].filter(v => !v.mappable);
       let html = `<section class="cad-card cad-ready"><div class="cad-card-title">Mapped-mesh readiness <small>${s.mappable}/${s.volumes} solids</small></div>
         <div class="cad-meter"><i style="width:${pct}%"></i></div>`;
-      if (!blocked.length) html += `<p class="cad-good">${icon('check')} Every solid is a mapped block. Continue to sizing.</p>`;
+      if (!blocked.length) {
+        html += `<p class="cad-good">${icon('check')} Every solid is a mapped block. Continue to sizing.</p>`;
+        if (autoState.message && autoState.revision === session.revision && autoState.undoTo != null) html += `<div class="cad-inline">${btn('history-go', 'Undo Auto-fix', { cls: 'ghost small', iconName: 'undo', data: { index: autoState.undoTo }, title: 'Return to the geometry before Auto-fix ran; its steps stay available to redo' })}</div>`;
+      }
       else {
         html += autoFixControls();
         const shown = expanded.blocked ? blocked : blocked.slice(0, 4);
@@ -543,13 +628,13 @@
     function autoFixControls() {
       if (autoState.running) return `<div class="cad-auto running"><span class="cad-spin"></span><span>${esc(autoState.message || 'Auto-fix running…')}</span></div>`;
       return `<div class="cad-auto"><div class="cad-auto-row">${btn('auto-fix', 'Auto-fix', { cls: 'small', iconName: 'spark', title: 'Repeatedly apply the best fix that makes more solids mappable' })}
-        <label><input type="checkbox" data-field="auto-blends" ${autoState.blends ? 'checked' : ''}> Remove fillets & chamfers</label>
+        <label title="Only fillets and chamfers no wider than 1.5 elements; larger ones are part of the design and stay"><input type="checkbox" data-field="auto-blends" ${autoState.blends ? 'checked' : ''}> Remove small fillets & chamfers</label>
         <label><input type="checkbox" data-field="auto-holes" ${autoState.holes ? 'checked' : ''}> Split around holes</label></div>
-        ${autoState.message ? `<p class="cad-note">${esc(autoState.message)}</p>` : ''}</div>`;
+        ${autoState.message && autoState.revision === session.revision ? `<p class="cad-note">${esc(autoState.message)}</p>${autoState.undoTo != null ? `<div class="cad-inline">${btn('history-go', 'Undo Auto-fix', { cls: 'ghost small', iconName: 'undo', data: { index: autoState.undoTo }, title: 'Return to the geometry before Auto-fix ran; its steps stay available to redo' })}</div>` : ''}` : ''}</div>`;
     }
     async function autoFix() {
       // The planner lives in cad-features.js so the UI, tests and automation share it.
-      const startRevision = session.revision;
+      const startRevision = session.revision, startCursor = historyCursor();
       autoState.running = true; autoState.message = 'Analyzing solids…'; renderReadiness();
       let result;
       try {
@@ -570,6 +655,9 @@
         expanded.blocked = true;
       }
       if (session.revision !== startRevision && generated) generated.stale = true;
+      // The report belongs to the state Auto-fix left; a later change retires it.
+      autoState.revision = session.revision;
+      autoState.undoTo = steps ? startCursor : null;
       hooks.render();
       hooks.message(autoState.message, reason === 'error' || (!!end.blocked && !steps));
     }
@@ -816,10 +904,10 @@
       updatePendingOverlay();
       renderPart('cad-tool', toolCard);
       refreshFooter();
-      if (pending) schedulePreview(immediate ? 0 : 450);
+      if (pending) schedulePreview(immediate ? 0 : 200);
     }
-    function refreshFooter() { const foot = document.getElementById('wb-panel-foot'); if (foot && active) { foot.innerHTML = footer(); foot.querySelectorAll('button').forEach(el => { el.dataset.operation = 'true'; }); } }
-    function schedulePreview(delay = 450) {
+    function refreshFooter() { const foot = document.getElementById('wb-panel-foot'); if (foot && active) { if (window.WebMeshDom) window.WebMeshDom.morph(foot, footer()); else foot.innerHTML = footer(); foot.querySelectorAll('button').forEach(el => { el.dataset.operation = 'true'; }); } }
+    function schedulePreview(delay = 200) {
       clearTimeout(previewTimer);
       if (!pending) return;
       const valid = operationProblem(pending.operation);
@@ -865,10 +953,9 @@
       const data = await api('prepare', { ...token(), operation });
       pending = null; clearPreview();
       if (generated) generated.stale = true;
-      const keepTool = tool === 'slice' ? null : tool;
       accept(data, { fit: false, keepStep: true });
-      tool = keepTool;
-      if (tool === 'features') checkedFeatures = new Set();
+      // The change is done: nothing from it stays armed for the next pick.
+      closeTool();
       hooks.render();
       hooks.log(label || 'Prepared CAD');
       const after = analysis?.summary;
@@ -1113,18 +1200,22 @@
           case 'clear-selection': setSelection(null, []); break;
           case 'infer': { const action = lastActions[Number(el.dataset.index)]; if (action) runInferred(action); break; }
           case 'tool': openTool(value); break;
-          case 'cancel-pending': pending = null; clearPreview(); if (tool === 'slice') tool = null; if (tool === 'cut') { tool = null; cutDraft = null; } updatePendingOverlay(); hooks.render(); break;
+          case 'cancel-pending': closeTool(); hooks.render(); break;
           case 'cut-remove': if (cutDraft) { cutDraft.segments.splice(Number(el.dataset.index), 1); syncCutPending(); renderPart('cad-tool', toolCard); updatePendingOverlay(); refreshFooter(); if (pending) schedulePreview(); } break;
           case 'cut-clear': if (cutDraft) { cutDraft.segments = []; cutDraft.volumeIds = []; cutDraft.holders = []; syncCutPending(); hooks.render(); updatePendingOverlay(); } break;
           case 'apply-pending': hooks.run(applyPending); break;
           case 'auto-fix': pending = null; clearPreview(); updatePendingOverlay(); hooks.run(autoFix); break;
-          case 'undo': hooks.run(async () => { pending = null; clearPreview(); accept(await api('undo', token()), { fit: false, keepStep: true }); if (generated) generated.stale = true; hooks.render(); hooks.message('Undid the last geometry change.'); }); break;
+          case 'undo': hooks.run(() => moveHistory('undo')); break;
+          case 'redo': hooks.run(() => moveHistory('redo')); break;
+          case 'history-go': hooks.run(() => moveHistory('revert', Number(el.dataset.index))); break;
+          case 'toggle-visible': { const id = Number(el.dataset.id); display.hidden.has(id) ? display.hidden.delete(id) : display.hidden.add(id); updateDisplay(); updateViewTools(); renderPart('cad-tree', treeHtml); break; }
+          case 'tree-filter': event.preventDefault(); treeFilter = value; renderPart('cad-tree', treeHtml); break;
           case 'toggle-result': display.showResult = !display.showResult; updatePendingOverlay(); refreshPending(); break;
-          case 'select-solid': setPick('solid'); setSelection('solid', [Number(el.dataset.id)]); break;
+          case 'select-solid': if (pick !== 'auto') setPick('solid'); setSelection('solid', [Number(el.dataset.id)], { additive: event.shiftKey || event.metaKey || event.ctrlKey }); break;
           case 'expand': expanded[value] = !expanded[value]; hooks.render(); break;
-          case 'isolate': if (selection.kind === 'solid') { display.hidden = new Set(session.topology.volumes.map(v => v.id).filter(id => !selection.ids.includes(id))); updateDisplay(); renderPart('cad-context', contextCard); } break;
-          case 'hide-selected': if (selection.kind === 'solid') { selection.ids.forEach(id => display.hidden.add(id)); setSelection(null, []); updateDisplay(); updateViewTools(); } break;
-          case 'show-all': display.hidden = new Set(); updateDisplay(); renderPart('cad-context', contextCard); break;
+          case 'isolate': { const ids = selectedSolids(); if (ids.length) { display.hidden = new Set(session.topology.volumes.map(v => v.id).filter(id => !ids.includes(id))); updateDisplay(); updateViewTools(); renderPart('cad-context', contextCard); renderPart('cad-tree', treeHtml); } break; }
+          case 'hide-selected': { const ids = selectedSolids(); if (ids.length) { ids.forEach(id => display.hidden.add(id)); setSelection(null, []); updateDisplay(); updateViewTools(); renderPart('cad-tree', treeHtml); } break; }
+          case 'show-all': event.preventDefault(); display.hidden = new Set(); updateDisplay(); updateViewTools(); renderPart('cad-context', contextCard); renderPart('cad-tree', treeHtml); break;
           case 'slice-axis': {
             if (value === 'custom') { sliceDraft.normal = sliceDraft.normal.map(v => v + 1e-3); sliceDraft.normal = unit([sliceDraft.normal[0] || 1, sliceDraft.normal[1] + 0.3, sliceDraft.normal[2]]); }
             else { const n = [0, 0, 0]; n['xyz'.indexOf(value)] = 1; sliceDraft.normal = n; }
@@ -1278,12 +1369,29 @@
       if (row && event.type === 'mouseover') vp.setOverlay('hover-faces', { type: 'faces', faces: row.dataset.hoverFaces.split(',').map(Number), color: 0xffd54a, opacity: 0.6, depthTest: false, renderOrder: 8 });
       else if (event.type === 'mouseout' && (!event.relatedTarget || !event.relatedTarget.closest?.('[data-hover-faces]'))) vp.clearOverlay('hover-faces');
     }
+    function onResizeStart(event) {
+      const handle = event.target.closest?.('[data-resize="tree"]'); if (!handle) return;
+      const split = handle.parentElement, box = split.getBoundingClientRect();
+      event.preventDefault();
+      handle.setPointerCapture?.(event.pointerId);
+      const move = e => { treeShare = Math.max(0.15, Math.min(0.85, (e.clientY - box.top) / box.height)); split.style.setProperty('--tree-share', treeShare); };
+      const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); try { localStorage.setItem('webmesh.cad.treeShare', String(treeShare)); } catch { /* storage unavailable */ } };
+      handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
+    }
     function onKey(event) {
-      if (!active || !session || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!active || !session || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
+      // Ctrl/Cmd+Z undoes geometry changes while preparing and sizing (the model's
+      // own history takes over in the Mesh step, where meshes are added).
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase()) && historyActive()) {
+        event.preventDefault(); event.stopPropagation();
+        if (!hooks.isBusy?.()) { const redo = event.key.toLowerCase() === 'y' || event.shiftKey; if (redo ? canRedo() : canUndo()) hooks.run(() => moveHistory(redo ? 'redo' : 'undo')); }
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (document.querySelector('dialog[open]')) return;
       const key = event.key;
-      if (['1', '2', '3', '4'].includes(key) && !discrete()) { setPick(['solid', 'face', 'edge', 'vertex'][Number(key) - 1]); renderPart('cad-context', contextCard); event.preventDefault(); return; }
-      if (key === 'Escape') { if (pending) { pending = null; clearPreview(); updatePendingOverlay(); hooks.render(); } else setSelection(null, []); event.preventDefault(); return; }
+      if (['0', '1', '2', '3', '4'].includes(key) && !discrete()) { setPick(['auto', 'solid', 'face', 'edge', 'vertex'][Number(key)]); renderPart('cad-context', contextCard); event.preventDefault(); return; }
+      if (key === 'Escape') { if (pending || tool) { closeTool(); hooks.render(); } else setSelection(null, []); event.preventDefault(); return; }
       if (key === 'Enter' && pending && step === 'prepare' && !hooks.isBusy?.()) { hooks.run(applyPending); event.preventDefault(); return; }
       if (step === 'size' && selectedEdges().length) {
         const current = e => intervals.locked.get(e) ?? intervals.counts.get(e);
@@ -1291,7 +1399,7 @@
         if (key === '-' || key === '_') { setEdgeCount(selectedEdges(), e => current(e) - 1); event.preventDefault(); return; }
         if (key.toLowerCase() === 'l') { document.querySelector('[data-act="lock"]')?.click(); event.preventDefault(); return; }
       }
-      if (key.toLowerCase() === 'h') { if (event.shiftKey) { display.hidden = new Set(); updateDisplay(); } else if (selection.kind === 'solid') { selection.ids.forEach(id => display.hidden.add(id)); setSelection(null, []); updateDisplay(); } event.preventDefault(); return; }
+      if (key.toLowerCase() === 'h') { if (event.shiftKey) display.hidden = new Set(); else if (selectedSolids().length) { selectedSolids().forEach(id => display.hidden.add(id)); setSelection(null, []); } updateDisplay(); updateViewTools(); renderPart('cad-tree', treeHtml); event.preventDefault(); return; }
       if (key.toLowerCase() === 'x') { display.xray = !display.xray; updateDisplay(); updateViewTools(); event.preventDefault(); }
     }
 
@@ -1308,7 +1416,7 @@
         if (v === 'xray') display.xray = !display.xray;
         else if (v === 'show-all') display.hidden = new Set();
         else if (['status', 'solid', 'plain'].includes(v)) display.color = v;
-        else if (['solid-pick', 'face-pick', 'edge-pick', 'vertex-pick'].includes(v)) { setPick(v.split('-')[0]); renderPart('cad-context', contextCard); }
+        else if (['auto-pick', 'solid-pick', 'face-pick', 'edge-pick', 'vertex-pick'].includes(v)) { setPick(v.split('-')[0]); renderPart('cad-context', contextCard); }
         updateDisplay(); updateViewTools();
       });
       tooltip = document.createElement('div'); tooltip.className = 'cad-tooltip'; host.appendChild(tooltip);
@@ -1318,7 +1426,7 @@
       const show = active && !!session && engine()?.getCadState?.().visible !== false;
       viewTools.hidden = !show;
       if (!show) return;
-      viewTools.innerHTML = `<div class="cad-vt-group">${[['solid', 'solid'], ['face', 'face'], ['edge', 'edge'], ['vertex', 'vertex']].map(([k, i]) => `<button type="button" data-view="${k}-pick" aria-pressed="${pick === k}" title="Pick ${k}s">${icon(i)}</button>`).join('')}</div>
+      viewTools.innerHTML = `<div class="cad-vt-group">${[['auto', 'target', 'Pick the nearest point, edge or face'], ['solid', 'solid'], ['face', 'face'], ['edge', 'edge'], ['vertex', 'vertex']].map(([k, i, title]) => `<button type="button" data-view="${k}-pick" aria-pressed="${pick === k}" title="${title || `Pick ${k}s`}">${icon(i)}</button>`).join('')}</div>
         <div class="cad-vt-group">${[['status', 'Status'], ['solid', 'Solids'], ['plain', 'Plain']].map(([k, l]) => `<button type="button" data-view="${k}" aria-pressed="${display.color === k}">${l}</button>`).join('')}</div>
         <div class="cad-vt-group"><button type="button" data-view="xray" aria-pressed="${display.xray}" title="X-ray (X)">${icon('xray')}</button>${display.hidden.size ? `<button type="button" data-view="show-all" title="Show all solids (Shift+H)">${icon('eye')}<span>${display.hidden.size} hidden</span></button>` : ''}</div>`;
     }
@@ -1362,6 +1470,9 @@
           el.addEventListener('change', onChangeEvent);
           el.addEventListener('mouseover', onHoverRow);
           el.addEventListener('mouseout', onHoverRow);
+          // Remember which tree groups and cards are open; renders keep them so.
+          el.addEventListener('toggle', event => { const d = event.target; if (d.matches?.('details[data-expand]')) expanded[d.dataset.expand] = d.open; }, true);
+          el.addEventListener('pointerdown', onResizeStart);
         }
         document.addEventListener('keydown', onKey);
         window.addEventListener('webmesh:cad-hover', onHover);
@@ -1372,7 +1483,9 @@
       updateAvailability();
     }
     function updateAvailability() {
-      const undo = document.querySelector('[data-act="undo"]'); if (undo) undo.disabled = (session?.history?.length || 0) < 2 || !!hooks.isBusy?.();
+      const busy = !!hooks.isBusy?.();
+      const undo = document.querySelector('[data-act="undo"]'); if (undo) undo.disabled = !canUndo() || busy;
+      const redo = document.querySelector('[data-act="redo"]'); if (redo) redo.disabled = !canRedo() || busy;
     }
 
     window.addEventListener('webmesh:cad-selection', event => {
@@ -1499,8 +1612,11 @@
           analysis: analysis ? { summary: { ...analysis.summary } } : null, intervals: intervals ? { conflicts: intervals.conflicts.length, groups: intervals.groups.length, estimate: intervals.estimate, counts: Object.fromEntries(intervals.counts) } : null,
           pending: pending ? JSON.parse(JSON.stringify(pending)) : null, preview: { status: previewState.status, error: previewState.error }, mesh: meshPreview ? { ...meshPreview.result.quality, elementQuality: undefined } : null, meshError };
       },
+      historyActive, canUndo, canRedo,
+      undo: () => hooks.run(() => moveHistory('undo')), redo: () => hooks.run(() => moveHistory('redo')),
       // Programmatic hooks used by tests and automation.
       api: {
+        history: (kind, index) => moveHistory(kind, index),
         select: (kind, ids) => setSelection(kind, ids), pick: setPick, step: changeStep, tool: openTool, infer: () => lastActions.slice(),
         runAction: index => runInferred(lastActions[index]), apply: applyPending, setSize: size => { sizing.size = size; resolve(); },
         setCount: (edges, count) => setEdgeCount(edges, () => count), preview: buildMeshPreview, addMesh, waitForPreview: async () => { clearTimeout(previewTimer); await runPreview(); }

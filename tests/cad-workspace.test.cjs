@@ -42,6 +42,7 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
       else if (action === 'preview') result = { ...payload(prepared, revision), staged: true };
       else if (action === 'prepare') { assert.equal(data.revision, revision, 'prepare uses the current revision token'); revision++; result = payload(prepared, revision); }
       else if (action === 'undo') { revision++; result = payload(imported, revision); }
+      else if (action === 'redo' || action === 'revert') { revision++; result = { ...payload(prepared, revision), cursor: action === 'revert' ? data.to : undefined }; }
       else if (action === 'export') result = { filename: 'part-prepared.brep', format: 'brep', content: btoa('brep'), history: [] };
       else if (action === 'mesh') result = { mesh: { nodes: [{ id: 1, x: 0, y: 0, z: 0 }], elements: [{ id: 1, type: 'CTETRA', pid: 1, nodes: [1, 1, 1, 1] }] }, quality: { minScaledJacobian: 0.5 } };
       else throw Error('Unexpected API ' + url);
@@ -254,7 +255,7 @@ test('the Cut tool collects edge and vertex picks into one bounded cut', async (
   assert.equal(f.workspace.getState().pending.operation.rays.length, 1);
   await f.workspace.api.apply();
   assert.equal(f.calls.requests.find(r => r.action === 'prepare').data.operation.rays.length, 1);
-  assert.equal(f.workspace.getState().tool, 'cut', 'the tool stays open for the next cut');
+  assert.equal(f.workspace.getState().tool, null, 'applying ends the action: the next pick starts fresh');
   assert.equal(f.workspace.getState().pending, null);
 });
 
@@ -284,4 +285,29 @@ test('picked neighboring solids are fused through the preview and apply flow', a
   assert.deepEqual(plain(prepare.data.operation.volumeIds), ids.slice().sort((a, b) => a - b));
   assert.equal(prepare.data.operation.kind, 'fuse');
   assert.equal(f.workspace.getState().analysis.summary.volumes, 1);
+});
+
+test('history steps can be undone, redone and returned to, and Apply leaves nothing armed', async () => {
+  const f = await imported();
+  const faces = f.workspace.getState().topology.faces.filter(x => x.surface.kind === 'plane');
+  f.workspace.api.select('face', [faces[0].id]);
+  f.workspace.api.runAction(f.workspace.api.infer().findIndex(a => a.key === 'slice-parallel'));
+  await f.workspace.api.waitForPreview();
+  await f.workspace.api.apply();
+  let state = f.workspace.getState();
+  assert.equal(state.tool, null);
+  assert.equal(state.pending, null);
+  // Picking another face now offers fresh actions; nothing from the slice is still pending.
+  f.workspace.api.select('face', [faces[1].id]);
+  assert.equal(f.workspace.getState().pending, null);
+  assert.equal(f.workspace.canUndo(), true);
+  await f.workspace.api.history('undo');
+  assert.equal(f.calls.requests.at(-1).action, 'undo');
+  await f.workspace.api.history('revert', 0);
+  const revert = f.calls.requests.at(-1);
+  assert.equal(revert.action, 'revert');
+  assert.equal(revert.data.to, 0);
+  await f.workspace.api.history('redo');
+  assert.equal(f.calls.requests.at(-1).action, 'redo');
+  assert.match(f.workspace.render().body, /cad-history-list/);
 });

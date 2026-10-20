@@ -21,6 +21,7 @@ https://gmsh.info/doc/texinfo/gmsh.html#Node-ordering
 from __future__ import annotations
 
 import argparse
+import atexit
 import base64
 import binascii
 from collections import Counter
@@ -29,6 +30,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import importlib.util
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -377,6 +379,55 @@ def generate_mesh(data, gmsh):
                           "parts": len({element["pid"] for element in mesh["elements"]})}}
 
 
+class WarmWorkers:
+    """Kernel processes started ahead of time, so a request does not wait for
+    Python and Gmsh to load. Each still runs exactly one task and exits, as a
+    cold worker does; a replacement is started as soon as one is taken."""
+
+    def __init__(self, size=2):
+        self.size = size
+        self.idle = []
+        self.lock = threading.Lock()
+        self.folder = tempfile.mkdtemp(prefix="webmesh-cad-warm-")
+
+    def spawn(self):
+        return subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), "--serve"], cwd=self.folder,
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def refill(self):
+        with self.lock:
+            self.idle = [process for process in self.idle if process.poll() is None]
+            missing = self.size - len(self.idle)
+        for _ in range(max(missing, 0)):
+            process = self.spawn()
+            with self.lock:
+                self.idle.append(process)
+
+    def take(self, request_path):
+        with self.lock:
+            process = None
+            while self.idle and process is None:
+                candidate = self.idle.pop(0)
+                process = candidate if candidate.poll() is None else None
+        if process is None:
+            process = self.spawn()
+        threading.Thread(target=self.refill, daemon=True).start()
+        process.stdin.write((str(request_path) + "\n").encode())
+        process.stdin.close()
+        return process
+
+    def close(self):
+        with self.lock:
+            idle, self.idle = self.idle, []
+        for process in idle:
+            process.kill()
+            process.wait(timeout=5)
+
+
+WARM = WarmWorkers()
+atexit.register(WARM.close)
+
+
 def run_cad_worker(request, source, output, early=None, started=None):
     """Execute a single CAD task in the same bounded process envelope as meshing.
 
@@ -388,28 +439,34 @@ def run_cad_worker(request, source, output, early=None, started=None):
     with tempfile.TemporaryDirectory(prefix="webmesh-cad-task-") as temporary:
         directory = Path(temporary)
         request = {**request, "input": str(source), "output": str(output) if output else None}
+        if request.get("action") in {"import", "prepare"} and output and os.environ.get("WEBMESH_CAD_CACHE", "1") != "0":
+            # Per-entity results of the source revision: the kernel recomputes
+            # only what the operation changed, and writes the next cache.
+            cache = Path(source).with_suffix(".cache.json")
+            if cache.is_file():
+                request["cache"] = str(cache)
+            request["cacheOut"] = str(Path(output).with_suffix(".cache.json"))
         early_path = directory / "early-result.json"
         if early is not None:
             request["early"] = str(early_path)
         request_path = directory / "request.json"
         request_path.write_text(json.dumps(request, allow_nan=False))
         log_path = directory / "gmsh.log"
-        with log_path.open("wb") as log:
-            process = subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), str(request_path)],
-                                       cwd=directory, stdout=log, stderr=subprocess.STDOUT)
-            if started is not None:
-                started(process.kill)
-            deadline = time.monotonic() + MESH_TIMEOUT
-            if early is not None and watch_process(process, directory, until=early_path, deadline=deadline) is None:
-                try:
-                    if output and output.is_file() and output.stat().st_size > MAX_CAD:
-                        raise CadError("The prepared geometry exceeds 24 MiB. Simplify it or prepare smaller regions so exported projects remain importable.")
-                    early(json.loads(early_path.read_text()))
-                except BaseException:
-                    process.kill()
-                    process.wait(timeout=5)
-                    raise
-            code = watch_process(process, directory, deadline=deadline)
+        log_path.touch()
+        process = WARM.take(request_path)
+        if started is not None:
+            started(process.kill)
+        deadline = time.monotonic() + MESH_TIMEOUT
+        if early is not None and watch_process(process, directory, until=early_path, deadline=deadline) is None:
+            try:
+                if output and output.is_file() and output.stat().st_size > MAX_CAD:
+                    raise CadError("The prepared geometry exceeds 24 MiB. Simplify it or prepare smaller regions so exported projects remain importable.")
+                early(json.loads(early_path.read_text()))
+            except BaseException:
+                process.kill()
+                process.wait(timeout=5)
+                raise
+        code = watch_process(process, directory, deadline=deadline)
         result_path = directory / "worker-result.json"
         if code or not result_path.is_file():
             raise CadError("The CAD kernel could not complete this operation. Check the Gmsh Python bindings.", log=log_tail(log_path))
@@ -499,7 +556,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         if not self.trusted_request():
             return
         endpoint = urlsplit(self.path).path
-        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/export", "/api/cad/mesh"}:
+        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
@@ -562,6 +619,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
 
 
 def make_server(port=8765, gmsh=None):
+    WARM.refill()
     server = ThreadingHTTPServer(("127.0.0.1", port), partial(WebMeshHandler, gmsh=gmsh))
     server.mesh_slot = threading.BoundedSemaphore(1)
     server.preview_slots = threading.BoundedSemaphore(PREVIEW_SLOTS)
