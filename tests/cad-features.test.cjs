@@ -272,6 +272,42 @@ test('when Auto-fix stops short or fails, it reports why and keeps every applied
   assert.equal(partial.steps, 1);
 });
 
+test('Auto-fix keeps fillets and chamfers unless asked to remove small ones', async () => {
+  const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'mapping', 'filleted-block.json'), 'utf8'));
+  const run = async options => {
+    const kinds = [];
+    const result = await F.autoFix({ state: () => ({ topology: data.topology, preview: data.preview, revision: 0 }),
+      preview: async operation => { kinds.push(operation.kind); throw Error('no improvement'); }, apply: async () => {} }, { mapping: H, size: 2, shape: false, ...options });
+    return { result, kinds };
+  };
+  const kept = await run({});
+  assert.ok(kept.kinds.length, 'it still tries cuts');
+  assert.ok(!kept.kinds.includes('defeature'), 'no feature is removed by default');
+  const removing = await run({ blends: true });
+  assert.ok(removing.kinds.includes('defeature'), 'the opt-in removes the small fillet');
+});
+
+test('Stop ends Auto-fix promptly and keeps the steps it applied', async () => {
+  const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'mapping', 'l-shape.json'), 'utf8'));
+  const split = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'mapping', 'l-split.json'), 'utf8'));
+  // A preview that never answers: Stop does not wait for it.
+  const controller = new AbortController();
+  const waiting = F.autoFix({ state: () => ({ topology: data.topology, preview: data.preview, revision: 0 }), preview: () => new Promise(() => {}), apply: async () => {} },
+    { mapping: H, size: 2, signal: controller.signal });
+  setTimeout(() => controller.abort(), 20);
+  const stopped = await waiting;
+  assert.equal(stopped.reason, 'stopped');
+  assert.equal(stopped.steps, 0);
+  // Stopped while a step is applied: that step completes and stays.
+  let current = data;
+  const second = new AbortController();
+  const partial = await F.autoFix({ state: () => ({ topology: current.topology, preview: current.preview, revision: 0 }), preview: async () => split,
+    apply: async () => { second.abort(); current = split; } }, { mapping: H, size: 2, signal: second.signal });
+  assert.equal(partial.reason, 'stopped');
+  assert.equal(partial.steps, 1);
+  assert.deepEqual(partial.end, H.analyze(split.topology).summary);
+});
+
 test('a solid holding a piece of a hole is split by radial cuts to its own corners', () => {
   const t = fixture('plate-hole-quarters');
   const recognized = F.recognize(t), analysis = H.analyze(t);

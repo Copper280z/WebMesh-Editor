@@ -265,10 +265,49 @@ test('when Auto-fix cannot finish it says so and points to fixing the rest by ha
   f.click('auto-fix');
   for (let i = 0; i < 200 && !f.calls.messages.some(m => /^Auto-fix/.test(m.text)); i++) await new Promise(resolve => setTimeout(resolve, 10));
   const message = f.calls.messages.find(m => /^Auto-fix/.test(m.text)).text;
-  assert.match(message, /found no change/);
+  assert.match(message, /found no cut/);
   assert.match(message, /Continue by hand/);
   assert.match(message, /fuse/);
   assert.equal(f.workspace.getState().revision, 0, 'nothing was applied');
+});
+
+test('Auto-fix changes wait in the readiness card to be kept or discarded', async () => {
+  const run = async () => {
+    const f = await imported({ imported: 'l-shape', prepared: 'l-split' });
+    const before = f.calls.messages.length;
+    f.click('auto-fix');
+    for (let i = 0; i < 200 && !f.calls.messages.slice(before).some(m => /^Auto-fix made/.test(m.text)); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    return f;
+  };
+  let f = await run();
+  assert.equal(f.workspace.getState().revision, 1, 'the cut is applied for review');
+  let view = f.workspace.render().body;
+  assert.match(view, /Auto-fix made 1 change/);
+  assert.match(view, /data-act="auto-keep"/);
+  assert.match(view, /data-act="auto-discard"/);
+  assert.doesNotMatch(view, /Undo Auto-fix/);
+  f.click('auto-discard');
+  for (let i = 0; i < 100 && !f.calls.requests.some(r => r.action === 'revert'); i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.calls.requests.find(r => r.action === 'revert').data.to, 0, 'Discard returns to the state before Auto-fix');
+  assert.doesNotMatch(f.workspace.render().body, /auto-keep/);
+
+  f = await run();
+  f.click('auto-keep');
+  view = f.workspace.render().body;
+  assert.doesNotMatch(view, /auto-keep/);
+  assert.ok(!f.calls.requests.some(r => r.action === 'revert' || r.action === 'undo'), 'Keep changes nothing');
+  assert.equal(f.workspace.getState().revision, 1);
+});
+
+test('Stop ends a running Auto-fix and Auto-fix keeps features by default', async () => {
+  const f = await imported({ imported: 'l-shape', prepared: 'l-split' });
+  assert.doesNotMatch(f.workspace.render().body, /data-field="auto-blends" checked/, 'feature removal is off by default');
+  f.click('auto-fix');
+  assert.match(f.workspace.render().body, /data-act="auto-stop"/);
+  f.click('auto-stop');
+  for (let i = 0; i < 200 && !f.calls.messages.some(m => /^Auto-fix/.test(m.text)); i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.match(f.calls.messages.find(m => /^Auto-fix/.test(m.text)).text, /stopped/i);
+  assert.equal(f.workspace.getState().revision, 0, 'it stopped before applying anything');
 });
 
 test('picked neighboring solids are fused through the preview and apply flow', async () => {

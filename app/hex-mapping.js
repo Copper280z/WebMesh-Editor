@@ -305,10 +305,27 @@
     const overrides = options.cornerOverrides && typeof options.cornerOverrides.get === 'function' ? options.cornerOverrides : null;
     const faces = new Map();
     for (const face of index.faces.values()) faces.set(Number(face.id), classifyFace(face, index.edges, overrides, index.vertices));
+    // A ring cut once stays one solid; the kernel keeps the cut as a free face
+    // (openIn) until a second cut separates the pieces.
+    const openCuts = new Map();
+    for (const face of index.faces.values()) {
+      if (face.openIn == null || (face.volumes || []).length) continue;
+      const owner = Number(face.openIn);
+      if (!openCuts.has(owner)) openCuts.set(owner, []);
+      openCuts.get(owner).push(Number(face.id));
+    }
     const volumes = new Map();
     for (const volume of index.volumes.values()) {
-      if (!Array.isArray(volume.edgeAngles)) volumes.set(Number(volume.id), { id: Number(volume.id), mappable: false, reasons: [{ code: 'topology', message: 'This geometry revision has no mapping data. Reimport it with the current server.' }] });
-      else volumes.set(Number(volume.id), classifyVolume(volume, index, faces));
+      const id = Number(volume.id);
+      let result = !Array.isArray(volume.edgeAngles)
+        ? { id, mappable: false, reasons: [{ code: 'topology', message: 'This geometry revision has no mapping data. Reimport it with the current server.' }] }
+        : classifyVolume(volume, index, faces);
+      const cuts = openCuts.get(id);
+      if (cuts) {
+        result = { ...result, mappable: false, reasons: [{ code: 'open-ring', faces: cuts, message: `Solid ${id} is a ring opened by one cut (face ${cuts.join(', ')}). Cut it once more to separate it into pieces.` }, ...(result.mappable ? [] : result.reasons || [])] };
+        delete result.block;
+      }
+      volumes.set(id, result);
     }
     const mappable = [...volumes.values()].filter(v => v.mappable).length;
     return { index, faces, volumes, summary: { volumes: volumes.size, mappable, blocked: volumes.size - mappable } };

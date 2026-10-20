@@ -136,7 +136,18 @@ kbd{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;bor
 .cad-legend span{display:inline-flex;align-items:center;gap:5px}
 
 .cad-auto{margin-top:9px;padding:8px 9px;border-radius:7px;background:#0f161f;border:1px solid #243243}
-.cad-auto.running{display:flex;gap:8px;align-items:center;color:#a9c6dc;font-size:10.5px}
+.cad-auto.running{color:#a9c6dc;font-size:10.5px}
+.cad-auto.running .cad-auto-row{flex-wrap:nowrap;gap:8px}
+.cad-auto-status{flex:1 1 auto;min-width:0}
+.cad-auto.running .cad-btn{flex:none;background:transparent;border-color:#3b4d63;color:#c7d6e6}
+.cad-auto.running .cad-btn:hover:not(:disabled){background:#e0656526;border-color:#e0656588;color:#ffb3b3}
+.cad-auto.review{border-color:#3aa8e666;background:#3aa8e60f}
+.cad-auto-head{display:flex;align-items:center;gap:6px;font-size:11px;color:#dbe8f5}
+.cad-auto-head .cad-i{width:13px;height:13px;color:#5cd9bb}
+.cad-auto-head span{margin-left:auto;color:#8ea6be;font-size:10px;white-space:nowrap}
+.cad-auto.review .cad-note{margin:6px 0 7px}
+.cad-auto.review .cad-inline{display:flex;gap:6px}
+.cad-auto.review .cad-btn.ghost{background:transparent;border-color:#3b4d63;color:#c7d6e6}
 .cad-auto-row{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 .cad-auto-row label{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#9db0c4}
 .cad-auto-row input{accent-color:#5cd9bb;width:12px;height:12px;margin:0}

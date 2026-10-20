@@ -218,3 +218,15 @@ test('equal obtuse corners are chosen by position, so both caps of a prism agree
     assert.equal(H.analyze(rotated).volumes.get(1).mappable, true, `cap loop starting at corner ${k}`);
   }
 });
+
+test('a solid holding a kept open cut is an open ring that needs another cut', () => {
+  const data = fixture('box');
+  const topology = JSON.parse(JSON.stringify(data.topology));
+  const solid = topology.volumes[0].id;
+  assert.equal(H.analyze(topology).volumes.get(solid).mappable, true);
+  topology.faces.push({ ...JSON.parse(JSON.stringify(topology.faces[0])), id: 999, volumes: [], openIn: solid });
+  const v = H.analyze(topology).volumes.get(solid);
+  assert.equal(v.mappable, false);
+  assert.equal(v.reasons[0].code, 'open-ring');
+  assert.deepEqual(v.reasons[0].faces, [999]);
+});

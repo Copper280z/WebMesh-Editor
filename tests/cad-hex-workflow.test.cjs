@@ -101,3 +101,18 @@ test('corner bracket keeps its holes when prepared by hand: passages, bounded cu
   assert.equal(s.steps.length, 20);
   assertMesh(s, 2.5, 0.25);
 });
+
+test('wheel: the conical chamfers around each spoke slot are one chamfer each and come off together', cad, async () => {
+  const s = await new CadSession(server.base).import('examples/wheel.step');
+  const chamfers = s.features('chamfer');
+  assert.equal(chamfers.length, 6, 'one chamfer per slot outline and side');
+  for (const c of chamfers) {
+    assert.equal(c.faces.length, 4);
+    assert.ok(Math.abs(c.width - 0.7) < 0.05, `chamfer width ${c.width}`);
+  }
+  assert.ok(!s.recognized.features.some(f => f.kind === 'fillet' && chamfers.some(c => c.faces.some(id => f.faces.includes(id)))), 'no chamfer face is also called a fillet');
+  const faces = s.topology.faces.length;
+  await s.apply({ kind: 'defeature', faceIds: chamfers.flatMap(c => c.faces).sort((a, b) => a - b), label: 'Removed chamfers' });
+  assert.equal(s.features('chamfer').length, 0);
+  assert.ok(s.topology.faces.length < faces);
+});

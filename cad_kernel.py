@@ -55,6 +55,11 @@ def topology(gmsh):
                 "bounds": bounds, "center": center,
                 "edges": [abs(int(t)) for _, t in model.getBoundary([(2, tag)], oriented=False)],
                 "volumes": list(map(int, model.getAdjacencies(2, tag)[0]))}
+        if not face["volumes"]:
+            # A ring opened by one cut keeps the cut face, free of any solid.
+            result = open_cut(gmsh, tag, _probe(gmsh))
+            if result and result[1]:
+                face["openIn"] = result[0]
         try:
             if not native:
                 raise ValueError("Discrete geometry has no CAD curvatures")
@@ -372,6 +377,135 @@ def _both_sides_inside(gmsh, face, volume, step):
     return False
 
 
+def pinched_edges(gmsh):
+    """Edges where three or more faces of one solid meet, as (solid, edge) pairs.
+
+    Each edge of a manifold solid bounds exactly two of its faces (a seam bounds
+    one, twice). More means the solid touches itself there: a slit left inside
+    it, or two regions joined only along the edge, as when a plane cuts through
+    a re-entrant corner. Neither can be meshed conformingly.
+    """
+    model = gmsh.model
+    found = []
+    for _, volume in model.getEntities(3):
+        uses = {}
+        for face in model.getAdjacencies(3, volume)[1]:
+            for edge in set(model.getAdjacencies(2, int(face))[1]):
+                uses[int(edge)] = uses.get(int(edge), 0) + 1
+        found.extend((int(volume), edge) for edge, count in sorted(uses.items()) if count > 2)
+    return found
+
+
+def _face_sample(gmsh, face):
+    """A point on a trimmed face and the unit normal there, or None."""
+    model = gmsh.model
+    lower, upper = model.getParametrizationBounds(2, face)
+    for a in (0.5, 0.3, 0.7, 0.15, 0.85):
+        for b in (0.5, 0.3, 0.7, 0.15, 0.85):
+            uv = [lower[0] + (upper[0] - lower[0]) * a, lower[1] + (upper[1] - lower[1]) * b]
+            if model.isInside(2, face, uv, parametric=True):
+                normal = list(model.getNormal(face, uv))
+                size = math.sqrt(sum(v * v for v in normal)) or 1.0
+                return list(model.getValue(2, face, uv)), [v / size for v in normal]
+    return None
+
+
+def open_cut(gmsh, face, step):
+    """(solid, complete) for a free planar face lying inside one solid, else None.
+
+    A ring cut once stays one solid, and OpenCASCADE leaves the cut face apart
+    from it. The face is a complete open cut when every edge of it lies on that
+    solid's boundary: just past each edge, in the face's plane, there is no
+    material. It is kept so that a second cut through the ring, which includes
+    it, separates the pieces. A face with an edge inside the material is a cut
+    that stops short (complete is False).
+    """
+    model = gmsh.model
+    if len(model.getAdjacencies(2, face)[0]) or model.getType(2, face) != "Plane":
+        return None
+    try:
+        sample = _face_sample(gmsh, face)
+        if sample is None:
+            return None
+        point, normal = sample
+        owners = [tag for _, tag in model.getEntities(3) if model.isInside(3, tag, point)]
+        if len(owners) != 1:
+            return None
+        solid = int(owners[0])
+        bounding = {int(f) for f in model.getAdjacencies(3, solid)[1]}
+        for edge in model.getAdjacencies(2, face)[1]:
+            edge = abs(int(edge))
+            # An edge the solid's own faces use lies on its boundary, also at a
+            # re-entrant corner where material wraps around it.
+            if bounding & {int(f) for f in model.getAdjacencies(1, edge)[0]}:
+                continue
+            lower, upper = model.getParametrizationBounds(1, edge)
+            t = (lower[0] + upper[0]) / 2
+            middle, tangent = list(model.getValue(1, edge, [t])), list(model.getDerivative(1, edge, [t]))
+            side = [normal[1] * tangent[2] - normal[2] * tangent[1], normal[2] * tangent[0] - normal[0] * tangent[2], normal[0] * tangent[1] - normal[1] * tangent[0]]
+            size = math.sqrt(sum(v * v for v in side))
+            if size < 1e-15:
+                continue
+            # The face lies in the material, so on its own side of an edge there
+            # is material; past an edge on the boundary there is none.
+            probes = [[middle[i] + sign * step * side[i] / size for i in range(3)] for sign in (1, -1)]
+            if all(model.isInside(3, solid, q) for q in probes):
+                return solid, False
+        return solid, True
+    except Exception:
+        return None
+
+
+def open_cuts(gmsh, step):
+    """Complete open cuts in the model, as {face: solid}."""
+    found = {}
+    for _, tag in gmsh.model.getEntities(2):
+        result = open_cut(gmsh, int(tag), step)
+        if result and result[1]:
+            found[int(tag)] = result[0]
+    return found
+
+
+def _probe(gmsh):
+    lower = gmsh.model.getBoundingBox(-1, -1)
+    return max(math.sqrt(sum((lower[i + 3] - lower[i]) ** 2 for i in range(3))) * 1e-4, 1e-7)
+
+
+def remove_loose(gmsh, keep=()):
+    """Remove faces, edges and points that bound no solid, except the faces in keep."""
+    model, occ = gmsh.model, gmsh.model.occ
+    keep = set(keep)
+    # Faces first, then the edges and points nothing uses any more: a recursive
+    # removal skips a face whose edges another removed face shares.
+    for dimension in (2, 1, 0):
+        loose = [entity for entity in model.getEntities(dimension)
+                 if not len(model.getAdjacencies(*entity)[0]) and not (dimension == 2 and entity[1] in keep)]
+        if loose:
+            occ.remove(loose)
+            occ.synchronize()
+
+
+def _material_side(gmsh, face, axis, scope, step):
+    """+1 or -1: the side of a planar face, along `axis`, where its own solid lies."""
+    model = gmsh.model
+    owners = [int(v) for v in model.getAdjacencies(2, face)[0] if not scope or int(v) in scope]
+    if not owners:
+        return None
+    lower, upper = model.getParametrizationBounds(2, face)
+    for a in (0.5, 0.3, 0.7, 0.15, 0.85):
+        for b in (0.5, 0.3, 0.7, 0.15, 0.85):
+            uv = [lower[0] + (upper[0] - lower[0]) * a, lower[1] + (upper[1] - lower[1]) * b]
+            if not model.isInside(2, face, uv, parametric=True):
+                continue
+            point = model.getValue(2, face, uv)
+            ahead = [point[i] + step * axis[i] for i in range(3)]
+            behind = [point[i] - step * axis[i] for i in range(3)]
+            inside = [any(model.isInside(3, v, probe) for v in owners) for probe in (ahead, behind)]
+            if inside[0] != inside[1]:
+                return 1 if inside[0] else -1
+    return None
+
+
 def slice_solids(gmsh, operation, volumes):
     """Fragment solids with arbitrary planes and coaxial cylinders.
 
@@ -454,8 +588,23 @@ def slice_solids(gmsh, operation, volumes):
         if size < 1e-12 or type(length) not in (int, float) or not math.isfinite(length) or not 0 < length < diagonal * 4:
             raise ValueError("A radial cut needs a direction across its axis and a positive length.")
         direction = [v / size for v in direction]
-        start = [origin[i] - reach * axis[i] for i in range(3)]
-        corners = [start, [start[i] + 2 * reach * axis[i] for i in range(3)]]
+        # A cut drawn on a face runs into that face's own material only. Swept
+        # both ways, a cut along an edge at a re-entrant corner would also enter
+        # the material beyond the corner and leave a solid joined along an edge.
+        face = ray.get("face")
+        if face is not None and (type(face) is not int or (2, face) not in model.getEntities(2)):
+            raise ValueError("A cut names a face that does not exist in this revision.")
+        side = _material_side(gmsh, face, axis, set(scope_of(ray)), max(diagonal * 1e-5, 1e-7)) if face is not None else None
+        if side is None:
+            start, extent = [origin[i] - reach * axis[i] for i in range(3)], 2 * reach
+        else:
+            # Start just outside the face, unless material lies there too.
+            middle = [origin[i] + 0.5 * length * direction[i] for i in range(3)]
+            probe = [middle[i] - side * diagonal * 1e-4 * axis[i] for i in range(3)]
+            back = 0.0 if any(model.isInside(3, v, probe) for _, v in volumes) else diagonal * 1e-3
+            axis = [side * a for a in axis]
+            start, extent = [origin[i] - back * axis[i] for i in range(3)], reach + back
+        corners = [start, [start[i] + extent * axis[i] for i in range(3)]]
         corners += [[corners[1][i] + length * direction[i] for i in range(3)], [start[i] + length * direction[i] for i in range(3)]]
         points = [occ.addPoint(*corner) for corner in corners]
         lines = [occ.addLine(points[i], points[(i + 1) % 4]) for i in range(4)]
@@ -465,6 +614,7 @@ def slice_solids(gmsh, operation, volumes):
         tool_planes.append((origin, [v / size for v in normal]))
         scoped.append(scope_of(ray))
     before = len(volumes)
+    offset = max(diagonal * 1e-4, 1e-7)
     # Fragment each group of tools against its own solids, following the solids
     # through earlier fragments (their tags change when they are cut).
     current = {tag: [tag] for _, tag in volumes}
@@ -475,6 +625,17 @@ def slice_solids(gmsh, operation, volumes):
             groups[-1][1].append(tool)
         else:
             groups.append((scope, [tool]))
+    # A ring opened by an earlier cut keeps that cut as a free face; a cut
+    # through the same solid now takes it along, so together they separate it.
+    untouched, pending = set(), []
+    for face, solid in open_cuts(gmsh, offset).items():
+        group = next((g for g in groups if not g[0] or solid in g[0]), None)
+        if group:
+            group[1].append((2, face))
+            # Fragments renumber faces: recognize this cut's pieces by position.
+            pending.append((_face_sample(gmsh, face), list(model.getBoundingBox(2, face))))
+        else:
+            untouched.add(face)
     for scope, group in groups:
         if scope:
             partial = True
@@ -487,13 +648,39 @@ def slice_solids(gmsh, operation, volumes):
         for original, tags in current.items():
             current[original] = [new for tag in tags for new in replaced.get(tag, [tag])]
     if partial:
-        occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
+        _, mapping = occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
         occ.synchronize()
-    for dimension in (2, 1, 0):
-        loose = [entity for entity in model.getEntities(dimension) if not len(model.getAdjacencies(*entity)[0])]
-        if loose:
-            occ.remove(loose, recursive=True)
-            occ.synchronize()
+    touched = ({tag for tags in current.values() for tag in tags} if any(not scope for scope, _ in groups)
+               else {tag for scope, _ in groups for original in scope for tag in current.get(original, [])})
+    # A cut that crosses a ring's wall completely opens the ring without
+    # dividing it: keep its face so the next cut can separate the pieces. The
+    # unused rest of each tool goes; a cut that stops inside the material is
+    # refused below.
+    kept, short = set(untouched), False
+    for _, tag in model.getEntities(2):
+        if tag in untouched:
+            continue
+        result = open_cut(gmsh, int(tag), offset)
+        if result and result[0] in touched:
+            if result[1]:
+                kept.add(int(tag))
+            else:
+                short = True
+    remove_loose(gmsh, keep=kept)
+
+    tolerance = diagonal * 1e-7
+
+    def earlier(face):
+        sample, box = _face_sample(gmsh, face), model.getBoundingBox(2, face)
+        return sample is not None and any(
+            old and abs(sum((sample[0][i] - old[0][i]) * old[1][i] for i in range(3))) < tolerance
+            and all(old_box[i] - tolerance <= box[i] and box[i + 3] <= old_box[i + 3] + tolerance for i in range(3))
+            for old, old_box in pending)
+
+    def on_tool(face):
+        sample = _face_sample(gmsh, face)
+        return sample is not None and any(abs(sum((sample[0][i] - o[i]) * n[i] for i in range(3))) < tolerance for o, n in tool_planes)
+    opened = any(on_tool(face) and not earlier(face) for face in kept if face not in untouched)
     # A cutting surface that ends inside material embeds a slit instead of
     # separating two solids; such geometry cannot be meshed conformingly. A slit
     # is a face of one solid with that solid on both sides. Only faces on a tool
@@ -513,9 +700,14 @@ def slice_solids(gmsh, operation, volumes):
             continue
         if _both_sides_inside(gmsh, tag, int(owners[0]), step):
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
-    if len(model.getEntities(3)) <= before:
+    if len(model.getEntities(3)) <= before and not opened:
+        if short:
+            raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
         raise ValueError("The slice did not divide a solid. Move it through the material of the chosen solids.")
-    if any(not len(model.getAdjacencies(2, tag)[0]) for _, tag in model.getEntities(2)):
+    if any(not len(model.getAdjacencies(2, tag)[0]) and tag not in kept for _, tag in model.getEntities(2)):
+        # OpenCASCADE keeps a cut that stops inside the material as an internal face.
+        if short:
+            raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
         raise ValueError("The slice left surface fragments outside every solid. Adjust the cut and try again.")
 
 
@@ -539,11 +731,7 @@ def fuse_solids(gmsh, operation, volumes):
     if len(model.getEntities(3)) > 1:
         occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
         occ.synchronize()
-    for dimension in (2, 1, 0):
-        loose = [entity for entity in model.getEntities(dimension) if not len(model.getAdjacencies(*entity)[0])]
-        if loose:
-            occ.remove(loose, recursive=True)
-            occ.synchronize()
+    remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
     if len(model.getEntities(3)) != before - len(selected) + 1:
         raise ValueError("Fusing changed other solids. The previous geometry was retained.")
 
@@ -555,6 +743,7 @@ def prepare(gmsh, operation):
     if not volumes:
         raise ValueError("CAD preparation requires closed solid volumes.")
     original_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in volumes)
+    pinched_before = len(pinched_edges(gmsh))
     if kind == "defeature":
         faces = operation.get("faceIds", [])
         if not isinstance(faces, list) or not faces or any(type(t) is not int or (2, t) not in model.getEntities(2) for t in faces):
@@ -639,11 +828,7 @@ def prepare(gmsh, operation):
         if discard:
             occ.remove(discard, recursive=True)
         occ.synchronize()
-        for dimension in (2, 1, 0):
-            loose = [entity for entity in model.getEntities(dimension) if not len(model.getAdjacencies(*entity)[0])]
-            if loose:
-                occ.remove(loose, recursive=True)
-                occ.synchronize()
+        remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
         if len(model.getEntities(3)) <= len(volumes):
             raise ValueError("The projected faces did not partition a solid. Choose an internal ledge or pocket floor.")
     elif kind == "split":
@@ -678,10 +863,7 @@ def prepare(gmsh, operation):
             # stays intact, but shared topology must reflect the split faces.
             occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
             occ.synchronize()
-        for entity in list(model.getEntities(2)):
-            if not len(model.getAdjacencies(*entity)[0]):
-                occ.remove([entity], recursive=True)
-        occ.synchronize()
+        remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
         if len(model.getEntities(3)) <= before:
             raise ValueError("The plane did not split a solid. Choose a coordinate through the material.")
     elif kind == "slice":
@@ -696,6 +878,12 @@ def prepare(gmsh, operation):
         final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in model.getEntities(3))
         if abs(final_mass - original_mass) > max(original_mass * 1e-7, 1e-8):
             raise ValueError("The split changed the solid volume beyond CAD tolerance. The previous geometry was retained.")
+    pinched = pinched_edges(gmsh)
+    if len(pinched) > pinched_before:
+        volume, edge = pinched[-1]
+        verb = {"fuse": "Fusing these solids", "slice": "This cut"}.get(kind, "This change")
+        raise ValueError(f"{verb} would leave solid {volume} touching itself along edge {edge}: two regions joined only at an edge, or a slit inside it, cannot be meshed. "
+                         "Cut through the re-entrant corner along one of its faces instead, or add a cut that separates the two regions.")
 
 
 def mesh_quality(gmsh, dimension):

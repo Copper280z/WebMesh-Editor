@@ -152,10 +152,14 @@
         for (const f of group.faces) byFace.set(f, feature);
       }
     }
+    // A narrow band meeting both long neighbors at about 135° is a chamfer, also
+    // when it is conical (a chamfer along a curved edge).
+    const bevelEdges = face => (face.orientedLoops?.[0] || []).filter(([e]) => { const a = edgeAngle(ctx, e, (face.volumes || [])[0]); return a != null && (Math.abs(a - 135) < 12 || Math.abs(a - 225) < 12); });
+    const coneChamfer = face => face.type === 'Cone' && face.surface?.kind !== 'cylinder' && (face.orientedLoops || []).length === 1 && face.orientedLoops[0].length === 4 && bevelEdges(face).length === 2;
     // Other curved faces blended tangentially into neighbors are fillets too (torus, B-spline blends).
     for (const face of ctx.faces.values()) {
       const id = Number(face.id);
-      if (byFace.has(id) || face.type === 'Plane' || face.surface?.kind === 'plane' || face.surface?.kind === 'cylinder') continue;
+      if (byFace.has(id) || face.type === 'Plane' || face.surface?.kind === 'plane' || face.surface?.kind === 'cylinder' || coneChamfer(face)) continue;
       const tangent = (ctx.faceEdges.get(id) || []).filter(e => { const a = edgeAngle(ctx, e); return a != null && Math.abs(a - 180) < 8; });
       if (tangent.length >= 2) {
         const feature = { id: `fillet-${++filletCount}`, kind: 'fillet', faces: [id], solids: face.volumes || [], radius: Number(face.radius) || null, concave: null };
@@ -163,20 +167,39 @@
         features.push(feature); byFace.set(id, feature);
       }
     }
-    // Chamfers: narrow planar faces meeting both neighbors at about 135°.
+    // Chamfers: narrow planar or conical faces meeting both neighbors at about
+    // 135°. Bands that continue each other tangentially (a chamfer around a
+    // rounded cutout) are one chamfer, removed together.
     let chamferCount = 0;
+    const bands = new Map();
     for (const face of ctx.faces.values()) {
       const id = Number(face.id);
-      if (byFace.has(id) || face.surface?.kind !== 'plane' || (face.orientedLoops || []).length !== 1) continue;
+      if (byFace.has(id) || (face.orientedLoops || []).length !== 1) continue;
+      if (face.surface?.kind !== 'plane' && !coneChamfer(face)) continue;
       const loop = face.orientedLoops[0];
-      const bevel = loop.filter(([e]) => { const a = edgeAngle(ctx, e, (face.volumes || [])[0]); return a != null && (Math.abs(a - 135) < 12 || Math.abs(a - 225) < 12); });
-      if (bevel.length !== 2 || loop.length !== 4) continue;
-      const longest = Math.max(...loop.map(([e]) => Number(ctx.edges.get(Number(e))?.length) || 0));
-      const width = (Number(face.area) || 0) / Math.max(longest, 1e-12);
+      if (bevelEdges(face).length !== 2 || loop.length !== 4) continue;
+      const lengths = loop.map(([e]) => Number(ctx.edges.get(Number(e))?.length) || 0);
+      const width = (Number(face.area) || 0) / Math.max(...lengths, 1e-12);
       if (width > ctx.span * 0.12) continue;
-      const feature = { id: `chamfer-${++chamferCount}`, kind: 'chamfer', faces: [id], solids: face.volumes || [], width };
-      feature.label = `${fmt(width)} chamfer`;
-      features.push(feature); byFace.set(id, feature);
+      bands.set(id, width);
+    }
+    const seen = new Set();
+    for (const [id] of bands) {
+      if (seen.has(id)) continue;
+      const chain = [id], queue = [id]; seen.add(id);
+      while (queue.length) {
+        const f = queue.pop();
+        for (const e of ctx.faceEdges.get(f) || []) {
+          const a = edgeAngle(ctx, e);
+          if (a == null || Math.abs(a - 180) >= 8) continue;
+          for (const n of ctx.edgeFaces.get(e) || []) if (bands.has(Number(n)) && !seen.has(Number(n))) { seen.add(Number(n)); chain.push(Number(n)); queue.push(Number(n)); }
+        }
+      }
+      const width = Math.max(...chain.map(f => bands.get(f)));
+      const solids = [...new Set(chain.flatMap(f => ctx.faces.get(f).volumes || []))];
+      const feature = { id: `chamfer-${++chamferCount}`, kind: 'chamfer', faces: chain.sort((a, b) => a - b), solids, width };
+      feature.label = `${fmt(width)} chamfer${chain.length > 1 ? ` (${chain.length} faces)` : ''}`;
+      features.push(feature); for (const f of chain) byFace.set(f, feature);
     }
     features.sort((a, b) => ({ hole: 0, boss: 1, fillet: 2, chamfer: 3 })[a.kind] - ({ hole: 0, boss: 1, fillet: 2, chamfer: 3 })[b.kind] || (b.radius || b.width || 0) - (a.radius || a.width || 0));
     return { features, byFace, ctx };
@@ -371,7 +394,11 @@
       const u = scale(dir, 1 / length);
       const ea = free(s.a) && !(keepEnd && keepEnd(sub(s.a, scale(u, eps)))) ? eps : 0;
       const eb = free(s.b) && !(keepEnd && keepEnd(add(s.b, scale(u, eps)))) ? eps : 0;
-      rays.push({ origin: sub(s.a, scale(u, ea)), axis: axis.slice(), direction: u, length: length + ea + eb });
+      const ray = { origin: sub(s.a, scale(u, ea)), axis: axis.slice(), direction: u, length: length + ea + eb };
+      // A segment drawn on a face cuts only into that face's own material: the
+      // kernel picks the side, so the cut never continues past a re-entrant corner.
+      if (s.face != null) ray.face = Number(s.face);
+      rays.push(ray);
     }
     return rays;
   }
@@ -404,7 +431,7 @@
     const holders = candidates.filter(c => Math.abs(Math.abs(dot(c.n, n)) - 1) < 1e-6).map(c => Number(c.face.id));
     const volumes = new Set();
     for (const e of ids) for (const f of ctx.edgeFaces.get(e) || []) for (const v of ctx.faces.get(f)?.volumes || []) if ((edgeAngle(ctx, e, v) ?? 0) >= 179) volumes.add(Number(v));
-    const segments = frames.map((f, i) => ({ a: f.start, b: f.end, source: `Edge ${ids[i]}` }));
+    const segments = frames.map((f, i) => ({ a: f.start, b: f.end, source: `Edge ${ids[i]}`, face: Number(candidates[0].face.id) }));
     const label = `Cut solid${volumes.size === 1 ? '' : 's'} ${[...volumes].join(', ')} along edge${ids.length === 1 ? '' : 's'} ${ids.join(', ')}`;
     return { operation: cutOperation(ctx, segments, n, [...volumes], label, holders), segments, axis: cleanNormal(n), volumeIds: [...volumes], faces: holders };
   }
@@ -556,6 +583,7 @@
     const face = across[0];
     if (!face) return { error: common.length ? 'The cut must run across the face that holds the vertices.' : 'Pick vertices of one planar face.' };
     const n = unit(face.surface.normal), volumeIds = (face.volumes || []).map(Number);
+    for (const s of segments) s.face = Number(face.id);
     const label = `Cut solid${volumeIds.length === 1 ? '' : 's'} ${volumeIds.join(', ')} between vertices ${ids.join(', ')}`;
     return { operation: cutOperation(ctx, segments, n, volumeIds, label, [Number(face.id)]), segments, axis: cleanNormal(n), volumeIds, faces: [Number(face.id)] };
   }
@@ -1081,8 +1109,20 @@
    */
   async function autoFix(session, options = {}) {
     const H = options.mapping, progress = options.progress || (() => {});
-    const blends = options.blends !== false, holes = options.holes !== false, shape = options.shape !== false;
+    // Features stay unless asked: the user removes what the analysis does not need.
+    const blends = options.blends === true, holes = options.holes !== false, shape = options.shape !== false;
     const maxSteps = options.maxSteps || 40;
+    // options.signal (an AbortSignal) stops the search: a preview being awaited
+    // is dropped, a step being applied completes, and every applied step stays.
+    const signal = options.signal || null, STOP = Error('Auto-fix was stopped.');
+    const halt = () => { if (signal?.aborted) throw STOP; };
+    const pass = error => { if (error === STOP) throw error; };
+    const abortable = promise => !signal ? promise : new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(STOP); return; }
+      const onAbort = () => reject(STOP);
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(value => { signal.removeEventListener('abort', onAbort); resolve(value); }, error => { signal.removeEventListener('abort', onAbort); reject(error); });
+    });
     const current = () => { const st = session.state(); return { ...st, analysis: H.analyze(st.topology), recognized: recognize(st.topology) }; };
     // session.state() returns { topology, preview, revision }.
     const solids = a => [...a.volumes.values()];
@@ -1115,10 +1155,12 @@
       const issued = epoch;
       const pending = acquire().then(() => {
         if (issued !== epoch) throw Error('The geometry changed before this preview started.');
+        if (signal?.aborted) throw STOP;
         return lite ? session.preview(operation, { lite: true }) : session.preview(operation);
       }).finally(release);
-      pending.catch(() => {}); // judged later, or dropped once another fix is applied
-      return pending;
+      const result = abortable(pending);
+      result.catch(() => {}); // judged later, or dropped once another fix is applied or Auto-fix stops
+      return result;
     };
     const approximated = topology => (topology.faces || []).some(f => f.surface?.kind === 'mesh');
     // Only blends no wider than 1.5 elements are removed: larger fillets and
@@ -1134,12 +1176,12 @@
     };
     const applied = [], tried = new Set();
     const signature = (st, a) => (a.operation.kind === 'defeature' ? st.revision + ':' : '') + JSON.stringify(a.operation);
-    const commit = async (operation, label) => { epoch++; await session.apply(operation); applied.push(label); progress(`Step ${applied.length}: ${label}`); };
+    const commit = async (operation, label) => { halt(); epoch++; await session.apply(operation); applied.push(label); progress(`Step ${applied.length}: ${label}`); };
     let st = current();
     const start = st.analysis.summary;
     // Every applied step is kept when the planner stops short or fails, so
     // the user continues by hand from its cuts (or undoes them one at a time).
-    let failure = null;
+    let failure = null, stopped = false;
     try {
       if (blends) {
         // One defeature for every blend on a blocked solid is far faster than one per blend.
@@ -1148,7 +1190,7 @@
         if (list.length > 1) {
           progress(`Removing ${list.length} fillets and chamfers…`);
           try { await commit({ kind: 'defeature', faceIds: [...new Set(list.flatMap(f => f.faces))].sort((a, b) => a - b), label: `Removed ${list.length} fillets and chamfers` }, `Removed ${list.length} fillets and chamfers`); }
-          catch { /* fall back to one blend at a time */ }
+          catch (error) { pass(error); /* fall back to one blend at a time */ }
           st = current();
         }
       }
@@ -1156,6 +1198,7 @@
       const mapAll = async limit => {
       const begin = applied.length;
       while (applied.length < maxSteps && applied.length - begin < limit) {
+        halt();
         const blocked = solids(st.analysis).filter(v => !v.mappable)
           .sort((a, b) => (Number(st.topology.volumes.find(x => x.id === b.id)?.volume) || 0) - (Number(st.topology.volumes.find(x => x.id === a.id)?.volume) || 0));
         if (!blocked.length) break;
@@ -1193,7 +1236,7 @@
             tried.add(signature(st, option));
             progress(`Step ${applied.length + 1}: trying ${option.label.toLowerCase()}…`);
             let data;
-            try { data = await pending; } catch { continue; }
+            try { data = await pending; } catch (error) { pass(error); continue; }
             const result = H.analyze(data.topology), value = score(result);
             if (cusps(result) > cusps(st.analysis)) continue;
             // Cheap test before the interval solve; either rejects the fix.
@@ -1224,7 +1267,7 @@
           tried.add(signature(st, option));
           progress(`Resolving edge-count conflicts: ${option.label.toLowerCase()}…`);
           let data;
-          try { data = await previews[index]; } catch { continue; }
+          try { data = await previews[index]; } catch (error) { pass(error); continue; }
           const result = H.analyze(data.topology), left = conflicts(result, data.topology);
           if (left >= now || cusps(result) > cusps(st.analysis) || solids(result).filter(v => !v.mappable).length > blockedNow) continue;
           if (!best || left < best.left) best = { option, left };
@@ -1266,11 +1309,11 @@
           for (const [index, option] of options.entries()) {
             progress(`Improving element quality: ${option.detail.toLowerCase()}…`);
             let data;
-            try { data = await previews[index]; } catch { continue; }
+            try { data = await previews[index]; } catch (error) { pass(error); continue; }
             const result = H.analyze(data.topology);
             if (cusps(result) > cusps(st.analysis) || conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
             if (data.preview?.lite && approximated(data.topology)) {
-              try { data = await request(option.operation, false); } catch { continue; }
+              try { data = await request(option.operation, false); } catch (error) { pass(error); continue; }
             }
             const next = quality(data.topology, data.preview, result);
             if (!next || next.deficit > q.deficit - 0.02 || next.min < q.min - 1e-9) continue;
@@ -1284,25 +1327,29 @@
           await commit(best.option.operation, best.option.operation.label || best.option.label);
           st = current();
           if (best.repair) {
-            await mapAll(6);
+            // A stop during the repair still returns to a state without the broken block.
+            let interrupted = false;
+            try { await mapAll(6); } catch (error) { if (error !== STOP) throw error; interrupted = true; }
             const repaired = quality(st.topology, st.preview, st.analysis);
             if (blocked(st.analysis) > before.blocked || !repaired || repaired.deficit > before.deficit - 0.02) {
               // The repair did not pay off: return to the state before this step.
               progress('Reverting a reshaping step that did not improve quality…');
               for (let k = applied.length; k > before.count; k--) { epoch++; await session.undo(); applied.pop(); }
               st = current();
+              halt();
               continue;
             }
+            if (interrupted) throw STOP;
           }
           q = quality(st.topology, st.preview, st.analysis);
         }
       }
     } catch (error) {
-      failure = error;
+      if (error === STOP) stopped = true; else failure = error;
       try { st = current(); } catch { /* keep the last known state */ }
     }
     const end = st.analysis.summary;
-    const reason = failure ? 'error' : !end.blocked ? 'done' : applied.length >= maxSteps ? 'limit' : 'stuck';
+    const reason = failure ? 'error' : stopped ? 'stopped' : !end.blocked ? 'done' : applied.length >= maxSteps ? 'limit' : 'stuck';
     return { steps: applied.length, applied, start, end, reason, error: failure ? failure.message || String(failure) : null,
       blocked: solids(st.analysis).filter(v => !v.mappable).map(v => v.id) };
   }

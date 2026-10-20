@@ -34,7 +34,7 @@
     check: 'm5 12 4 4L19 6', warn: 'M12 4 2 20h20L12 4Zm0 6v4m0 3h.01', x: 'm6 6 12 12M18 6 6 18',
     target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', undo: 'M8 4 3 9l5 5M3 9h10a7 7 0 0 1 0 14', redo: 'm16 4 5 5-5 5m5-5H11a7 7 0 0 0 0 14',
     arrow: 'M4 12h16m-6-6 6 6-6 6', minus: 'M5 12h14', plus: 'M12 5v14M5 12h14', flip: 'M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3',
-    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6'
+    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6', stop: 'M7 7h10v10H7V7Z'
   };
   const icon = (name, cls = '') => `<svg class="cad-i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ICONS.solid}"/></svg>`;
   const ISSUE = 0xffd400;
@@ -66,7 +66,7 @@
     let treeFilter = 'all', treeShare = 0.42;
     try { const share = Number(localStorage.getItem('webmesh.cad.treeShare')); if (share > 0.15 && share < 0.85) treeShare = share; } catch { /* storage unavailable */ }
     let bound = false, tooltip = null, viewTools = null;
-    const autoState = { running: false, message: '', blends: true, holes: true };
+    const autoState = { running: false, message: '', blends: false, holes: true, controller: null, stopping: false, review: null };
 
     /* ------------------------------------------------------------ server -- */
     async function api(path, payload) {
@@ -610,12 +610,12 @@
       const blocked = [...analysis.volumes.values()].filter(v => !v.mappable);
       let html = `<section class="cad-card cad-ready"><div class="cad-card-title">Mapped-mesh readiness <small>${s.mappable}/${s.volumes} solids</small></div>
         <div class="cad-meter"><i style="width:${pct}%"></i></div>`;
+      const review = autoReview();
       if (!blocked.length) {
-        html += `<p class="cad-good">${icon('check')} Every solid is a mapped block. Continue to sizing.</p>`;
-        if (autoState.message && autoState.revision === session.revision && autoState.undoTo != null) html += `<div class="cad-inline">${btn('history-go', 'Undo Auto-fix', { cls: 'ghost small', iconName: 'undo', data: { index: autoState.undoTo }, title: 'Return to the geometry before Auto-fix ran; its steps stay available to redo' })}</div>`;
+        html += review || `<p class="cad-good">${icon('check')} Every solid is a mapped block. Continue to sizing.</p>`;
       }
       else {
-        html += autoFixControls();
+        html += review || autoFixControls();
         const shown = expanded.blocked ? blocked : blocked.slice(0, 4);
         html += `<div class="cad-solid-list">${shown.map(v => `<button type="button" class="cad-solid-row ${selection.kind === 'solid' && selection.ids.includes(v.id) ? 'selected' : ''}" data-act="select-solid" data-id="${v.id}" data-solid-row="${v.id}"><i class="dot bad"></i><strong>Solid ${v.id}</strong><span>${esc(shortReason(v))}</span></button>`).join('')}</div>`;
         if (blocked.length > 4) html += `<button type="button" class="cad-link" data-act="expand" data-value="blocked">${expanded.blocked ? 'Show fewer' : `Show all ${blocked.length}`}</button>`;
@@ -626,16 +626,30 @@
       return html;
     }
     function autoFixControls() {
-      if (autoState.running) return `<div class="cad-auto running"><span class="cad-spin"></span><span>${esc(autoState.message || 'Auto-fix running…')}</span></div>`;
-      return `<div class="cad-auto"><div class="cad-auto-row">${btn('auto-fix', 'Auto-fix', { cls: 'small', iconName: 'spark', title: 'Repeatedly apply the best fix that makes more solids mappable' })}
-        <label title="Only fillets and chamfers no wider than 1.5 elements; larger ones are part of the design and stay"><input type="checkbox" data-field="auto-blends" ${autoState.blends ? 'checked' : ''}> Remove small fillets & chamfers</label>
-        <label><input type="checkbox" data-field="auto-holes" ${autoState.holes ? 'checked' : ''}> Split around holes</label></div>
-        ${autoState.message && autoState.revision === session.revision ? `<p class="cad-note">${esc(autoState.message)}</p>${autoState.undoTo != null ? `<div class="cad-inline">${btn('history-go', 'Undo Auto-fix', { cls: 'ghost small', iconName: 'undo', data: { index: autoState.undoTo }, title: 'Return to the geometry before Auto-fix ran; its steps stay available to redo' })}</div>` : ''}` : ''}</div>`;
+      if (autoState.running) {
+        return `<div class="cad-auto running"><div class="cad-auto-row"><span class="cad-spin"></span><span class="cad-auto-status">${esc(autoState.stopping ? 'Stopping… the step being applied finishes first.' : autoState.message || 'Auto-fix running…')}</span>
+          ${btn('auto-stop', autoState.stopping ? 'Stopping' : 'Stop', { cls: 'ghost small', iconName: 'stop', title: 'Stop after the current step; every step applied so far stays for you to keep or discard', disabled: autoState.stopping })}</div></div>`;
+      }
+      return `<div class="cad-auto"><div class="cad-auto-row">${btn('auto-fix', 'Auto-fix', { cls: 'small', iconName: 'spark', title: 'Repeatedly apply the best cut that makes more solids mappable. It only cuts: remove features yourself first, or allow small fillets and chamfers below' })}
+        <label title="Off: Auto-fix only cuts, and every feature stays. On: it may also remove fillets and chamfers no wider than 1.5 elements"><input type="checkbox" data-field="auto-blends" ${autoState.blends ? 'checked' : ''}> Remove small fillets & chamfers</label>
+        <label title="Cut around through holes so they stay in the mesh"><input type="checkbox" data-field="auto-holes" ${autoState.holes ? 'checked' : ''}> Split around holes</label></div>
+        ${autoState.message && autoState.revision === session.revision ? `<p class="cad-note">${esc(autoState.message)}</p>` : ''}</div>`;
+    }
+    /** The changes of the last Auto-fix run, waiting for the user to keep or discard them. */
+    function autoReview() {
+      const r = autoState.review;
+      if (!r || autoState.revision !== session.revision || autoState.running) return '';
+      const finished = r.reason === 'done';
+      return `<div class="cad-auto review" data-key="auto-review"><div class="cad-auto-head">${icon(finished ? 'check' : 'spark')}<strong>Auto-fix made ${r.steps} change${r.steps === 1 ? '' : 's'}</strong><span>${esc(r.counts)}</span></div>
+        <p class="cad-note">${finished ? 'Every solid is a mapped block.' : esc(r.why) + '. Keep these cuts to finish by hand: select a red solid for its fixes, or Shift-pick neighbors to fuse and cut again.'} The changes are applied in the view and listed in the history.</p>
+        <div class="cad-inline">${btn('auto-keep', 'Keep changes', { cls: 'small', iconName: 'check', title: 'Keep the cuts. Any other change also keeps them' })}${btn('auto-discard', 'Discard', { cls: 'ghost small', iconName: 'undo', title: 'Return to the geometry before Auto-fix ran; its steps can still be redone from the history' })}</div></div>`;
     }
     async function autoFix() {
       // The planner lives in cad-features.js so the UI, tests and automation share it.
       const startRevision = session.revision, startCursor = historyCursor();
-      autoState.running = true; autoState.message = 'Analyzing solids…'; renderReadiness();
+      autoState.running = true; autoState.stopping = false; autoState.review = null; autoState.message = 'Analyzing solids…';
+      autoState.controller = typeof AbortController === 'function' ? new AbortController() : null;
+      renderReadiness();
       let result;
       try {
         result = await F().autoFix({
@@ -643,30 +657,42 @@
           preview: (operation, { lite } = {}) => api('preview', { ...token(), operation, ...(lite ? { lite: true } : {}) }),
           apply: async operation => { accept(await api('prepare', { ...token(), operation }), { fit: false, keepStep: true }); hooks.log(operation.label || operation.kind); },
           undo: async () => { accept(await api('undo', token()), { fit: false, keepStep: true }); }
-        }, { mapping: H(), blends: autoState.blends, holes: autoState.holes, size: Number(sizing.size) || defaultSize(),
+        }, { mapping: H(), blends: autoState.blends, holes: autoState.holes, size: Number(sizing.size) || defaultSize(), signal: autoState.controller?.signal,
           progress: message => { autoState.message = message; renderReadiness(); } });
-      } finally { autoState.running = false; }
+      } finally { autoState.running = false; autoState.stopping = false; autoState.controller = null; }
       const { start, end, steps, reason, error } = result;
-      if (reason === 'done') autoState.message = `Auto-fix made ${steps} change${steps === 1 ? '' : 's'}: ${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable. Undo steps one at a time.`;
-      else {
-        // Its cuts stay, so the user picks up where it stopped.
-        const why = reason === 'error' ? `stopped on an error (${error})` : reason === 'limit' ? 'stopped at its 40-step limit' : steps ? 'found no further change that helps' : 'found no change that makes more solids mappable';
-        autoState.message = `Auto-fix ${why}: ${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable.${steps ? ` All ${steps} of its change${steps === 1 ? ' is' : 's are'} kept in the history.` : ''} Continue by hand: select a red solid for its fixes, Shift-pick neighboring solids to fuse them and cut again, or undo steps one at a time.`;
-        expanded.blocked = true;
-      }
+      const counts = `${start.mappable}/${start.volumes} → ${end.mappable}/${end.volumes} mappable`;
+      const why = { done: 'Finished', stopped: 'Stopped', error: `Stopped on an error (${error})`, limit: 'Stopped at its 40-step limit',
+        stuck: steps ? 'Found no further cut that helps' : 'Found no cut that makes more solids mappable' }[reason] || 'Stopped';
+      if (!end.blocked) expanded.blocked = false; else expanded.blocked = true;
       if (session.revision !== startRevision && generated) generated.stale = true;
-      // The report belongs to the state Auto-fix left; a later change retires it.
+      // The changes wait for Keep or Discard; any later change keeps them.
       autoState.revision = session.revision;
-      autoState.undoTo = steps ? startCursor : null;
+      autoState.review = steps ? { steps, counts, reason, why, startCursor } : null;
+      autoState.message = steps ? '' : `Auto-fix ${why.toLowerCase()} (${counts}). Continue by hand: select a red solid for its fixes, or Shift-pick neighboring solids to fuse them and cut again.${autoState.blends ? '' : ' Auto-fix keeps every feature, so removing fillets or holes the analysis does not need (Features) can let it go further.'}`;
       hooks.render();
-      hooks.message(autoState.message, reason === 'error' || (!!end.blocked && !steps));
+      hooks.message(steps ? `Auto-fix made ${steps} change${steps === 1 ? '' : 's'} (${counts}). Keep or discard them in the readiness card.` : autoState.message, reason === 'error' || (!!end.blocked && !steps));
+    }
+    function keepAutoFix() {
+      const r = autoState.review; if (!r) return;
+      autoState.review = null;
+      autoState.message = r.reason === 'done' ? '' : `Kept ${r.steps} Auto-fix change${r.steps === 1 ? '' : 's'} (${r.counts}). Continue by hand: select a red solid for its fixes, or Shift-pick neighboring solids to fuse them and cut again.`;
+      hooks.render();
+      hooks.message(`Kept the Auto-fix changes.`);
+    }
+    async function discardAutoFix() {
+      const r = autoState.review; if (!r) return;
+      autoState.review = null; autoState.message = '';
+      await moveHistory('revert', r.startCursor);
+      hooks.message(`Discarded ${r.steps} Auto-fix change${r.steps === 1 ? '' : 's'}. They can still be redone from the history until the next change.`);
     }
     function renderReadiness() { const el = document.querySelector('.cad-ready'); if (el) el.outerHTML = readinessCard(); }
     function shortReason(volume) {
       const r = volume.reasons[0]; if (!r) return '';
       const counts = {};
-      for (const reason of volume.reasons.slice().sort((a, b) => (a.code === 'reentrant' ? 0 : 1) - (b.code === 'reentrant' ? 0 : 1))) counts[reason.code] = (counts[reason.code] || 0) + 1;
-      const label = { cusp: 'knife edge', 'face-cusp': 'cusp', reentrant: 're-entrant edge', 'face-holes': 'face with hole', 'face-periodic': 'closed surface', 'face-closed': 'round face', 'face-corners': 'face corners', 'face-reflex': 'L-shaped face', sides: 'side count', 'block-corners': 'corner count' };
+      const rank = code => code === 'open-ring' ? 0 : code === 'reentrant' ? 1 : 2;
+      for (const reason of volume.reasons.slice().sort((a, b) => rank(a.code) - rank(b.code))) counts[reason.code] = (counts[reason.code] || 0) + 1;
+      const label = { 'open-ring': 'open ring: cut again', cusp: 'knife edge', 'face-cusp': 'cusp', reentrant: 're-entrant edge', 'face-holes': 'face with hole', 'face-periodic': 'closed surface', 'face-closed': 'round face', 'face-corners': 'face corners', 'face-reflex': 'L-shaped face', sides: 'side count', 'block-corners': 'corner count' };
       return Object.entries(counts).map(([code, n]) => `${n > 1 ? n + ' × ' : ''}${label[code] || code}`).slice(0, 2).join(', ');
     }
     function toolCard() {
@@ -1014,7 +1040,7 @@
       if (!open) cutDraft = { segments: [], axis: cut.axis.slice(), volumeIds: [], holders: [] };
       const key = s => [s.a, s.b].map(p => p.map(v => v.toFixed(6)).join(',')).sort().join('|');
       const have = new Set(cutDraft.segments.map(key));
-      for (const s of cut.segments) if (!have.has(key(s))) { cutDraft.segments.push({ a: s.a.slice(), b: s.b.slice(), source: s.source }); have.add(key(s)); }
+      for (const s of cut.segments) if (!have.has(key(s))) { cutDraft.segments.push({ a: s.a.slice(), b: s.b.slice(), source: s.source, ...(s.face != null ? { face: s.face } : {}) }); have.add(key(s)); }
       if (cutDraft.segments.length > 16) { cutDraft.segments.length = 16; hooks.message('A cut holds at most 16 segments; apply it and start another.', true); }
       cutDraft.volumeIds = [...new Set([...cutDraft.volumeIds, ...cut.volumeIds])].sort((a, b) => a - b);
       cutDraft.holders = [...new Set([...cutDraft.holders, ...(cut.faces || [])])];
@@ -1189,7 +1215,13 @@
     function onClick(event) {
       if (!active) return;
       const el = event.target.closest('[data-act]');
-      if (!el || el.disabled) return;
+      if (!el) return;
+      // Stop works while Auto-fix holds the workspace busy.
+      if (el.dataset.act === 'auto-stop') {
+        if (autoState.running && autoState.controller && !autoState.stopping) { autoState.stopping = true; autoState.controller.abort(); renderReadiness(); }
+        return;
+      }
+      if (el.disabled) return;
       if (hooks.isBusy?.()) return;
       const act = el.dataset.act, value = el.dataset.value;
       try {
@@ -1205,6 +1237,8 @@
           case 'cut-clear': if (cutDraft) { cutDraft.segments = []; cutDraft.volumeIds = []; cutDraft.holders = []; syncCutPending(); hooks.render(); updatePendingOverlay(); } break;
           case 'apply-pending': hooks.run(applyPending); break;
           case 'auto-fix': pending = null; clearPreview(); updatePendingOverlay(); hooks.run(autoFix); break;
+          case 'auto-keep': keepAutoFix(); break;
+          case 'auto-discard': hooks.run(discardAutoFix); break;
           case 'undo': hooks.run(() => moveHistory('undo')); break;
           case 'redo': hooks.run(() => moveHistory('redo')); break;
           case 'history-go': hooks.run(() => moveHistory('revert', Number(el.dataset.index))); break;

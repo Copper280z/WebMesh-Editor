@@ -174,8 +174,8 @@ class MappingTopologyTests(unittest.TestCase):
         left = min(halves["topology"]["volumes"], key=lambda v: v["bounds"][0])
         lb = left["bounds"]
         middle = [(lb[i] + lb[i + 3]) / 2 for i in range(3)]
-        # A cut that dangles inside one solid divides nothing.
-        with self.assertRaisesRegex(CadError, "did not divide"):
+        # A cut that dangles inside one solid divides nothing and leaves a slit.
+        with self.assertRaisesRegex(CadError, "slit"):
             self.sessions.prepare(self.request(halves, operation={"kind": "slice", "volumeIds": [left["id"]],
                                                                    "rays": [{"origin": middle, "axis": [0, 0, 1], "direction": [0, 1, 0], "length": 5}]}))
         # One radial cut through a ring opens it without separating it, also when scoped.
@@ -183,6 +183,73 @@ class MappingTopologyTests(unittest.TestCase):
             self.sessions.prepare(self.request(halves, operation={"kind": "slice", "volumeIds": [left["id"]],
                                                                    "cylinders": [{"origin": middle, "axis": [0, 0, 1], "radius": 5}],
                                                                    "rays": [{"origin": middle, "axis": [0, 0, 1], "direction": [0, 1, 0], "length": 200}]}))
+
+    def test_a_cut_through_an_acute_corner_runs_into_its_face_material_only(self):
+        import tempfile
+        import cad_kernel
+        gmsh = cad_kernel.gmsh_module()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ring.brep"
+            # A wall ring around a triangular pocket whose corner at (35, 5) is acute.
+            gmsh.initialize(["ring-test", "-nopopup"], readConfigFiles=False)
+            gmsh.option.setNumber("General.Terminal", 0)
+            occ = gmsh.model.occ
+            points = [occ.addPoint(x, y, 0) for x, y in ((5, 5), (35, 5), (5, 30))]
+            loop = occ.addCurveLoop([occ.addLine(points[i], points[(i + 1) % 3]) for i in range(3)])
+            pocket = occ.extrude([(2, occ.addPlaneSurface([loop]))], 0, 0, 10)
+            occ.cut([(3, occ.addBox(0, 0, 0, 40, 40, 10))], [e for e in pocket if e[0] == 3])
+            occ.synchronize()
+            gmsh.write(str(path))
+            gmsh.finalize()
+            cad = self.import_file(path)
+        normal = [-25 / 1525 ** 0.5, -30 / 1525 ** 0.5, 0]
+        hypotenuse = next(f for f in cad["topology"]["faces"] if f["surface"]["kind"] == "plane"
+                          and abs(abs(sum(a * b for a, b in zip(f["surface"]["normal"], normal))) - 1) < 1e-6)
+        ray = {"origin": [35, 5, -0.01], "axis": normal, "direction": [0, 0, 1], "length": 10.02}
+        plane = {"origin": [20, 0, 0], "normal": [1, 0, 0]}
+        # Swept both ways, the cut cuts the corner off and leaves the ring joined
+        # to itself only along the corner edge, which is refused.
+        with self.assertRaisesRegex(CadError, "touching itself"):
+            self.sessions.prepare(self.request(cad, operation={"kind": "slice", "rays": [ray]}))
+        # Drawn on the pocket face, it runs into that wall only: alone it opens
+        # the ring, and a plane across the ring then separates three wall pieces.
+        opened = self.sessions.prepare(self.request(cad, operation={"kind": "slice", "rays": [{**ray, "face": hypotenuse["id"]}]}))
+        self.assertEqual(len(opened["topology"]["volumes"]), 1)
+        self.assertEqual([f.get("openIn") for f in opened["topology"]["faces"] if not f["volumes"]], [opened["topology"]["volumes"][0]["id"]])
+        cut = self.sessions.prepare(self.request(opened, operation={"kind": "slice", "planes": [plane]}))
+        self.assertEqual(len(cut["topology"]["volumes"]), 3)
+        self.assertAlmostEqual(cut["topology"]["volume"], cad["topology"]["volume"], places=5)
+
+    def test_a_ring_cut_once_stays_open_until_a_second_cut_separates_it(self):
+        import tempfile
+        import cad_kernel
+        gmsh = cad_kernel.gmsh_module()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "frame.brep"
+            gmsh.initialize(["frame-test", "-nopopup"], readConfigFiles=False)
+            gmsh.option.setNumber("General.Terminal", 0)
+            occ = gmsh.model.occ
+            occ.cut([(3, occ.addBox(0, 0, 0, 40, 40, 10))], [(3, occ.addBox(10, 10, -1, 20, 20, 12))])
+            occ.synchronize()
+            gmsh.write(str(path))
+            gmsh.finalize()
+            cad = self.import_file(path)
+        across = lambda y: {"origin": [20, y, -1], "axis": [0, 0, 1], "direction": [0, 1, 0], "length": 12}
+        # One cut across a wall opens the frame: still one solid, the cut kept as a free face.
+        opened = self.sessions.prepare(self.request(cad, operation={"kind": "slice", "rays": [across(-1)], "label": "Opened the frame"}))
+        solids = opened["topology"]["volumes"]
+        self.assertEqual(len(solids), 1)
+        self.assertEqual([f.get("openIn") for f in opened["topology"]["faces"] if not f["volumes"]], [solids[0]["id"]])
+        # A cut that stops inside the wall, or misses every solid, is still refused.
+        with self.assertRaisesRegex(CadError, "slit"):
+            self.sessions.prepare(self.request(opened, operation={"kind": "slice", "rays": [{**across(29), "length": 6}]}))
+        with self.assertRaisesRegex(CadError, "did not divide"):
+            self.sessions.prepare(self.request(opened, operation={"kind": "slice", "rays": [{**across(29), "origin": [60, 29, -1]}]}))
+        # The second cut takes the first along: two pieces, no free face left.
+        halves = self.sessions.prepare(self.request(opened, operation={"kind": "slice", "rays": [across(29)]}))
+        self.assertEqual(len(halves["topology"]["volumes"]), 2)
+        self.assertFalse([f for f in halves["topology"]["faces"] if not f["volumes"]])
+        self.assertAlmostEqual(halves["topology"]["volume"], cad["topology"]["volume"], places=5)
 
     def test_fuse_merges_neighbors_and_keeps_the_rest_conforming(self):
         cad = self.import_file(ROOT / "examples/block.step")
