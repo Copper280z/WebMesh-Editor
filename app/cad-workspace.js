@@ -555,7 +555,7 @@
       try {
         result = await F().autoFix({
           state: () => ({ topology: session.topology, preview: session.preview, revision: session.revision }),
-          preview: operation => api('preview', { ...token(), operation }),
+          preview: (operation, { lite } = {}) => api('preview', { ...token(), operation, ...(lite ? { lite: true } : {}) }),
           apply: async operation => { accept(await api('prepare', { ...token(), operation }), { fit: false, keepStep: true }); hooks.log(operation.label || operation.kind); },
           undo: async () => { accept(await api('undo', token()), { fit: false, keepStep: true }); }
         }, { mapping: H(), blends: autoState.blends, holes: autoState.holes, size: Number(sizing.size) || defaultSize(),

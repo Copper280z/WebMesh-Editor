@@ -1,12 +1,13 @@
 """Kernel classification data for native mapped meshing, slicing and staged previews."""
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 import unittest
 
 import server
-from cad_sessions import CadError, CadSessions
+from cad_sessions import MAX_STAGED, CadError, CadSessions
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -204,17 +205,79 @@ class MappingTopologyTests(unittest.TestCase):
         cad = self.import_file(ROOT / "examples/block.step")
         first = {"kind": "slice", "planes": [{"origin": [50, 0, 0], "normal": [1, 0, 0]}]}
         self.sessions.preview(self.request(cad, operation=first))
-        staged = self.sessions.records[cad["cadId"]]["staged"]["path"]
+        (staged,) = [entry["path"] for entry in self.sessions.records[cad["cadId"]]["staged"].values()]
         second = {"kind": "slice", "planes": [{"origin": [25, 0, 0], "normal": [1, 0, 0]}]}
         prepared = self.sessions.prepare(self.request(cad, operation=second))
         self.assertFalse(staged.exists())
         self.assertEqual(len(prepared["topology"]["volumes"]), 2)
         self.sessions.preview(self.request(prepared, operation=first))
-        staged = self.sessions.records[cad["cadId"]]["staged"]["path"]
+        (staged,) = [entry["path"] for entry in self.sessions.records[cad["cadId"]]["staged"].values()]
         self.sessions.undo(self.request(prepared))
         self.assertFalse(staged.exists())
         with self.assertRaises(CadError):
             self.sessions.preview(self.request(prepared, operation=first))  # stale revision
+
+    def test_each_previewed_operation_stays_staged_up_to_a_bound(self):
+        cad = self.import_file(ROOT / "examples/block.step")
+        cuts = [{"kind": "slice", "planes": [{"origin": [x, 0, 0], "normal": [1, 0, 0]}]} for x in (10, 20, 30)]
+        for operation in cuts:
+            self.sessions.preview(self.request(cad, operation=operation))
+        record = self.sessions.records[cad["cadId"]]
+        self.assertEqual(len(record["staged"]), 3)
+        started = time.perf_counter()
+        committed = self.sessions.prepare(self.request(cad, operation=cuts[0]))
+        self.assertLess(time.perf_counter() - started, 0.5, "an earlier preview is still staged")
+        self.assertEqual(committed["revision"], 1)
+        self.assertNotIn("staged", record)
+        self.assertEqual(sorted(p.name for p in (self.sessions.root / cad["cadId"]).glob("staged-*")), [])
+        many = [{"kind": "slice", "planes": [{"origin": [5 + 4 * i, 0, 0], "normal": [1, 0, 0]}]} for i in range(MAX_STAGED + 2)]
+        for operation in many:
+            self.sessions.preview(self.request(committed, operation=operation))
+        self.assertEqual(list(record["staged"]), [self.sessions.operation_key(op) for op in many[-MAX_STAGED:]])
+        self.assertEqual(len(list((self.sessions.root / cad["cadId"]).glob("staged-*.brep"))), MAX_STAGED)
+
+    def test_lite_preview_skips_the_display_tessellation_but_commits_the_full_result(self):
+        path = ROOT / "examples/plate-hole.step"
+        operation = {"kind": "slice", "planes": [{"origin": [0, 0, 0], "normal": [1, 0, 0]}], "label": "Through the hole"}
+        reference = self.import_file(path)
+        bounds = reference["topology"]["bounds"]
+        operation["planes"][0]["origin"] = [(bounds[i] + bounds[i + 3]) / 2 for i in range(3)]
+        expected = self.sessions.prepare(self.request(reference, operation=operation))
+        cad = self.import_file(path)
+        with self.assertRaises(CadError) as error:
+            self.sessions.preview(self.request(cad, operation=operation, lite=1))
+        self.assertEqual(error.exception.status, 400)
+        lite = self.sessions.preview(self.request(cad, operation=operation, lite=True))
+        self.assertEqual(lite["topology"], expected["topology"])
+        self.assertEqual(lite["preview"], {"lite": True, "edges": expected["preview"]["edges"]})
+        self.assertTrue(lite["staged"])
+        full = self.sessions.preview(self.request(cad, operation=operation))
+        self.assertEqual(full["preview"], expected["preview"])
+        started = time.perf_counter()
+        committed = self.sessions.prepare(self.request(cad, operation=operation))
+        self.assertLess(time.perf_counter() - started, 0.5, "the lite preview is reused")
+        self.assertEqual(committed["topology"], expected["topology"])
+        self.assertEqual(committed["preview"], expected["preview"])
+        # A lite preview that is committed straight away waits for its tessellation.
+        again = self.sessions.preview(self.request(committed, operation={**operation, "label": "Again", "planes": [{**operation["planes"][0], "normal": [0, 1, 0]}]}, lite=True))
+        self.assertNotIn("positions", again["preview"])
+        final = self.sessions.prepare(self.request(committed, operation={**operation, "label": "Again", "planes": [{**operation["planes"][0], "normal": [0, 1, 0]}]}))
+        self.assertGreater(len(final["preview"]["positions"]), 0)
+        self.assertEqual(len(final["preview"]["positions"]), 9 * len(final["preview"]["triangleFaceIds"]))
+        self.assertEqual({f["id"] for f in final["preview"]["faces"]}, {f["id"] for f in final["topology"]["faces"]})
+
+    def test_concurrent_previews_of_one_session_are_each_staged(self):
+        cad = self.import_file(ROOT / "examples/block.step")
+        cuts = [{"kind": "slice", "planes": [{"origin": [x, 0, 0], "normal": [1, 0, 0]}]} for x in (10, 20, 30, 40)]
+        with ThreadPoolExecutor(4) as pool:
+            results = list(pool.map(lambda op: self.sessions.preview(self.request(cad, operation=op, lite=op is not cuts[0])), cuts))
+        self.assertTrue(all(len(r["topology"]["volumes"]) == 2 for r in results))
+        record = self.sessions.records[cad["cadId"]]
+        self.assertEqual(set(record["staged"]), {self.sessions.operation_key(op) for op in cuts})
+        committed = self.sessions.prepare(self.request(cad, operation=cuts[2]))
+        self.assertEqual(committed["revision"], 1)
+        self.assertGreater(len(committed["preview"]["positions"]), 0)
+        self.assertEqual(list((self.sessions.root / cad["cadId"]).glob("staged-*")), [])
 
 
 if __name__ == "__main__":

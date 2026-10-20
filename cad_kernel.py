@@ -11,6 +11,7 @@ https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002fmesh
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import sys
 
@@ -26,9 +27,10 @@ def gmsh_module():
     return gmsh
 
 
-def safe_mass(gmsh, dimension, tag):
+def safe_mass(gmsh, dimension, tag, native=None):
+    """OpenCASCADE mass of an entity; `native` may hold the current occ entities of that dimension."""
     try:
-        if (dimension, tag) not in gmsh.model.occ.getEntities(dimension):
+        if (dimension, tag) not in (native if native is not None else gmsh.model.occ.getEntities(dimension)):
             return 0.0
         return float(gmsh.model.occ.getMass(dimension, tag))
     except Exception:
@@ -38,16 +40,18 @@ def safe_mass(gmsh, dimension, tag):
 def topology(gmsh):
     model = gmsh.model
     faces, edges, volumes = [], [], []
+    # Listing the kernel's entities is costly; the model does not change here.
+    occ = {dimension: set(model.occ.getEntities(dimension)) for dimension in (1, 2, 3)}
     for _, tag in model.getEntities(2):
         bounds = list(map(float, model.getBoundingBox(2, tag)))
-        native = (2, tag) in model.occ.getEntities(2)
+        native = (2, tag) in occ[2]
         try:
             if not native:
                 raise ValueError("Discrete geometry has no CAD center of mass")
             center = list(map(float, model.occ.getCenterOfMass(2, tag)))
         except Exception:
             center = [(bounds[i] + bounds[i + 3]) / 2 for i in range(3)]
-        face = {"id": tag, "type": model.getType(2, tag), "area": safe_mass(gmsh, 2, tag),
+        face = {"id": tag, "type": model.getType(2, tag), "area": safe_mass(gmsh, 2, tag, occ[2]),
                 "bounds": bounds, "center": center,
                 "edges": [abs(int(t)) for _, t in model.getBoundary([(2, tag)], oriented=False)],
                 "volumes": list(map(int, model.getAdjacencies(2, tag)[0]))}
@@ -68,13 +72,13 @@ def topology(gmsh):
             pass
         faces.append(face)
     for _, tag in model.getEntities(1):
-        edges.append({"id": tag, "type": model.getType(1, tag), "length": safe_mass(gmsh, 1, tag),
+        edges.append({"id": tag, "type": model.getType(1, tag), "length": safe_mass(gmsh, 1, tag, occ[1]),
                       "bounds": list(map(float, model.getBoundingBox(1, tag))),
                       "faces": list(map(int, model.getAdjacencies(1, tag)[0]))})
     by_face = {face["id"]: face for face in faces}
     for _, tag in model.getEntities(3):
         boundary = [abs(int(t)) for _, t in model.getBoundary([(3, tag)], oriented=False)]
-        volumes.append({"id": tag, "volume": safe_mass(gmsh, 3, tag), "faces": boundary,
+        volumes.append({"id": tag, "volume": safe_mass(gmsh, 3, tag, occ[3]), "faces": boundary,
                         "bounds": list(map(float, model.getBoundingBox(3, tag))),
                         "mapped": len(boundary) == 6 and all(len(by_face[t]["edges"]) == 4 for t in boundary)})
     bounds = list(map(float, model.getBoundingBox(-1, -1)))
@@ -138,7 +142,8 @@ def topology(gmsh):
                           "radius": f.get("radius")} for f in faces if f["type"] != "Plane"]}
 
 
-def preview(gmsh, data):
+def tessellation(gmsh, data):
+    """Display triangles of every face, as flat positions and owning face ids."""
     model = gmsh.model
     bounds = data["bounds"]
     diagonal = math.sqrt(sum((bounds[i + 3] - bounds[i]) ** 2 for i in range(3)))
@@ -163,6 +168,12 @@ def preview(gmsh, data):
                 face_ids.append(tag)
     if len(face_ids) > 250_000:
         raise ValueError("CAD preview exceeds 250,000 triangles. Simplify the geometry first.")
+    return positions, face_ids
+
+
+def edge_polylines(gmsh, data):
+    """Display polylines of every edge; mapped-meshing samples move here from the topology."""
+    model = gmsh.model
     edges = []
     for edge in data["edges"]:
         tag = edge["id"]
@@ -178,9 +189,25 @@ def preview(gmsh, data):
             edges.append({"id": tag, "points": points})
         except Exception:
             pass
+    return edges
+
+
+def preview(gmsh, data, edges=None):
+    """Display tessellation and edge polylines. Edges are sampled once the mesh
+    exists, since discrete (STL) curves follow it; OpenCASCADE curves do not."""
+    positions, face_ids = tessellation(gmsh, data)
+    if edges is None:
+        edges = edge_polylines(gmsh, data)
     if not data.get("discrete"):
-        model.mesh.clear()
+        gmsh.model.mesh.clear()
     return {"positions": positions, "triangleFaceIds": face_ids, "edges": edges, "faces": data["faces"]}
+
+
+def write_early(path, result):
+    """Publish a result before the worker exits: written whole, then renamed into place."""
+    partial = Path(path + ".part")
+    partial.write_text(json.dumps(result, allow_nan=False, separators=(",", ":")))
+    os.replace(partial, path)
 
 
 def rectangular_passages(gmsh, operation, volumes):
@@ -725,7 +752,15 @@ def execute(request):
             if not discrete:
                 from cad_mapping import augment
                 augment(gmsh, data)
-            result = {"topology": data, "preview": preview(gmsh, data)}
+            if request.get("early") and not discrete:
+                # Lite preview: report the topology first, then finish the
+                # display tessellation that committing this result needs.
+                edges = edge_polylines(gmsh, data)
+                write_early(request["early"], {"topology": data, "preview": {"lite": True, "edges": edges},
+                                               "log": "\n".join(gmsh.logger.get())[-24_000:]})
+                result = {"topology": data, "preview": preview(gmsh, data, edges)}
+            else:
+                result = {"topology": data, "preview": preview(gmsh, data)}
         result["log"] = "\n".join(gmsh.logger.get())[-24_000:]
         return result
     finally:

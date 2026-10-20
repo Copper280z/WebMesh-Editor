@@ -491,14 +491,20 @@
     const pivotCols = new Set(pivots.map(p => p.col));
     const freeCols = [...Array(free.length).keys()].filter(c => !pivotCols.has(c));
     const values = groups.map((g, i) => fixed[i] != null ? fixed[i] : targets[i]);
+    // Each pivot row's nonzero free-column terms, in column order: the rows are
+    // sparse, and skipping exact zeros leaves every sum unchanged.
+    const terms = pivots.map(p => {
+      const row = matrix[p.row].values, cols = freeCols.filter(c => row[c] !== 0);
+      return { col: p.col, rhs: matrix[p.row].rhs, cols, coefs: Float64Array.from(cols, c => row[c]) };
+    });
     const evaluate = assignment => {
       // assignment: values for freeCols; dependent pivots follow from the rows.
       const x = new Float64Array(free.length);
       freeCols.forEach((c, k) => { x[c] = assignment[k]; });
-      for (const p of pivots) {
-        let v = matrix[p.row].rhs;
-        for (const c of freeCols) v -= matrix[p.row].values[c] * x[c];
-        x[p.col] = v;
+      for (const t of terms) {
+        let v = t.rhs;
+        for (let k = 0; k < t.cols.length; k++) v -= t.coefs[k] * x[t.cols[k]];
+        x[t.col] = v;
       }
       let penalty = 0, cost = 0;
       for (let c = 0; c < free.length; c++) {

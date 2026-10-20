@@ -54,7 +54,7 @@ class CadSession {
   async autoFix(options) {
     return F.autoFix({
       state: () => ({ topology: this.topology, preview: this.data.preview, revision: this.data.revision }),
-      preview: operation => this.api('preview', { ...this.token, operation }),
+      preview: (operation, { lite } = {}) => this.api('preview', { ...this.token, operation, ...(lite ? { lite: true } : {}) }),
       apply: operation => this.apply(operation),
       undo: async () => { this.accept(await this.api('undo', this.token)); }
     }, { mapping: H, ...options });

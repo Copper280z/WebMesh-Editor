@@ -5,7 +5,9 @@ transfinite hex meshes itself. This module only supplies exact geometry facts
 from the OpenCASCADE kernel: oriented face loops, interior corner angles,
 per-solid dihedral angles and analytic surface/curve descriptors. It performs
 geometry queries (evaluation, projection, point classification) and never
-calls a Gmsh mesher.
+calls a Gmsh mesher. On analytic planes, which side of an edge a face or a
+solid lies on follows from the kernel's orientations; other surfaces are
+probed with points.
 """
 
 import math
@@ -37,6 +39,9 @@ class _Geometry:
         self.edges = {}
         self.inverses = {}
         self.surface_kinds = {}
+        self.types = {}
+        self.frames = {}
+        self.solid_senses = {}
 
     def nearest_vertex(self, point, candidates=None):
         best, distance = None, math.inf
@@ -145,6 +150,48 @@ class _Geometry:
                 return direction if forward else -direction
         return None
 
+    def plane_frame(self, face):
+        """Orientation data of an analytic plane face, or None.
+
+        OpenCASCADE keeps a face to the left of each boundary edge, walked in
+        its oriented sense, about the parametric normal du x dv. getNormal()
+        gives the same normal, possibly reversed; on a plane it is constant.
+        """
+        if face in self.frames:
+            return self.frames[face]
+        frame = None
+        try:
+            if self.types.get(face) == "Plane":
+                model = self.model
+                lower, upper = model.getParametrizationBounds(2, face)
+                uv = [(float(lower[0]) + float(upper[0])) / 2, (float(lower[1]) + float(upper[1])) / 2]
+                normal = unit(model.getNormal(face, uv))
+                du, dv = np.array(model.getDerivative(2, face, uv), dtype=float).reshape(2, 3)
+                natural = unit(np.cross(du, dv))
+                agreement = float(np.dot(normal, natural))
+                senses = {}
+                for _, signed in model.getBoundary([(2, face)], oriented=True):
+                    senses.setdefault(abs(int(signed)), []).append(1 if int(signed) > 0 else -1)
+                if abs(agreement) > 0.5:
+                    frame = {"normal": normal, "natural": natural, "stored": 1 if agreement > 0 else -1,
+                             "senses": {edge: sense[0] for edge, sense in senses.items() if len(sense) == 1}}
+        except Exception:
+            frame = None
+        self.frames[face] = frame
+        return frame
+
+    def solid_sense(self, volume, face):
+        """+1 or -1 when du x dv of the face points out of the solid; None if ambiguous."""
+        if volume not in self.solid_senses:
+            senses = {}
+            try:
+                for _, signed in self.model.getBoundary([(3, volume)], oriented=True):
+                    senses.setdefault(abs(int(signed)), []).append(1 if int(signed) > 0 else -1)
+            except Exception:
+                senses = {}
+            self.solid_senses[volume] = {f: s[0] for f, s in senses.items() if len(s) == 1}
+        return self.solid_senses[volume].get(face)
+
 
 def probes(step, tolerance):
     """Probe distances, smallest first: local probes cannot cross a narrow gap
@@ -158,16 +205,15 @@ def probes(step, tolerance):
 def _edge_data(geometry, edge):
     model, tag = geometry.model, edge["id"]
     lo, hi = (float(v[0]) for v in model.getParametrizationBounds(1, tag))
-    start_point = np.array(model.getValue(1, tag, [lo]), dtype=float)
-    end_point = np.array(model.getValue(1, tag, [hi]), dtype=float)
+    # One evaluation call per quantity: each Gmsh API call has a fixed cost.
+    start_point, end_point = np.array(model.getValue(1, tag, [lo, hi]), dtype=float).reshape(2, 3)
     boundary = [abs(int(t)) for _, t in model.getBoundary([(1, tag)], oriented=False)]
     start = geometry.nearest_vertex(start_point, boundary or None) or geometry.nearest_vertex(start_point)
     end = geometry.nearest_vertex(end_point, boundary or None) or geometry.nearest_vertex(end_point)
     closed = float(np.linalg.norm(start_point - end_point)) <= geometry.tolerance * 10
     if closed and start is None:
         start = end = geometry.nearest_vertex(start_point)
-    d_start = unit(model.getDerivative(1, tag, [lo]))
-    d_end = unit(model.getDerivative(1, tag, [hi]))
+    d_start, d_end = (unit(d) for d in np.array(model.getDerivative(1, tag, [lo, hi]), dtype=float).reshape(2, 3))
     record = {"vertices": [start, end], "closed": bool(closed), "param": [lo, hi]}
     kind = edge.get("type")
     if kind != "Line":
@@ -177,15 +223,15 @@ def _edge_data(geometry, edge):
         # geometrically straight or circular; classify them by their samples.
         chord = samples[-1] - samples[0]
         length = float(np.linalg.norm(chord))
-        straight = length > 0 and not closed and max(float(np.linalg.norm(np.cross(p - samples[0], chord))) / length for p in samples) <= geometry.tolerance * 10
+        straight = length > 0 and not closed and float(np.max(np.linalg.norm(np.cross(samples - samples[0], chord), axis=1))) / length <= geometry.tolerance * 10
         if straight:
             record["curve"] = {"kind": "line"}
         else:
-            record["samples"] = [round(float(v), 12) for v in samples.ravel()]
+            record["samples"] = [round(v, 12) for v in samples.ravel().tolist()]
             record["curve"] = _circle(samples) or {"kind": "curve"}
     else:
         record["curve"] = {"kind": "line"}
-    geometry.edges[tag] = {"start": start, "end": end, "lo": lo, "hi": hi,
+    geometry.edges[tag] = {"start": start, "end": end, "lo": lo, "hi": hi, "line": record["curve"]["kind"] == "line",
                            "out_start": d_start, "out_end": -d_end, "length": edge.get("length", 0)}
     return record
 
@@ -202,8 +248,9 @@ def _circle(samples):
     center = a + (np.dot(ac, ac) * np.cross(normal, ab) + np.dot(ab, ab) * np.cross(ac, normal)) / (2 * area * area)
     radius = float(np.linalg.norm(a - center))
     axis = unit(normal)
-    residual = max(abs(float(np.linalg.norm(p - center)) - radius) for p in samples)
-    planar = max(abs(float(np.dot(p - center, axis))) for p in samples)
+    offsets = samples - center
+    residual = float(np.max(np.abs(np.linalg.norm(offsets, axis=1) - radius)))
+    planar = float(np.max(np.abs(offsets @ axis)))
     if residual > max(radius * 1e-6, 1e-9) or planar > max(radius * 1e-6, 1e-9):
         return None
     return {"kind": "circle", "center": center.tolist(), "axis": axis.tolist(), "radius": radius}
@@ -262,11 +309,34 @@ def _corner_angle(geometry, face, incoming, outgoing):
     lengths = [max(info_in["length"], 0), max(info_out["length"], 0)]
     step = max(min(min(l for l in lengths if l > 0) * 0.02 if any(lengths) else geometry.span * 1e-3,
                    geometry.span * 2e-3), geometry.tolerance * 50)
-    origin = geometry.vertices[vertex]
-    # Near a convex corner the bisector stays on the face for small enough probes;
-    # for a reflex corner it leaves the face at every size.
-    inside = geometry.face_inside(face, origin + probes(step, geometry.tolerance)[0] * bisector, probes(step, geometry.tolerance)[0] * 0.5)
+    inside = _plane_corner_inside(geometry, face, incoming, outgoing, back, ahead)
+    if inside is None:
+        origin = geometry.vertices[vertex]
+        # Near a convex corner the bisector stays on the face for small enough probes;
+        # for a reflex corner it leaves the face at every size.
+        inside = geometry.face_inside(face, origin + probes(step, geometry.tolerance)[0] * bisector, probes(step, geometry.tolerance)[0] * 0.5)
     return vertex, angle if inside else 360.0 - angle
+
+
+def _plane_corner_inside(geometry, face, incoming, outgoing, back, ahead):
+    """Whether a corner of an analytic plane face between two straight edges is
+    convex, from orientations alone; None when that cannot be decided.
+
+    Walked in the sense of the face's oriented boundary, the face lies to the
+    left about du x dv, so a convex corner turns left.
+    """
+    frame = geometry.plane_frame(face)
+    (tag_in, sense_in), (tag_out, sense_out) = incoming, outgoing
+    if frame is None or not (geometry.edges[tag_in]["line"] and geometry.edges[tag_out]["line"]):
+        return None
+    oriented_in, oriented_out = frame["senses"].get(tag_in), frame["senses"].get(tag_out)
+    if oriented_in is None or oriented_out is None or sense_in * oriented_in != sense_out * oriented_out:
+        return None
+    # back points back along the incoming edge, ahead along the outgoing one.
+    turn = float(np.dot(np.cross(back, ahead), frame["natural"])) * sense_in * oriented_in
+    if abs(turn) < 1e-6:
+        return None
+    return turn < 0
 
 
 def _surface(geometry, face, kind):
@@ -275,7 +345,7 @@ def _surface(geometry, face, kind):
         lower, upper = model.getParametrizationBounds(2, face)
         grid = [[lower[0] + (upper[0] - lower[0]) * a, lower[1] + (upper[1] - lower[1]) * b]
                 for a in (0.2, 0.5, 0.8) for b in (0.2, 0.5, 0.8)]
-        points = [np.array(model.getValue(2, face, uv), dtype=float) for uv in grid]
+        points = list(np.array(model.getValue(2, face, [x for uv in grid for x in uv]), dtype=float).reshape(-1, 3))
         mid = grid[4]
         point = points[4]
         normal = unit(model.getNormal(face, mid))
@@ -324,13 +394,49 @@ def _material_outside(geometry, volume, surface, point, step):
     return bool(outside)
 
 
+def _plane_dihedral(geometry, volume, edge, faces, tangent):
+    """Material dihedral across an edge between two analytic plane faces, from
+    orientations alone: no point is evaluated or classified.
+
+    Each face lies to the left of the edge (walked in its oriented sense) about
+    du x dv, which gives the direction into the face; du x dv times the face's
+    sign in the solid points out of the material. Returns False when the
+    orientation data is missing or ambiguous, so the caller probes instead.
+    """
+    directions, outward = [], []
+    for face in faces:
+        frame = geometry.plane_frame(face)
+        solid = geometry.solid_sense(volume, face)
+        if frame is None or solid is None or edge not in frame["senses"]:
+            return False
+        # The same vector the probe would orient: normal x tangent, normalized.
+        direction = unit(np.cross(frame["normal"], tangent))
+        if np.linalg.norm(direction) < 0.5:
+            return False
+        directions.append(direction if frame["senses"][edge] * frame["stored"] > 0 else -direction)
+        outward.append(solid * frame["natural"])
+    first, second = directions
+    if float(np.dot(first, second)) < -0.99999:
+        return 180.0
+    angle = _angle(first, second)
+    # The narrower wedge between the faces is material when each face's
+    # direction lies on the material side of the other face.
+    a, b = float(np.dot(second, outward[0])), float(np.dot(first, outward[1]))
+    if min(abs(a), abs(b)) < 1e-9 or (a < 0) != (b < 0):
+        return False
+    return angle if a < 0 else 360.0 - angle
+
+
 def _dihedral(geometry, volume, edge, faces):
     """Interior solid angle (degrees) across an edge between two faces of one volume."""
     model = geometry.model
     info = geometry.edges[edge]
     middle = (info["lo"] + info["hi"]) / 2
-    point = np.array(model.getValue(1, edge, [middle]), dtype=float)
     tangent = unit(model.getDerivative(1, edge, [middle]))
+    analytic = _plane_dihedral(geometry, volume, edge, faces, tangent)
+    if analytic is not False:
+        return analytic
+    point = np.array(model.getValue(1, edge, [middle]), dtype=float)
     length = info["length"] or geometry.span * 1e-2
     step = max(min(length * 0.02, geometry.span * 2e-3), geometry.tolerance * 50)
     first = geometry.in_face_direction(faces[0], point, tangent, step)
@@ -360,6 +466,7 @@ def augment(gmsh, data):
     for face in data["faces"]:
         face["surface"] = _surface(geometry, face["id"], face.get("type"))
         geometry.surface_kinds[face["id"]] = face["surface"]["kind"]
+        geometry.types[face["id"]] = face.get("type")
     for face in data["faces"]:
         tag = face["id"]
         loops, corners = [], []

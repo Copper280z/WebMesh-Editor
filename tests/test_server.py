@@ -123,6 +123,22 @@ class HTTPTests(unittest.TestCase):
         finally:
             self.httpd.mesh_slot.release()
 
+    def test_previews_run_beside_a_mesh_and_queue_for_their_own_slots(self):
+        preview = json.dumps({"cadId": "0" * 32, "revision": 0, "operation": {"kind": "slice"}})
+        self.httpd.mesh_slot.acquire()
+        try:
+            self.assertEqual(self.request("POST", "/api/cad/preview", preview, {"Content-Type": "application/json"})[0], 404)
+        finally:
+            self.httpd.mesh_slot.release()
+        for _ in range(server.PREVIEW_SLOTS):
+            self.httpd.preview_slots.acquire()
+        try:
+            with patch.object(server, "PREVIEW_WAIT", 0.05):
+                self.assertEqual(self.request("POST", "/api/cad/preview", preview, {"Content-Type": "application/json"})[0], 409)
+        finally:
+            for _ in range(server.PREVIEW_SLOTS):
+                self.httpd.preview_slots.release()
+
     def test_busy_service_rejects_before_reading_large_body(self):
         self.httpd.mesh_slot.acquire()
         try:

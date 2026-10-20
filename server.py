@@ -50,6 +50,8 @@ MAX_LOG = 4 * 1024 * 1024
 MAX_RSS = 2 * 1024 * 1024 * 1024
 MAX_ENTITIES = 500_000
 MESH_TIMEOUT = 90
+PREVIEW_SLOTS = 4  # concurrent CAD preview workers
+PREVIEW_WAIT = 100  # seconds a preview waits for a free slot
 PS = shutil.which("ps")
 FORMATS = {"step": "step", "stp": "step", "iges": "iges", "igs": "iges", "brep": "brep", "stl": "stl"}
 EXPECTED = {("tri", 1): 2, ("tri", 2): 9, ("quad", 1): 3, ("quad", 2): 16,
@@ -292,13 +294,18 @@ def log_tail(path):
         return stream.read().decode("utf-8", errors="replace")
 
 
-def watch_process(process, directory):
-    """Bound a running mesher and always reap it, including on cancellation."""
-    deadline = time.monotonic() + MESH_TIMEOUT
+def watch_process(process, directory, until=None, deadline=None):
+    """Bound a running mesher and always reap it, including on cancellation.
+
+    With `until`, return None as soon as that file exists, leaving the process
+    running for a later call to keep watching (with the same deadline).
+    """
+    deadline = deadline if deadline is not None else time.monotonic() + MESH_TIMEOUT
     next_rss_check = 0
+    released = False
     try:
         while True:
-            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG), ("worker-result.json", MAX_MESH)):
+            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG), ("worker-result.json", MAX_MESH), ("early-result.json", MAX_MESH)):
                 try:
                     size = (directory / filename).stat().st_size
                 except FileNotFoundError:
@@ -308,6 +315,9 @@ def watch_process(process, directory):
             code = process.poll()
             if code is not None:
                 return code
+            if until is not None and until.is_file():
+                released = True
+                return None
             now = time.monotonic()
             if now >= deadline:
                 raise MeshError(f"Meshing exceeded {MESH_TIMEOUT} seconds. Increase size or simplify the CAD.", status=504)
@@ -317,11 +327,12 @@ def watch_process(process, directory):
                     raise MeshError("Gmsh exceeded the 2 GiB memory limit. Increase mesh size or simplify the CAD.")
                 next_rss_check = now + 0.5
             try:
-                process.wait(timeout=min(0.25, max(0.001, deadline - time.monotonic())))
+                # Exit wakes this wait at once; an early result is polled for.
+                process.wait(timeout=min(0.01 if until is not None else 0.25, max(0.001, deadline - time.monotonic())))
             except subprocess.TimeoutExpired:
                 pass
     finally:
-        if process.poll() is None:
+        if not released and process.poll() is None:
             process.kill()
             process.wait(timeout=5)
 
@@ -366,18 +377,39 @@ def generate_mesh(data, gmsh):
                           "parts": len({element["pid"] for element in mesh["elements"]})}}
 
 
-def run_cad_worker(request, source, output):
-    """Execute a single CAD task in the same bounded process envelope as meshing."""
+def run_cad_worker(request, source, output, early=None, started=None):
+    """Execute a single CAD task in the same bounded process envelope as meshing.
+
+    started(cancel), if given, receives a function that stops the worker. For
+    a prepare, early(result), if given, receives the result without its display
+    tessellation as soon as the worker has it; the worker then tessellates and
+    this returns the full result.
+    """
     with tempfile.TemporaryDirectory(prefix="webmesh-cad-task-") as temporary:
         directory = Path(temporary)
         request = {**request, "input": str(source), "output": str(output) if output else None}
+        early_path = directory / "early-result.json"
+        if early is not None:
+            request["early"] = str(early_path)
         request_path = directory / "request.json"
         request_path.write_text(json.dumps(request, allow_nan=False))
         log_path = directory / "gmsh.log"
         with log_path.open("wb") as log:
             process = subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), str(request_path)],
                                        cwd=directory, stdout=log, stderr=subprocess.STDOUT)
-            code = watch_process(process, directory)
+            if started is not None:
+                started(process.kill)
+            deadline = time.monotonic() + MESH_TIMEOUT
+            if early is not None and watch_process(process, directory, until=early_path, deadline=deadline) is None:
+                try:
+                    if output and output.is_file() and output.stat().st_size > MAX_CAD:
+                        raise CadError("The prepared geometry exceeds 24 MiB. Simplify it or prepare smaller regions so exported projects remain importable.")
+                    early(json.loads(early_path.read_text()))
+                except BaseException:
+                    process.kill()
+                    process.wait(timeout=5)
+                    raise
+            code = watch_process(process, directory, deadline=deadline)
         result_path = directory / "worker-result.json"
         if code or not result_path.is_file():
             raise CadError("The CAD kernel could not complete this operation. Check the Gmsh Python bindings.", log=log_tail(log_path))
@@ -486,9 +518,18 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
             return
         # Acquire before reading a potentially large body so parallel tabs cannot
         # allocate many request-sized buffers while the mesher is already busy.
-        if not self.server.mesh_slot.acquire(blocking=False):
-            self.json_response(409, {"error": "Another mesh is running. Wait for it to finish."})
-            return
+        # Previews never change a session, so a few run side by side (Auto-fix
+        # scores candidates in parallel); they queue briefly for a free slot.
+        if endpoint == "/api/cad/preview":
+            slot = self.server.preview_slots
+            if not slot.acquire(timeout=PREVIEW_WAIT):
+                self.json_response(409, {"error": "Too many CAD previews are running. Try again shortly."})
+                return
+        else:
+            slot = self.server.mesh_slot
+            if not slot.acquire(blocking=False):
+                self.json_response(409, {"error": "Another mesh is running. Wait for it to finish."})
+                return
         try:
             try:
                 self.connection.settimeout(15)
@@ -517,12 +558,13 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 self.log_error("Meshing failed: %s", type(exc).__name__)
                 self.json_response(500, {"error": "The local meshing service encountered an unexpected error."})
         finally:
-            self.server.mesh_slot.release()
+            slot.release()
 
 
 def make_server(port=8765, gmsh=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), partial(WebMeshHandler, gmsh=gmsh))
     server.mesh_slot = threading.BoundedSemaphore(1)
+    server.preview_slots = threading.BoundedSemaphore(PREVIEW_SLOTS)
     server.cad_sessions = CadSessions(run_cad_worker)
     server.daemon_threads = True
     return server

@@ -1070,8 +1070,14 @@
    * square up badly tapered blocks. A step is kept only when its previewed
    * result is better; blend removal is always kept when allowed.
    *
-   * session: { state() -> { topology, revision }, preview(op), apply(op) }
-   * options: { mapping (hex-mapping module), blends, holes, shape, maxSteps, progress(message) }
+   * session: { state() -> { topology, preview, revision }, preview(op, { lite }), apply(op), undo() }
+   * options: { mapping (hex-mapping module), blends, holes, shape, maxSteps, concurrency, progress(message) }
+   *
+   * Candidate previews run up to `concurrency` (default 4) at a time, and the
+   * candidates the search would try next are previewed ahead. Results are
+   * still judged one by one in the sequential order, so the same fixes win.
+   * Previews ask for { lite: true }, without the display tessellation, unless
+   * a trial mesh needs it to project onto approximated ('mesh') surfaces.
    */
   async function autoFix(session, options = {}) {
     const H = options.mapping, progress = options.progress || (() => {});
@@ -1089,7 +1095,32 @@
     // contradictory even when every block maps.
     const sizeFor = topology => Number(options.size) > 0 ? Number(options.size) : Math.max(topology.bounds[3] - topology.bounds[0], topology.bounds[4] - topology.bounds[1], topology.bounds[5] - topology.bounds[2]) / 25;
     const intervalsOf = (a, topology) => { try { return H.solveIntervals(a, { size: sizeFor(topology) }); } catch { return null; } };
-    const conflicts = (a, topology) => intervalsOf(a, topology)?.conflicts.length || 0;
+    // Every candidate is compared with the current state: count its conflicts once.
+    const conflictCounts = new WeakMap();
+    const conflicts = (a, topology) => {
+      if (!conflictCounts.has(a)) conflictCounts.set(a, intervalsOf(a, topology)?.conflicts.length || 0);
+      return conflictCounts.get(a);
+    };
+    const concurrency = Math.max(1, Math.floor(Number(options.concurrency) || 4));
+    let running = 0;
+    const waiting = [];
+    const acquire = () => {
+      if (running < concurrency) { running++; return Promise.resolve(); }
+      return new Promise(resolve => waiting.push(resolve));
+    };
+    const release = () => { const next = waiting.shift(); if (next) next(); else running--; };
+    // Bumped whenever the geometry changes: queued previews of an older state never start.
+    let epoch = 0;
+    const request = (operation, lite) => {
+      const issued = epoch;
+      const pending = acquire().then(() => {
+        if (issued !== epoch) throw Error('The geometry changed before this preview started.');
+        return lite ? session.preview(operation, { lite: true }) : session.preview(operation);
+      }).finally(release);
+      pending.catch(() => {}); // judged later, or dropped once another fix is applied
+      return pending;
+    };
+    const approximated = topology => (topology.faces || []).some(f => f.surface?.kind === 'mesh');
     const allowed = a => {
       if (!a.operation) return false;
       if (a.operation.kind === 'defeature') return blends && (a.feature === 'fillet' || a.feature === 'chamfer');
@@ -1099,7 +1130,7 @@
     };
     const applied = [], tried = new Set();
     const signature = (st, a) => (a.operation.kind === 'defeature' ? st.revision + ':' : '') + JSON.stringify(a.operation);
-    const commit = async (operation, label) => { await session.apply(operation); applied.push(label); progress(`Step ${applied.length}: ${label}`); };
+    const commit = async (operation, label) => { epoch++; await session.apply(operation); applied.push(label); progress(`Step ${applied.length}: ${label}`); };
     let st = current();
     const start = st.analysis.summary;
     // Every applied step is kept when the planner stops short or fails, so
@@ -1124,32 +1155,53 @@
         const blocked = solids(st.analysis).filter(v => !v.mappable)
           .sort((a, b) => (Number(st.topology.volumes.find(x => x.id === b.id)?.volume) || 0) - (Number(st.topology.volumes.find(x => x.id === a.id)?.volume) || 0));
         if (!blocked.length) break;
-        let candidate = null, owner = null;
-        for (const v of blocked) {
-          const list = fixes(st.recognized.ctx, st.recognized, v).filter(a => allowed(a) && !tried.has(signature(st, a)));
-          if (list.length) { candidate = list[0]; owner = v; break; }
-        }
-        if (!candidate) break;
-        // Alternative planes for the same re-entrant edge: preview each, keep the smaller cut.
-        const alternatives = [candidate];
-        if (candidate.key.startsWith('slice:') && candidate.edges?.length) {
-          for (const a of fixes(st.recognized.ctx, st.recognized, owner)) if (a.key !== candidate.key && a.key.startsWith('slice:') && (a.edges || []).some(e => candidate.edges.includes(e)) && allowed(a)) alternatives.push(a);
-        }
+        // The groups the search tries from this state, in order: the first untried
+        // fix of the largest blocked solid, plus alternative planes for the same
+        // re-entrant edge (preview each, keep the smaller cut). The first group is
+        // usually kept, so it runs alone; once one is rejected, the groups after
+        // it are previewed ahead while it is judged.
+        const planned = new Set(tried);
+        let exhausted = false;
+        const plan = () => {
+          let candidate = null, owner = null;
+          for (const v of blocked) {
+            const list = fixes(st.recognized.ctx, st.recognized, v).filter(a => allowed(a) && !planned.has(signature(st, a)));
+            if (list.length) { candidate = list[0]; owner = v; break; }
+          }
+          if (!candidate) { exhausted = true; return null; }
+          const alternatives = [candidate];
+          if (candidate.key.startsWith('slice:') && candidate.edges?.length) {
+            for (const a of fixes(st.recognized.ctx, st.recognized, owner)) if (a.key !== candidate.key && a.key.startsWith('slice:') && (a.edges || []).some(e => candidate.edges.includes(e)) && allowed(a)) alternatives.push(a);
+          }
+          for (const option of alternatives) planned.add(signature(st, option));
+          return alternatives.map(option => ({ option, pending: request(option.operation, true) }));
+        };
+        const groups = [];
+        let ahead = 0;
+        const lookahead = window => {
+          while (!exhausted && ahead < window) { const group = plan(); if (group) { groups.push(group); ahead += group.length; } }
+        };
         let best = null;
-        for (const option of alternatives) {
-          tried.add(signature(st, option));
-          progress(`Step ${applied.length + 1}: trying ${option.label.toLowerCase()}…`);
-          let data;
-          try { data = await session.preview(option.operation); } catch { continue; }
-          const result = H.analyze(data.topology), value = score(result);
-          if (cusps(result) > cusps(st.analysis)) continue;
-          if (conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
-          if (option.operation.kind !== 'defeature' && !better(value, score(st.analysis))) continue;
-          const plane = option.operation.planes?.[0];
-          const cut = plane ? data.topology.faces.filter(f => (f.volumes || []).length > 1 && f.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(f.surface.normal), unit(plane.normal))) - 1) < 1e-6 && Math.abs(dot(sub(f.surface.origin, plane.origin), unit(plane.normal))) < st.recognized.ctx.span * 1e-6).reduce((sum, f) => sum + (Number(f.area) || 0), 0) : 0;
-          if (!best || better(value, best.value) || (value[0] === best.value[0] && value[1] === best.value[1] && cut < best.cut)) best = { option, value, cut };
+        lookahead(1);
+        while (!best && groups.length) {
+          for (const { option, pending } of groups.shift()) {
+            ahead--;
+            tried.add(signature(st, option));
+            progress(`Step ${applied.length + 1}: trying ${option.label.toLowerCase()}…`);
+            let data;
+            try { data = await pending; } catch { continue; }
+            const result = H.analyze(data.topology), value = score(result);
+            if (cusps(result) > cusps(st.analysis)) continue;
+            // Cheap test before the interval solve; either rejects the fix.
+            if (option.operation.kind !== 'defeature' && !better(value, score(st.analysis))) continue;
+            if (conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
+            const plane = option.operation.planes?.[0];
+            const cut = plane ? data.topology.faces.filter(f => (f.volumes || []).length > 1 && f.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(f.surface.normal), unit(plane.normal))) - 1) < 1e-6 && Math.abs(dot(sub(f.surface.origin, plane.origin), unit(plane.normal))) < st.recognized.ctx.span * 1e-6).reduce((sum, f) => sum + (Number(f.area) || 0), 0) : 0;
+            if (!best || better(value, best.value) || (value[0] === best.value[0] && value[1] === best.value[1] && cut < best.cut)) best = { option, value, cut };
+          }
+          if (!best) lookahead(concurrency);
         }
-        if (!best) continue;
+        if (!best) break;
         await commit(best.option.operation, best.option.operation.label || best.option.label);
         st = current();
       }
@@ -1162,11 +1214,13 @@
         if (!intervals || !intervals.conflicts.length) break;
         const now = intervals.conflicts.length, blockedNow = solids(st.analysis).filter(v => !v.mappable).length;
         let best = null;
-        for (const option of conflictFixes(st.recognized.ctx, st.analysis, intervals).filter(a => !tried.has(signature(st, a))).slice(0, 6)) {
+        const options = conflictFixes(st.recognized.ctx, st.analysis, intervals).filter(a => !tried.has(signature(st, a))).slice(0, 6);
+        const previews = options.map(option => request(option.operation, true));
+        for (const [index, option] of options.entries()) {
           tried.add(signature(st, option));
           progress(`Resolving edge-count conflicts: ${option.label.toLowerCase()}…`);
           let data;
-          try { data = await session.preview(option.operation); } catch { continue; }
+          try { data = await previews[index]; } catch { continue; }
           const result = H.analyze(data.topology), left = conflicts(result, data.topology);
           if (left >= now || cusps(result) > cusps(st.analysis) || solids(result).filter(v => !v.mappable).length > blockedNow) continue;
           if (!best || left < best.left) best = { option, left };
@@ -1196,21 +1250,30 @@
         for (let round = 0; q && q.min < target && round < 10 && applied.length < maxSteps; round++) {
           const worst = [...q.per].filter(([, value]) => value < target).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([id]) => st.analysis.volumes.get(id)).filter(Boolean);
           let best = null;
+          const options = [];
           for (const v of worst) {
-            for (const option of shapeFixes(st.recognized.ctx, v).filter(a => !tried.has(signature(st, a))).slice(0, 5)) {
-              tried.add(signature(st, option));
-              progress(`Improving element quality: ${option.detail.toLowerCase()}…`);
-              let data;
-              try { data = await session.preview(option.operation); } catch { continue; }
-              const result = H.analyze(data.topology);
-              if (cusps(result) > cusps(st.analysis) || conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
-              const next = quality(data.topology, data.preview, result);
-              if (!next || next.deficit > q.deficit - 0.02 || next.min < q.min - 1e-9) continue;
-              const repair = blocked(result) > blocked(st.analysis);
-              if (repair && typeof session.undo !== 'function') continue;
-              // Prefer steps that keep every block mapped; others need a repair pass.
-              if (!best || (best.repair && !repair) || (best.repair === repair && next.deficit < best.next.deficit)) best = { option, next, repair };
+            const list = shapeFixes(st.recognized.ctx, v).filter(a => !tried.has(signature(st, a))).slice(0, 5);
+            for (const option of list) tried.add(signature(st, option));
+            options.push(...list);
+          }
+          // Trial meshes project onto approximated surfaces through their display triangles.
+          const lite = !approximated(st.topology);
+          const previews = options.map(option => request(option.operation, lite));
+          for (const [index, option] of options.entries()) {
+            progress(`Improving element quality: ${option.detail.toLowerCase()}…`);
+            let data;
+            try { data = await previews[index]; } catch { continue; }
+            const result = H.analyze(data.topology);
+            if (cusps(result) > cusps(st.analysis) || conflicts(result, data.topology) > conflicts(st.analysis, st.topology)) continue;
+            if (data.preview?.lite && approximated(data.topology)) {
+              try { data = await request(option.operation, false); } catch { continue; }
             }
+            const next = quality(data.topology, data.preview, result);
+            if (!next || next.deficit > q.deficit - 0.02 || next.min < q.min - 1e-9) continue;
+            const repair = blocked(result) > blocked(st.analysis);
+            if (repair && typeof session.undo !== 'function') continue;
+            // Prefer steps that keep every block mapped; others need a repair pass.
+            if (!best || (best.repair && !repair) || (best.repair === repair && next.deficit < best.next.deficit)) best = { option, next, repair };
           }
           if (!best) break;
           const before = { count: applied.length, deficit: q.deficit, blocked: blocked(st.analysis) };
@@ -1222,7 +1285,7 @@
             if (blocked(st.analysis) > before.blocked || !repaired || repaired.deficit > before.deficit - 0.02) {
               // The repair did not pay off: return to the state before this step.
               progress('Reverting a reshaping step that did not improve quality…');
-              for (let k = applied.length; k > before.count; k--) { await session.undo(); applied.pop(); }
+              for (let k = applied.length; k > before.count; k--) { epoch++; await session.undo(); applied.pop(); }
               st = current();
               continue;
             }

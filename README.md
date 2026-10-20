@@ -81,6 +81,8 @@ Every geometry change is previewed before it is applied: cutting planes and sect
 3. Remove T-junction cycles that would make the edge-count equations contradictory. No step may introduce such a conflict or a knife edge.
 4. Square up badly shaped blocks (strongly tapered, or bent sides) when the trial mesh at the current size improves.
 
+Candidate steps are previewed up to four at a time (once the first candidate from a state is rejected, the next ones are previewed ahead), but judged in the same order as one at a time, so the outcome does not depend on timing. Candidate previews omit the display tessellation; the server keeps the last eight previews of each session staged, and applying one commits its full result.
+
 When Auto-fix stops short (no step helps, it reaches its 40-step limit, or the kernel refuses a step), it says which, keeps every change it made in the history, and lists the solids still red. Continue from its cuts by hand: select a red solid for its fixes, Shift-pick neighboring solids and **Fuse** them to redo a cut differently (running Auto-fix again re-cuts them its own way), or undo its steps one at a time. A fuse unifies the faces the removed interfaces leave behind and keeps the surrounding solids conforming.
 
 Results on the included parts (target size 4 unless noted):
@@ -90,7 +92,7 @@ Results on the included parts (target size 4 unless noted):
 | `examples/l-bracket.step`, bore kept | Auto-fix: remove the R3 fillet, slice off the web, box the bore, split around it | 7 | 696 | 0.71 |
 | `examples/l-bracket.step`, bore removed | Remove the bore, then Auto-fix | 2 | 790 | 0.99 |
 | `long corner bracket.step`, all holes removed | Remove the 12 holes (one defeature), then Auto-fix: one cut separates the floor and splits the wall ring; both chamfers kept | 5 | 1,190 | 0.58 (0.59 at size 2) |
-| `long corner bracket.step`, holes kept | Square passages for the Ø8.5 bores, then Auto-fix (18 steps, about 20 s; size 2.5) | 64 | 2,064 | 0.27 |
+| `long corner bracket.step`, holes kept | Square passages for the Ø8.5 bores, then Auto-fix (18 steps, about 13 s; size 2.5) | 64 | 2,064 | 0.27 |
 | `flexure.step` | Auto-fix with fillet removal and hole splits (size 1.5); stops with 4 solids left | 64 of 68 | 3,258 | 0.11 |
 
 HEX20 versions of each have the same blocks and quality. Every equation of the corner bracket with its holes kept (80 equality groups, 56 sums, 656 face equations) is solved without conflicts.
@@ -103,7 +105,7 @@ HEX20 versions of each have the same blocks and quality. Every equation of the c
 4. Select each outer wall’s middle layer → **Box 3 holes in square cells** (6.01 mm cells, the passage height), then pick each Ø4.6 hole → **Split around hole**: 44/46.
 5. Select the angled wall’s layer under the passages → **Cut along 12 imprint edges**, the same over them, then each crossing column → **Cut between re-entrant edges**: 64/64.
 
-After step 1, **Auto-fix** (with fillet and chamfer removal off) finds the same decomposition by itself in 18 steps and about 20 seconds. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
+After step 1, **Auto-fix** (with fillet and chamfer removal off) finds the same decomposition by itself in 18 steps and about 13 seconds. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
 
 A solid is a mapped block when every face has exactly four corners, no edge is re-entrant (dihedral above 220°) or a knife edge (below 20°), and its faces group across flat edges into six logical sides meeting at eight corners. Corners and dihedrals below 140° are block corners and edges, 140–220° are flat; angles between 115° and 165° are resolved per face so it gets four corners (a 144° corner of an otherwise three-cornered face is promoted, the bluntest of five is demoted), and the matching edges follow that choice. Composite sides are allowed: imprinted faces from neighboring splits (T-junctions) are meshed as one structured grid. Blocks whose parallel edges differ by more than 10× are reported as strongly tapered.
 
