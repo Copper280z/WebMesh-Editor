@@ -579,11 +579,16 @@ def _face_uv(gmsh, face, loops, edges, points, polys=None):
 
 def embedded_edges(gmsh, face, loops, edges, candidates):
     """Edges lying inside a face without bounding it: junctions that stop partway
-    across it, such as a brace's foot on a floor. OpenCASCADE keeps such an edge
-    out of the face's loops (and Gmsh out of its adjacencies), so they are found
-    by shape: on the face's surface, and inside its loops."""
+    across it, such as a brace's foot on a floor. OpenCASCADE marks such an edge
+    INTERNAL in the face's wire and keeps it out of the face's loops; the kernel
+    lists them directly. A kernel that does not (Gmsh's wrapper) leaves them to
+    be found by shape: on the face's surface, and inside its loops."""
     model = gmsh.model
     own = {c for loop in loops for c, _ in loop}
+    if hasattr(model, "getInternalEdges"):
+        allowed = set(candidates)
+        return [c for c in model.getInternalEdges(face) if c in allowed and c not in own and c not in edges.degenerate
+                and edges.curve(c)[2][-1] > 0]
     b = model.getBoundingBox(-1, -1)
     tolerance = max(math.sqrt(sum((b[i + 3] - b[i]) ** 2 for i in range(3))) * 1e-5, 1e-7)
     box = model.getBoundingBox(2, face)

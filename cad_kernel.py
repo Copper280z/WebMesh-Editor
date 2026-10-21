@@ -40,6 +40,15 @@ def geometry_module():
 gmsh_module = geometry_module  # the name older callers and tests use
 
 
+def available():
+    """Whether the selected geometry kernel can be loaded in this process."""
+    try:
+        geometry_module()
+    except ImportError:
+        return False
+    return True
+
+
 def native(gmsh):
     """True for the OpenCASCADE kernel, False for Gmsh's own."""
     return bool(getattr(gmsh, "native", False))
