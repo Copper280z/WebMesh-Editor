@@ -535,7 +535,88 @@ def _pad_square(hole, pad):
     return square
 
 
-def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None):
+def _inside_loops(points, polys):
+    """Even-odd test of points against a face's loops (outer and holes) in its parameter plane."""
+    inside = np.zeros(len(points), dtype=bool)
+    for poly in polys:
+        a, b = poly, np.roll(poly, -1, axis=0)
+        for q, point in enumerate(points):
+            x, y = point
+            crossing = ((a[:, 1] > y) != (b[:, 1] > y)) & (x < a[:, 0] + (y - a[:, 1]) * (b[:, 0] - a[:, 0]) / np.where(b[:, 1] == a[:, 1], 1, b[:, 1] - a[:, 1]))
+            inside[q] ^= bool(np.count_nonzero(crossing) % 2)
+    return inside
+
+
+def _clear_of_loops(points, polys, distance):
+    """Whether every point is farther than `distance` from the face's loops (not on its boundary)."""
+    for poly in polys:
+        a, b = poly, np.roll(poly, -1, axis=0)
+        d = b - a
+        length = np.maximum(np.einsum("ij,ij->i", d, d), 1e-300)
+        for point in points:
+            t = np.clip(np.einsum("ij,ij->i", point - a, d) / length, 0, 1)
+            if float(np.min(np.linalg.norm(a + d * t[:, None] - point, axis=1))) <= distance:
+                return False
+    return True
+
+
+def _face_uv(gmsh, face, loops, edges, points, polys=None):
+    """Scaled parameter-plane coordinates of points on a face, unwrapped like its loops."""
+    model = gmsh.model
+    su, sv = _scales(gmsh, face)
+    periodic, periods = _periodic(gmsh, face, loops, edges)
+    uv = np.array(model.getParametrization(2, face, np.asarray(points).ravel().tolist()), dtype=float).reshape(-1, 2)
+    _unwrap(uv, periodic, periods)
+    scaled = np.column_stack([uv[:, 0] * su, uv[:, 1] * sv])
+    if periodic is not None and polys:
+        # Into the outer loop's span, as _align does for holes.
+        outer = max(polys, key=lambda p: abs(_area(p)))
+        period = periods[periodic] * (su if periodic == 0 else sv)
+        middle = lambda p: (p[:, periodic].min() + p[:, periodic].max()) / 2  # noqa: E731
+        scaled[:, periodic] += period * round((middle(outer) - middle(scaled)) / period)
+    return scaled
+
+
+def embedded_edges(gmsh, face, loops, edges, candidates):
+    """Edges lying inside a face without bounding it: junctions that stop partway
+    across it, such as a brace's foot on a floor. OpenCASCADE keeps such an edge
+    out of the face's loops (and Gmsh out of its adjacencies), so they are found
+    by shape: on the face's surface, and inside its loops."""
+    model = gmsh.model
+    own = {c for loop in loops for c, _ in loop}
+    b = model.getBoundingBox(-1, -1)
+    tolerance = max(math.sqrt(sum((b[i + 3] - b[i]) ** 2 for i in range(3))) * 1e-5, 1e-7)
+    box = model.getBoundingBox(2, face)
+    polys, found = None, []
+    for c in candidates:
+        if c in own or c in edges.degenerate:
+            continue
+        e = model.getBoundingBox(1, c)
+        if any(e[i] > box[i + 3] + tolerance or e[i + 3] < box[i] - tolerance for i in range(3)):
+            continue
+        _, samples, cumulative = edges.curve(c)
+        if cumulative[-1] <= 0:
+            continue
+        pick = samples[np.linspace(0, len(samples) - 1, 5).astype(int)]
+        closest = np.array(model.getClosestPoint(2, face, pick.ravel().tolist())[0], dtype=float).reshape(-1, 3)
+        if float(np.max(np.linalg.norm(closest - pick, axis=1))) > tolerance:
+            continue
+        # Gmsh maps a point beyond the face's parameter range to an arbitrary place on it:
+        # a point that does not map back to itself is off the face.
+        uv = np.array(model.getParametrization(2, face, pick.ravel().tolist()), dtype=float)
+        back = np.array(model.getValue(2, face, uv.tolist()), dtype=float).reshape(-1, 3)
+        if float(np.max(np.linalg.norm(back - pick, axis=1))) > tolerance:
+            continue
+        if polys is None:
+            polys = [uv for uv, _ in _loops_uv(gmsh, face, loops, edges)]
+        # Its inner points lie inside the face, clear of its boundary; its ends may be on it.
+        inner = _face_uv(gmsh, face, loops, edges, pick[1:-1], polys)
+        if _inside_loops(inner, polys).all() and _clear_of_loops(inner, polys, tolerance * 10):
+            found.append(c)
+    return found
+
+
+def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None, curves=()):
     """Quads of one face: (boundary-mapped node ids, new interior nodes, quads, report)."""
     model = gmsh.model
     loops = oriented_loops(gmsh, face)
@@ -577,10 +658,18 @@ def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None):
         scaled[li], loop_ids[li] = square, ids
     order = sorted(range(len(scaled)), key=lambda i: -abs(_area(scaled[i])))
     request = [{"points": scaled[i].tolist(), "role": "outer" if rank == 0 else "hole"} for rank, i in enumerate(order)]
+    request_ids = [loop_ids[i] for i in order]
+    # Junctions that stop inside the face: open curves through their own (shared) nodes.
+    for c in curves:
+        node_ids, node_points = edges.nodes(c)
+        request.append({"points": _face_uv(gmsh, face, loops, edges, node_points, scaled).tolist(), "role": "curve"})
+        request_ids.append(list(node_ids))
     if not quadmesh_bridge.MESHERS[mesher]["fixed"]:
         # The quadtree samples its own boundary; give it the curves densely.
         dense = [uv for uv, _ in _loops_uv(gmsh, face, loops, edges)]
         request = [{"points": dense[i].tolist(), "role": "outer" if rank == 0 else "hole", "fixed": False} for rank, i in enumerate(order)]
+        if curves:
+            raise ValueError(f"Face {face} has {len(curves)} junction{'s' if len(curves) > 1 else ''} inside it, which the quadtree cannot follow: mesh it with Paved or Recombined.")
     def attempt(name):
         try:
             return quadmesh_bridge.mesh_domain(request, name, target_size=size, elements_per_circle=per_circle)
@@ -607,7 +696,7 @@ def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None):
     if quadmesh_bridge.MESHERS[mesher]["fixed"]:
         for record in result["boundary_nodes"]:
             if record["fixed_node"] >= 0:
-                mapped[record["node"]] = loop_ids[order[record["loop"]]][record["fixed_node"]]
+                mapped[record["node"]] = request_ids[record["loop"]][record["fixed_node"]]
     interior = [n for n in range(len(nodes2d)) if n not in mapped]
     new_points = []
     if interior:
@@ -615,7 +704,7 @@ def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None):
         new_points = np.array(model.getValue(2, face, uv.ravel().tolist()), dtype=float).reshape(-1, 3)
     return {"mapped": mapped, "interior": interior, "points": new_points, "uv": nodes2d / [su, sv], "quads": result["quads"],
             "valid": result["valid"], "issues": result["issues"], "summary": result["summary"], "mesher": used,
-            "pad_points": pad_points, "pad_quads": pad_quads}
+            "pad_points": pad_points, "pad_quads": pad_quads, "curves": len(curves)}
 
 
 def _properties(faces, request):
@@ -668,12 +757,18 @@ def quad_shell(gmsh, request):
             broken[f] = str(exc)
     pads_of, pads = plan_pads(gmsh, request, loops_of, edges, size, per_circle, mesher)
     edges.plan(loops_of)
+    # Junction curves come from sheets (faces of no solid): a solid's edges inside a sheet lying
+    # on its face are that face's boundary, not junctions.
+    sheet_edges = [int(tag) for _, tag in model.getEntities(1)
+                   if all(not len(model.getAdjacencies(2, f)[0]) for f in model.getAdjacencies(1, tag)[0])]
+    curves_of = {f: embedded_edges(gmsh, f, loops, edges, sheet_edges) for f, loops in loops_of.items()}
     for f, loops in loops_of.items():
         bad = sorted({c for loop in loops for c, _ in loop if c in edges.degenerate})
         if bad:
             broken[f] = f"Edge {bad[0]} has zero length (a cone apex or a pole). Faces with such edges cannot be shell meshed yet."
     # Edge nodes first, in edge order, so numbering does not depend on face order.
-    used = sorted({c for f, loops in loops_of.items() if f not in broken for loop in loops for c, _ in loop})
+    used = sorted({c for f, loops in loops_of.items() if f not in broken for loop in loops for c, _ in loop}
+                  | {c for f, curves in curves_of.items() if f not in broken for c in curves})
     for c in used:
         edges.nodes(c)
     coordinates = {}
@@ -687,7 +782,7 @@ def quad_shell(gmsh, request):
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [broken[face]]})
             continue
         try:
-            meshed = mesh_face(gmsh, face, edges, mesher, size, per_circle, pads_of.get(face))
+            meshed = mesh_face(gmsh, face, edges, mesher, size, per_circle, pads_of.get(face), curves_of.get(face, ()))
         except ValueError as exc:
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [str(exc)]})
             continue
@@ -713,7 +808,7 @@ def quad_shell(gmsh, request):
                 element["pad"] = pad
             elements.append(element)
             count += 1
-        reports.append({"face": face, "quads": count, "valid": meshed["valid"], "issues": meshed["issues"], "mesher": meshed["mesher"]})
+        reports.append({"face": face, "quads": count, "valid": meshed["valid"], "issues": meshed["issues"], "mesher": meshed["mesher"], "curves": meshed["curves"]})
     if not elements:
         raise ValueError("No face could be meshed: " + "; ".join(f"face {r['face']}: {r['issues'][0]}" for r in reports if r["issues"]))
     return elements, coordinates, reports, edges, faces, mesher, pads

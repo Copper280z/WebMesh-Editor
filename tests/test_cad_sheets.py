@@ -39,6 +39,18 @@ class SheetTests(unittest.TestCase):
         gmsh.model.occ.addRectangle(0, 0, 10, 50, 30)
         gmsh.model.occ.synchronize()
         gmsh.write(str(cls.folder / "sheets.step"))
+        gmsh.clear()
+        # Junctions that stop inside a face: a floor, a wall from its edge to its middle, and a post.
+        occ = gmsh.model.occ
+
+        def quad(corners):
+            points = [occ.addPoint(*c) for c in corners]
+            return occ.addPlaneSurface([occ.addCurveLoop([occ.addLine(points[i], points[(i + 1) % 4]) for i in range(4)])])
+        occ.addRectangle(0, 0, 0, 100, 60)
+        quad([(48, 0, 0), (48, 32, 0), (48, 32, 40), (48, 0, 40)])
+        quad([(20, 20, 0), (20, 40, 0), (20, 40, 24), (20, 20, 24)])
+        occ.synchronize()
+        gmsh.write(str(cls.folder / "junctions.step"))
         gmsh.finalize()
         cls.count = 0
 
@@ -176,6 +188,34 @@ class SheetTests(unittest.TestCase):
         self.assertEqual(len([r for r in t4["sheets"] if r["sheet"] == 1]), 1)
         with self.assertRaisesRegex(ValueError, "Pick faces of sheet 1"):
             self.prepare({"kind": "sheet", "sheet": 1, "remove": True, "faces": [wall[0]["face"]]}, t, s)
+
+    def test_junctions_that_stop_inside_a_face_are_followed_as_open_curves(self):
+        t, s = self.run_kernel({"action": "import"}, self.folder / "junctions.step")
+        t, s = self.prepare({"kind": "join"}, t, s)
+        floor = next(f["id"] for f in t["faces"] if abs(f["area"] - 6000) < 1e-6)
+        wall = next(f["id"] for f in t["faces"] if abs(f["center"][0] - 48) < 1e-6)
+        post = next(f["id"] for f in t["faces"] if abs(f["center"][0] - 20) < 1e-6)
+        feet = [e["id"] for e in t["edges"] if set(e["faces"]) & {wall, post} and abs(e["bounds"][2]) < 1e-6 and abs(e["bounds"][5]) < 1e-6]
+        self.assertEqual(len(feet), 2)
+        self.assertTrue(all(floor not in e["faces"] for e in t["edges"] if e["id"] in feet), "the kernel does not tie them to the floor")
+        if not quadmesh_bridge.available("paved"):
+            return
+        result = self.kernel.execute({"action": "shell", "input": str(s), "output": None, "size": 4, "mesher": "paved", "sheets": t["sheets"]})
+        reports = {r["face"]: r for r in result["quality"]["faces"]}
+        self.assertTrue(reports[wall]["quads"] and reports[post]["quads"])
+        if not quadmesh_bridge.follows_curves("paved") and not quadmesh_bridge.follows_curves("recombined"):
+            self.assertFalse(reports[floor]["quads"])
+            self.assertIn("cannot follow a junction that stops inside a face", reports[floor]["issues"][0])
+            return
+        self.assertEqual(reports[floor]["curves"], 2)
+        xyz = {n["id"]: np.array([n["x"], n["y"], n["z"]]) for n in result["mesh"]["nodes"]}
+        on_floor = [e for e in result["mesh"]["elements"] if all(abs(xyz[n][2]) < 1e-9 for n in e["nodes"])]
+        for x, low, high in ((48, 0, 32), (20, 20, 40)):
+            foot = {n for n, p in xyz.items() if abs(p[2]) < 1e-9 and abs(p[0] - x) < 1e-9 and low - 1e-9 <= p[1] <= high + 1e-9}
+            sides = {np.sign(np.mean([xyz[n][0] for n in e["nodes"]]) - x) for e in on_floor if set(e["nodes"]) & foot}
+            self.assertEqual(sides, {-1.0, 1.0}, f"floor quads on both sides of the junction at x = {x}")
+            wall_quads = [e for e in result["mesh"]["elements"] if all(abs(xyz[n][0] - x) < 1e-9 for n in e["nodes"]) and set(e["nodes"]) & foot]
+            self.assertTrue(wall_quads, "the junction's nodes are shared with the wall's mesh")
 
     def test_a_surface_model_file_brings_its_faces_as_sheets(self):
         t, _ = self.run_kernel({"action": "import"}, self.folder / "sheets.step")

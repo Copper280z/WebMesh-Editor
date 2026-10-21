@@ -196,6 +196,13 @@ class ShellMeshTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not a loop of its own"):
             shell(path, faceIds=[1], pads=[{"faces": [2]}])
 
+    def test_a_mesher_without_open_curves_refuses_them_with_a_way_out(self):
+        from unittest.mock import patch
+        loops = [{"points": [(0, 0), (10, 0), (10, 10), (0, 10)], "role": "outer"}, {"points": [(5, 0), (5, 5)], "role": "curve"}]
+        with patch.object(quadmesh_bridge, "follows_curves", lambda mesher: False), self.assertRaisesRegex(ValueError, "Split the sheets along it"):
+            quadmesh_bridge.mesh_domain(loops, "recombined", target_size=2)
+        self.assertIn("curves", quadmesh_bridge.status()["meshers"][0])
+
     def test_bad_requests_are_refused(self):
         for request in ({"size": 3, "element": "hex"}, {"size": 3, "placement": "middle"}, {"size": 3, "elementsPerCircle": 2},
                         {"size": 0}, {"size": 3, "mesher": "magic"}, {"size": 3, "faceIds": ["1"]},

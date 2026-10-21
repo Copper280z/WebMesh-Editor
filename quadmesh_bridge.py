@@ -78,7 +78,7 @@ def _load(name):
         if version >> 12 < 2:  # fixed boundary runs and provenance arrived in 0.2
             error = f"{name} at {library} is ABI {abi}; WebMesh needs 0.2 or later."
             continue
-        _loaded[name] = {"mesher": mesher, "library": str(library), "abi": abi, "error": None}
+        _loaded[name] = {"mesher": mesher, "library": str(library), "abi": abi, "version": version, "error": None}
         return _loaded[name]
     _loaded[name] = {"mesher": None, "library": None, "abi": None, "error": error}
     return _loaded[name]
@@ -88,11 +88,18 @@ def available(mesher):
     return mesher in MESHERS and _load(MESHERS[mesher]["library"])["mesher"] is not None
 
 
+def follows_curves(mesher):
+    """Whether a mesher takes open control curves (ABI 0.3): junctions that stop inside a face."""
+    loaded = _load(MESHERS[mesher]["library"]) if mesher in MESHERS else {"mesher": None}
+    return loaded["mesher"] is not None and loaded["version"] >> 12 >= 3
+
+
 def status():
     """Availability for the health report: each library and each face mesher."""
-    libraries = {name: {key: value for key, value in _load(name).items() if key != "mesher"} for name in LIBRARIES}
+    libraries = {name: {key: value for key, value in _load(name).items() if key not in ("mesher", "version")} for name in LIBRARIES}
     meshers = [{"id": key, "label": value["label"], "conforming": value["fixed"], "library": value["library"],
-                "available": libraries[value["library"]]["error"] is None} for key, value in MESHERS.items()]
+                "available": libraries[value["library"]]["error"] is None,
+                "curves": libraries[value["library"]]["error"] is None and value["fixed"] and follows_curves(key)} for key, value in MESHERS.items()]
     return {"available": any(m["available"] for m in meshers), "libraries": libraries, "meshers": meshers,
             "error": None if any(m["available"] for m in meshers) else libraries["quadmesh"]["error"]}
 
@@ -100,9 +107,10 @@ def status():
 def mesh_domain(loops, mesher="recombined", **options):
     """Mesh 2D loops (outer first, then holes) with one of MESHERS.
 
-    Each loop is {"points": [(x, y), ...], "role": "outer"|"hole", "fixed": bool}.
+    Each loop is {"points": [(x, y), ...], "role": "outer"|"hole"|"curve", "fixed": bool}.
     With a conforming mesher a fixed loop's points are kept exactly as its
-    boundary nodes. Returns the binding's result: nodes, quads, per-quad
+    boundary nodes. A curve is open, end to end: a junction that stops inside
+    the face (ABI 0.3; see quadmesh's webmesh_faces/OPEN_CURVES.md). Returns the binding's result: nodes, quads, per-quad
     quality, boundary provenance, summary, valid and issues.
     """
     if mesher not in MESHERS:
@@ -114,7 +122,12 @@ def mesh_domain(loops, mesher="recombined", **options):
     request = []
     for loop in loops:
         item = {"points": [tuple(map(float, p)) for p in loop["points"]], "role": loop.get("role", "outer")}
-        if spec["fixed"] and loop.get("fixed", True):
+        if item["role"] == "curve":
+            if not spec["fixed"] or not follows_curves(mesher):
+                raise ValueError(f"The {spec['label']} mesher (ABI {loaded['abi']}) cannot follow a junction that stops inside a face. "
+                                 "Split the sheets along it (Split sheets along its plane, on the joining sheet's card) or update the mesher.")
+            item["fixed_runs"] = [{"nodes": item["points"], "start": (0, 0), "end": (len(item["points"]) - 2, 1), "closed": False}]
+        elif spec["fixed"] and loop.get("fixed", True):
             item["fixed_runs"] = [{"nodes": item["points"], "closed": True}]
         request.append(item)
     return loaded["mesher"].mesh(request, **{**spec["options"], **options})
