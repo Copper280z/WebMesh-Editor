@@ -958,6 +958,11 @@ def execute(request):
                     gmsh.model.geo.addVolume([shell])
                     gmsh.model.geo.synchronize()
             result = mesh(gmsh, request)
+        elif action == "shell":
+            if discrete:
+                raise ValueError("STL has no CAD faces to shell mesh. Import the source STEP/BREP instead.")
+            from cad_shell import shell_mesh
+            result = shell_mesh(gmsh, request)
         else:
             if discrete:
                 gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)

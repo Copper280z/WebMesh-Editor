@@ -116,3 +116,19 @@ test('wheel: the conical chamfers around each spoke slot are one chamfer each an
   assert.equal(s.features('chamfer').length, 0);
   assert.ok(s.topology.faces.length < faces);
 });
+
+test('boxing holes never cuts through one: pairs share the width, and cuts stay clear of holes elsewhere', cad, async () => {
+  for (const file of ['examples/plate-hole.step', 'examples/shells/bent_bracket_holes.step']) {
+    const s = await new CadSession(server.base).import(file);
+    const holes = () => s.features('hole').filter(h => h.through);
+    const count = holes().length;
+    await s.apply(F.holeCells(s.recognized.ctx, holes()));
+    assert.equal(holes().length, count, file);
+    for (const hole of holes()) {
+      const edges = new Set(hole.faces.flatMap(f => s.recognized.ctx.faceEdges.get(f) || []));
+      const hosts = s.topology.faces.filter(f => (f.orientedLoops || []).length > 1 && f.orientedLoops.some(loop => loop.every(([e]) => edges.has(Number(e)))));
+      assert.equal(hole.solids.length, 1, `${file}: ${hole.label} at ${hole.center} is not cut`);
+      assert.ok(hosts.length === 2 && hosts.every(f => f.orientedLoops.length === 2), `${file}: ${hole.label} at ${hole.center} sits alone in a cell on both sides`);
+    }
+  }
+});

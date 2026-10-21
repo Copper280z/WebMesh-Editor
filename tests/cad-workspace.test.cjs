@@ -45,6 +45,13 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
       else if (action === 'redo' || action === 'revert') { revision++; result = { ...payload(prepared, revision), cursor: action === 'revert' ? data.to : undefined }; }
       else if (action === 'export') result = { filename: 'part-prepared.brep', format: 'brep', content: btoa('brep'), history: [] };
       else if (action === 'mesh') result = { mesh: { nodes: [{ id: 1, x: 0, y: 0, z: 0 }], elements: [{ id: 1, type: 'CTETRA', pid: 1, nodes: [1, 1, 1, 1] }] }, quality: { minScaledJacobian: 0.5 } };
+      else if (action === 'shell') {
+        const midsurface = data.placement === 'midsurface';
+        result = { mesh: { nodes: [{ id: 1, x: 0, y: 0, z: 0 }, { id: 2, x: 1, y: 0, z: 0 }, { id: 3, x: 1, y: 1, z: 0 }, { id: 4, x: 0, y: 1, z: 0 }], elements: [{ id: 1, type: 'CQUAD4', pid: 1, nodes: [1, 2, 3, 4] }] },
+          quality: { elements: 1, nodes: 4, freeEdges: 4, nonManifoldEdges: 0, minScaledJacobian: 1, meanScaledJacobian: 1, histogram: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1], faces: [{ face: 1, quads: 1, valid: true, issues: [] }], oddEdges: [],
+            placement: midsurface ? { placement: 'midsurface', thickness: 2.5, minThickness: 2.5, maxThickness: 2.5 } : { placement: data.placement || 'surface' },
+            pads: (data.pads || []).map((p, i) => ({ pad: i, face: 1, holeFaces: p.faces, diameter: 4.6, size: p.size || 8.6, perSide: p.perSide || 2, shrunk: !p.size, minScaledJacobian: 0.7 })) } };
+      }
       else throw Error('Unexpected API ' + url);
       return { ok: true, json: async () => result };
     } };
@@ -308,6 +315,78 @@ test('Stop ends a running Auto-fix and Auto-fix keeps features by default', asyn
   for (let i = 0; i < 200 && !f.calls.messages.some(m => /^Auto-fix/.test(m.text)); i++) await new Promise(resolve => setTimeout(resolve, 10));
   assert.match(f.calls.messages.find(m => /^Auto-fix/.test(m.text)).text, /stopped/i);
   assert.equal(f.workspace.getState().revision, 0, 'it stopped before applying anything');
+});
+
+test('the shell method meshes picked faces at a midsurface and gives the PSHELL the measured thickness', async () => {
+  const f = await imported({ imported: 'box', prepared: 'box' });
+  f.click('step', { value: 'mesh' });
+  f.click('mesh-method', { value: 'shell' });
+  let view = f.workspace.render();
+  assert.match(view.body, /Shell mesh/);
+  assert.match(view.foot, /Generate shell mesh/);
+  f.click('shell-placement', { value: 'midsurface' });
+  f.workspace.api.select('face', [1]);
+  f.click('shell-side', { value: 'a' });
+  f.click('shell-opposite');
+  assert.match(f.workspace.render().body, /Side B <strong>1 face/);
+  f.click('shell-mesh');
+  for (let i = 0; i < 200 && !f.calls.appends.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  const request = f.calls.requests.find(r => r.action === 'shell').data;
+  assert.equal(request.placement, 'midsurface');
+  assert.deepEqual(plain(request.faceIds), [1]);
+  assert.deepEqual(plain(request.facesB), [2], 'the box face across from face 1');
+  assert.equal(request.element, 'quad');
+  assert.equal(f.calls.appends[0].options.thickness, 2.5);
+  assert.equal(f.calls.appends[0].options.topology, 'quad');
+  // On the faces, the thickness entered is used.
+  f.click('shell-placement', { value: 'surface' });
+  f.input('shell-thickness', 1.25);
+  f.click('shell-mesh');
+  for (let i = 0; i < 200 && f.calls.appends.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.calls.appends[1].options.thickness, 1.25);
+  assert.equal(f.calls.requests.filter(r => r.action === 'shell')[1].data.faceIds, undefined, 'all faces');
+});
+
+test('pads are added from picked holes with their own size, sent with the shell mesh, reported and saved', async () => {
+  const f = await imported({ imported: 'holed-wall', prepared: 'holed-wall' });
+  const holes = require('../app/cad-features.js').recognize(f.workspace.getState().topology).features.filter(h => h.kind === 'hole').sort((a, b) => a.center[1] - b.center[1]);
+  f.click('step', { value: 'mesh' });
+  f.click('mesh-method', { value: 'shell' });
+  f.click('shell-mesher', { value: 'paved' });
+  assert.match(f.workspace.render().body, /Pads <strong>0 holes/);
+  // A bore face with a size of 8 mm, then a hole by its rim edge with the guess.
+  f.workspace.api.select('face', [holes[0].faces[0]]);
+  assert.match(f.workspace.render().body, /Add 1 picked/);
+  f.input('shell-pad-size', 8);
+  f.click('shell-pad-add');
+  const rim = f.workspace.getState().topology.faces.find(x => x.id === holes[1].faces[0]).edges[0];
+  f.workspace.api.select('edge', [rim]);
+  f.input('shell-pad-size', '');
+  f.click('shell-pad-add');
+  const body = f.workspace.render().body;
+  assert.match(body, /Pads <strong>2 holes/);
+  assert.match(body, /Ø4\.6 · 8 mm/);
+  assert.match(body, /Ø4\.6 · auto/);
+  f.click('shell-mesh');
+  for (let i = 0; i < 200 && !f.calls.appends.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  const request = f.calls.requests.find(r => r.action === 'shell').data;
+  assert.deepEqual(plain(request.pads), [{ faces: holes[0].faces.slice().sort((a, b) => a - b), size: 8 }, { faces: holes[1].faces.slice().sort((a, b) => a - b) }]);
+  assert.match(f.workspace.getState().report.text, /Pads: Ø4\.6 → 8 mm, 2\/side; Ø4\.6 → 8\.6 mm, 2\/side \(shrunk to fit\)/);
+  // Saved with the shell settings and restored.
+  const saved = await f.workspace.serialize();
+  const restored = setup({ imported: 'holed-wall', prepared: 'holed-wall' });
+  restored.workspace.commitRestore(await restored.workspace.stageRestore(saved));
+  restored.click('step', { value: 'mesh' });
+  restored.click('mesh-method', { value: 'shell' });
+  assert.match(restored.workspace.render().body, /Pads <strong>2 holes/);
+  // The quadtree cannot keep a pad's nodes: the pads stay listed but are not sent.
+  f.click('shell-mesher', { value: 'quadtree' });
+  assert.match(f.workspace.render().body, /the quadtree leaves them out/);
+  f.click('shell-mesh');
+  for (let i = 0; i < 200 && f.calls.appends.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(f.calls.requests.filter(r => r.action === 'shell')[1].data.pads, undefined);
+  f.click('shell-pad-remove', { value: '0' });
+  assert.match(f.workspace.render().body, /Pads <strong>1 hole/);
 });
 
 test('picked neighboring solids are fused through the preview and apply flow', async () => {

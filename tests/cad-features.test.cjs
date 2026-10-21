@@ -207,6 +207,24 @@ test('holes in a long wall are boxed in square cells as wide as the wall is high
   assert.deepEqual(shared, [10, 25, 35, 50]);
 });
 
+test('holes side by side across a wall share its height, and no cell plane passes through a hole', () => {
+  const t = fixture('holed-wall');
+  const recognized = F.recognize(t);
+  const round = v => Math.round(v * 1e6) / 1e6;
+  const [first, middle] = recognized.features.filter(f => f.kind === 'hole').sort((a, b) => a.center[1] - b.center[1]);
+  // Two holes level along the wall, one above the other: each gets half the height, with a cut between them.
+  const low = { ...middle, center: [3, 45, 5] }, high = { ...middle, id: 'high', center: [3, 45, 15] };
+  const op = F.holeCells({ ...recognized.ctx, features: [first, low, high] }, [first, low, high]);
+  assert.deepEqual(op.planes.map(p => round(p.origin[1])).sort((a, b) => a - b), [10, 30, 40, 50], 'no plane through the pair');
+  assert.equal(op.rays.length, 1);
+  assert.deepEqual([...op.rays[0].origin.slice(1), op.rays[0].length].map(round), [40, 10, 10], 'the cut between them ends on their cell planes');
+  assert.deepEqual(op.rays[0].direction, [0, 1, 0]);
+  // A plane that would cross another hole of the solid moves just clear of it.
+  const near = { ...middle, id: 'near', center: [3, 31, 3] };
+  const moved = F.holeCells({ ...recognized.ctx, features: [first, near] }, [first]).planes.map(p => round(p.origin[1])).sort((a, b) => a - b);
+  assert.deepEqual(moved, [10, 28.125]);
+});
+
 test('walls around a pocket floor are separated, with mitered cuts across the corners', () => {
   const t = fixture('tray');
   const recognized = F.recognize(t);
@@ -320,4 +338,15 @@ test('a solid holding a piece of a hole is split by radial cuts to its own corne
   // One cut reaches the plate corner diagonally opposite the hole.
   assert.ok(fix.operation.rays.some(r => Math.hypot(...[0, 1].map(i => r.origin[i] + r.direction[i] * r.length - far[i])) < 0.01));
   assert.ok(fix.operation.rays.every(r => Math.hypot(r.origin[0] - 10, r.origin[1] - 10) < 1e-9), 'cuts start on the hole axis');
+});
+
+test('a sheet side grows across tangent faces, and its opposite side is the nearest parallel or coaxial face', () => {
+  const box = fixture('box'), filleted = fixture('filleted-block');
+  assert.deepEqual(F.tangentSide(box, [1]), [1], 'square edges stop the side');
+  assert.deepEqual(F.oppositeSide(box, [1]), { faces: [2], missing: [] });
+  // Faces 1 and 6 meet through the tangent fillet 3: one side of three faces.
+  assert.deepEqual(F.tangentSide(filleted, [1]), [1, 3, 6]);
+  const across = F.oppositeSide(filleted, [1, 3, 6]);
+  assert.deepEqual(across.faces, [4, 7]);
+  assert.deepEqual(across.missing, [3], 'the fillet has no coaxial partner');
 });

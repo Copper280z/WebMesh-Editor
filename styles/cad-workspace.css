@@ -353,3 +353,10 @@ kbd{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;bor
 .cad-tree-tools .cad-seg button{flex:none}
 .cad-tree-row .cad-tree-main{flex:1 1 auto}
 .cad-history-list .cad-history-go{flex:none}
+/* Shell midsurface: the two sides of the sheet. */
+.cad-side{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:5px 0;font-size:10.5px;color:#9db0c4}
+.cad-side>span{flex:1 1 92px;min-width:0}
+.cad-side strong{color:#dbe8f5;font-weight:600;margin-left:4px}
+.cad-pads{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
+.cad-pads .cad-chip button{border:0;background:none;color:inherit;font:inherit;padding:0 0 0 2px;cursor:pointer;opacity:.7}
+.cad-pads .cad-chip button:hover{opacity:1}

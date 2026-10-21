@@ -240,7 +240,7 @@
       const el=$('wb-bridge-info');if(el)el.innerHTML='Start the CAD bridge with <code>python3 server.py</code>, then open <code>http://127.0.0.1:8765</code>. Scratch modeling works in the browser.';
     }
   }
-  async function appendCadMesh(result,filename,{topology,order,previousMesh,ownerTag}) {
+  async function appendCadMesh(result,filename,{topology,order,previousMesh,ownerTag,thickness=1}) {
     const owned=engine().getMeshOwner(ownerTag);
     previousMesh=owned.elements.length?{...previousMesh,properties:owned.properties}:null;
     const ids=engine().getNextIds(),nodeMap=new Map(),nodeIds=result.mesh.nodes.map((node,i)=>{nodeMap.set(node.id,ids.node+i);return {...node,id:ids.node+i};});
@@ -249,7 +249,7 @@
     const regions=new Map();let nextProperty=ids.property;for(const el of result.mesh.elements)if(!regions.has(el.pid))regions.set(el.pid,reusable[regions.size]??nextProperty++);
     const mesh={name:filename,nodes:nodeIds,elements:result.mesh.elements.map((el,i)=>({...el,id:ids.element+i,pid:regions.get(el.pid),nodes:el.nodes.map(id=>nodeMap.get(id))}))};
     const material=definitions.materials.some(m=>m.id===previousMesh?.material)?previousMesh.material:ids.material;
-    await engine().appendMesh(mesh,{material:{id:material,E:210000,nu:0.3,rho:7.85e-9},thickness:1,ownerTag,replaceOwner:true});
+    await engine().appendMesh(mesh,{material:{id:material,E:210000,nu:0.3,rho:7.85e-9},thickness,ownerTag,replaceOwner:true,...(regionType==='PSHELL'?{shellThickness:thickness}:{})});
     engine().fitView?.();logOperation(`Meshed ${filename}`);message(`CAD mesh added: ${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} elements.`);
     const report=$('wb-report');if(report){report.className='wb-report good';report.textContent=`${filename}\n${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} ${topology} elements\nOrder ${order}${result.log?'\n\n'+result.log.slice(-1600):''}`;}
     return {elements:mesh.elements.map(el=>el.id),properties:[...regions.values()],material};

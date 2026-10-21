@@ -34,7 +34,7 @@
     check: 'm5 12 4 4L19 6', warn: 'M12 4 2 20h20L12 4Zm0 6v4m0 3h.01', x: 'm6 6 12 12M18 6 6 18',
     target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', undo: 'M8 4 3 9l5 5M3 9h10a7 7 0 0 1 0 14', redo: 'm16 4 5 5-5 5m5-5H11a7 7 0 0 0 0 14',
     arrow: 'M4 12h16m-6-6 6 6-6 6', minus: 'M5 12h14', plus: 'M12 5v14M5 12h14', flip: 'M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3',
-    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6', stop: 'M7 7h10v10H7V7Z'
+    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6', stop: 'M7 7h10v10H7V7Z', shell: 'M3 9l9-5 9 5-9 5-9-5Zm0 5 9 5 9-5'
   };
   const icon = (name, cls = '') => `<svg class="cad-i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ICONS.solid}"/></svg>`;
   const ISSUE = 0xffd400;
@@ -61,6 +61,10 @@
     let display = { color: 'status', xray: false, seeds: true, labels: true, groups: true, hidden: new Set(), showResult: true };
     let meshSettings = { method: 'mapped', order: 1, scope: 'all', live: true, pidPerSolid: false };
     let legacy = { method: 'tet', size: null, layers: 4, sourceFace: '', targetFace: '', sweepAxis: 'z', layerCounts: {} };
+    // Shell meshing of CAD faces: on the faces, at the midsurface of two sides, or offset.
+    // pads: one ring of quads around each listed hole, inside a square (size and perSide null: the mesher's guess).
+    let shell = { element: 'quad', mesher: 'recombined', placement: 'surface', scope: 'all', faces: [], facesB: [], size: null, perCircle: 12, offset: 0, thickness: 1, pidPerFace: false,
+      pads: [], padSize: null, padSide: null };
     let meshPreview = null, meshError = null, meshTimer = null, generated = null, committingMesh = false, report = null, auditHistory = [];
     let expanded = { blocked: false, groups: false, sums: false, history: true, solids: true, features: false };
     let treeFilter = 'all', treeShare = 0.42;
@@ -427,6 +431,8 @@
       if (tool === 'project' && pending?.operation.kind === 'project' && selection.kind === 'face') { pending.operation.faceIds = selection.ids.slice(); schedulePreview(); }
       renderPart('cad-context', contextCard);
       if (step === 'size') { renderPart('cad-edge-editor', edgeEditor); updateSizingOverlays(); }
+      // The shell card counts and uses the picked faces.
+      if (step === 'mesh' && meshSettings.method === 'shell') renderPart('cad-shell', shellBody);
       if (step === 'prepare') { updateIssueOverlay(); if (tool === 'features') renderPart('cad-tool', toolCard); }
       document.querySelectorAll('[data-solid-row]').forEach(el => el.classList.toggle('selected', selection.kind === 'solid' && selection.ids.includes(Number(el.dataset.solidRow))));
       if (step === 'mesh' && meshSettings.scope === 'selected') scheduleMesh();
@@ -499,6 +505,7 @@
       }
       if (step === 'size') return `<div class="cad-foot-row">${btn('step', 'Back', { cls: 'ghost', data: { value: 'prepare' } })}${btn('step', 'Next: Mesh', { cls: 'primary', data: { value: 'mesh' }, iconName: 'arrow' })}</div>`;
       if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh' })}</div>`;
+      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', generated && !generated.stale ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell' })}</div>`;
       return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', generated && !generated.stale ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
     }
 
@@ -867,8 +874,9 @@
     /* --------------------------------------------------------------- mesh -- */
     function meshBody() {
       let html = '';
-      if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['gmsh', 'Other (Gmsh)', 'spark', 'Tet, tri, quad and sweep methods through Gmsh']], meshSettings.method)}</section>`;
-      if (meshSettings.method === 'mapped' && !discrete()) {
+      if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['shell', 'Shell', 'shell', 'Quad or tri shell elements on faces, at a midsurface or offset'], ['gmsh', 'Other (Gmsh)', 'spark', 'Tet, tri, quad and sweep methods through Gmsh']], meshSettings.method)}</section>`;
+      if (meshSettings.method === 'shell' && !discrete()) html += `<div id="cad-shell">${shellBody()}</div>`;
+      else if (meshSettings.method === 'mapped' && !discrete()) {
         const s = analysis.summary, selectedSolids = selection.kind === 'solid' ? selection.ids.filter(id => analysis.volumes.get(id)?.mappable) : [];
         html += `<section class="cad-card"><div class="cad-card-title">Mapped hex <small>native</small></div>
           <div class="cad-row"><span class="cad-row-label">Order</span>${seg('mesh-order', [[1, 'HEX8'], [2, 'HEX20']], meshSettings.order, 'compact')}</div>
@@ -895,6 +903,94 @@
         ${q.inverted ? `<p class="cad-note bad">${icon('warn')} ${q.inverted} inverted element${q.inverted === 1 ? '' : 's'}. Slice the solid or change counts.</p>` : ''}
         <div class="cad-worst">${worst.map(w => `<button type="button" data-act="select-solid" data-id="${w.volume}"><span>Solid ${w.volume}</span><span>${w.dims.join('×')}</span><span>${w.minScaledJacobian.toFixed(3)}</span></button>`).join('')}</div>
         <p class="cad-note">Faces are colored by element scaled Jacobian.${q.order === 2 ? ' Quadratic midside nodes lie on the CAD curves and surfaces.' : ''} ${(100 * q.histogram.slice(5).reduce((a, b) => a + b, 0) / total).toFixed(0)}% of elements have SJ ≥ 0.5.</p></div>`;
+    }
+    /** Round holes among the picked faces or edges (a hole's bore, countersink or rim). */
+    function pickedHoles() {
+      if (!recognized || !['face', 'edge'].includes(selection.kind)) return [];
+      const faces = selection.kind === 'face' ? selection.ids : selection.ids.flatMap(e => [...(recognized.ctx.edgeFaces.get(Number(e)) || [])]);
+      return [...new Set(faces.map(f => recognized.byFace.get(Number(f))).filter(f => f?.kind === 'hole'))];
+    }
+    function padsBody() {
+      const holes = pickedHoles(), fixed = shell.mesher !== 'quadtree', n = shell.pads.length;
+      let html = `<div class="cad-side"><span>Pads <strong>${n} hole${n === 1 ? '' : 's'}</strong></span>${btn('shell-pad-add', holes.length ? `Add ${holes.length} picked` : 'Add picked', { cls: 'ghost mini', disabled: !holes.length || !fixed, title: 'One ring of quads around each picked hole, inside a square; the rest of the face is meshed to the square\'s nodes' })}${btn('shell-pad-show', 'Show', { cls: 'ghost mini', disabled: !n })}${btn('shell-pad-clear', 'Clear', { cls: 'ghost mini', disabled: !n })}</div>
+        <div class="cad-size-row">${numberField('shell-pad-size', 'Pad size', shell.padSize ?? '', 'min="0" placeholder="auto"')}${numberField('shell-pad-side', 'Per side', shell.padSide ?? '', 'min="2" max="64" step="1" placeholder="auto"')}</div>`;
+      if (n) html += `<div class="cad-pads">${shell.pads.map((p, i) => `<span class="cad-chip">Ø${fmt(p.diameter, 3)} · ${p.size ? fmt(p.size, 3) + ' mm' : 'auto'}${p.perSide ? ` · ${p.perSide}/side` : ''}<button type="button" data-act="shell-pad-remove" data-value="${i}" title="Remove this pad" aria-label="Remove pad">×</button></span>`).join('')}</div>`;
+      else html += '<p class="cad-note">Pick holes (a bore face or its edge), then <b>Add picked</b>. Size and per side apply to the holes you add; left blank, the pad matches the element size and shrinks to stay on its face.</p>';
+      if (n && !fixed) html += `<p class="cad-note warn">${icon('warn')} Pads need fixed boundary nodes: the quadtree leaves them out.</p>`;
+      return html;
+    }
+    function shellBody() {
+      const picked = selection.kind === 'face' ? selection.ids : [];
+      const all = session.topology.faces.length, quad = shell.element === 'quad';
+      const count = list => `${list.length} face${list.length === 1 ? '' : 's'}`;
+      let html = `<section class="cad-card"><div class="cad-card-title">Shell mesh <small>${quad ? (shell.mesher === 'paved' ? 'native paved' : 'native quadmesh') : 'Gmsh triangles'}</small></div>
+        <div class="cad-row"><span class="cad-row-label">Elements</span>${seg('shell-element', [['quad', 'Quad CQUAD4'], ['tri', 'Tri CTRIA3']], shell.element, 'compact')}</div>`;
+      if (quad) html += `<div class="cad-row"><span class="cad-row-label">Mesher</span>${seg('shell-mesher', [['recombined', 'Recombined', '', 'Triangulate, pair into quads and subdivide; faces share nodes along their edges'], ['paved', 'Paved', '', 'Rows of quads that follow every boundary and hole (Q-Morph); faces share nodes along their edges'], ['quadtree', 'Quadtree', '', 'Quadtree mesh of each face on its own']], shell.mesher, 'compact')}</div>
+        ${shell.mesher === 'quadtree' ? `<p class="cad-note warn">${icon('warn')} The quadtree meshes each face on its own: faces will not share nodes along their edges.</p>` : ''}`;
+      html += `<div class="cad-row"><span class="cad-row-label">Place</span>${seg('shell-placement', [['surface', 'On faces'], ['midsurface', 'Midsurface'], ['offset', 'Offset']], shell.placement, 'compact')}</div>`;
+      if (shell.placement === 'midsurface') {
+        html += `<p class="cad-note">Pick one face of the sheet, then <b>Use picked</b>, <b>Whole side</b> and <b>Opposite of A</b>. The shell goes halfway between the sides; its thickness is measured.</p>
+          <div class="cad-side"><span>Side A <strong>${count(shell.faces)}</strong></span>${btn('shell-side', 'Use picked', { cls: 'ghost mini', data: { value: 'a' }, disabled: !picked.length })}${btn('shell-grow', 'Whole side', { cls: 'ghost mini', disabled: !shell.faces.length, title: 'Add every face the side continues into tangentially' })}${btn('shell-show', 'Show', { cls: 'ghost mini', data: { value: 'a' }, disabled: !shell.faces.length })}</div>
+          <div class="cad-side"><span>Side B <strong>${count(shell.facesB)}</strong></span>${btn('shell-side', 'Use picked', { cls: 'ghost mini', data: { value: 'b' }, disabled: !picked.length })}${btn('shell-opposite', 'Opposite of A', { cls: 'ghost mini', disabled: !shell.faces.length, title: 'The nearest parallel or coaxial faces across the sheet' })}${btn('shell-show', 'Show', { cls: 'ghost mini', data: { value: 'b' }, disabled: !shell.facesB.length })}</div>`;
+      } else {
+        html += `<div class="cad-row"><span class="cad-row-label">Faces</span>${seg('shell-scope', [['all', `All ${all}`], ['selected', `Picked ${picked.length}`]], shell.scope, 'compact')}</div>`;
+        if (shell.placement === 'offset') html += `<div class="cad-size-row">${numberField('shell-offset', 'Offset (+ out)', shell.offset)}${btn('shell-half', '−T/2', { cls: 'ghost mini', title: 'Offset inward by half the thickness: from an outer face to the midsurface' })}</div>`;
+        html += numberField('shell-thickness', 'Thickness T', shell.thickness, 'min="0"');
+      }
+      html += `<div class="cad-size-row">${numberField('shell-size', 'Element size', round(Number(shell.size) || Number(sizing.size) || defaultSize()), 'min="0"')}${quad ? numberField('shell-circle', 'Per circle', shell.perCircle, 'min="4" max="128" step="1"') : ''}</div>
+        <div class="cad-row"><span class="cad-row-label">Property</span>${seg('shell-pid', [['one', 'One PSHELL'], ['face', 'Per face']], shell.pidPerFace ? 'face' : 'one', 'compact')}</div>`;
+      if (quad) html += padsBody();
+      const locks = [...sizing.edges].filter(([, c]) => c.count).length;
+      if (locks) html += `<p class="cad-note">Uses ${locks} edge count${locks === 1 ? '' : 's'} from Size; odd counts make the quads on that face poorer.</p>`;
+      return html + '</section>';
+    }
+    function shellFaces() {
+      if (shell.placement === 'midsurface') return shell.faces.slice();
+      if (shell.scope === 'selected') return selection.kind === 'face' ? selection.ids.slice() : [];
+      return [];
+    }
+    async function shellMesh() {
+      const size = Number(shell.size) || Number(sizing.size) || defaultSize();
+      if (!(size > 0)) throw Error('Enter a positive element size.');
+      const payload = { ...token(), element: shell.element, mesher: shell.mesher, size, elementsPerCircle: Math.round(Number(shell.perCircle) || 12), placement: shell.placement, pidPerFace: shell.pidPerFace };
+      const faces = shellFaces();
+      if (shell.placement === 'midsurface') {
+        if (!shell.faces.length || !shell.facesB.length) throw Error('Choose both sides of the sheet: side A, then side B (Opposite of A finds it).');
+        payload.faceIds = faces; payload.facesB = shell.facesB.slice();
+      } else {
+        if (shell.scope === 'selected' && !faces.length) throw Error('Pick the faces to mesh, or mesh all faces.');
+        if (faces.length) payload.faceIds = faces;
+        if (shell.placement === 'offset') { payload.offset = Number(shell.offset); if (!Number.isFinite(payload.offset)) throw Error('Enter a finite offset.'); }
+      }
+      payload.edgeDivisions = [...sizing.edges].filter(([, c]) => c.count).slice(0, 10000).map(([id, c]) => ({ id, divisions: c.count }));
+      payload.edgeSizes = [...sizing.edges].filter(([, c]) => c.size && !c.count).slice(0, 10000).map(([id, c]) => ({ id, size: c.size }));
+      if (shell.element === 'quad' && shell.mesher !== 'quadtree' && shell.pads.length) {
+        payload.pads = shell.pads.map(p => ({ faces: p.faces.slice(), ...(p.size ? { size: p.size } : {}), ...(p.perSide ? { perSide: p.perSide } : {}) }));
+      }
+      hooks.message(`Meshing ${faces.length || session.topology.faces.length} face${(faces.length || session.topology.faces.length) === 1 ? '' : 's'} with ${shell.element === 'quad' ? 'quads' : 'triangles'}…`);
+      const result = await api('shell', payload);
+      const q = result.quality, placed = q.placement || {};
+      const thickness = placed.placement === 'midsurface' ? placed.thickness : Number(shell.thickness);
+      if (!(thickness > 0)) throw Error('Enter a positive shell thickness.');
+      committingMesh = true;
+      try { generated = await hooks.appendMesh(result, source.name, { topology: shell.element, order: 1, previousMesh: generated, ownerTag: session.cadId, thickness }); }
+      finally { committingMesh = false; }
+      const failed = q.faces.filter(f => !f.quads);
+      const lines = [`${q.nodes.toLocaleString()} nodes · ${q.elements.toLocaleString()} ${shell.element === 'quad' ? 'CQUAD4' : 'CTRIA3'} · ${q.faces.length - failed.length} of ${q.faces.length} faces`,
+        `Min scaled Jacobian ${q.minScaledJacobian.toFixed(3)} · mean ${q.meanScaledJacobian.toFixed(3)} · ${q.freeEdges.toLocaleString()} free edges${q.nonManifoldEdges ? ` · ${q.nonManifoldEdges} non-manifold` : ''}`,
+        placed.placement === 'midsurface' ? `Midsurface · PSHELL T ${fmt(thickness, 4)} (measured ${fmt(placed.minThickness, 4)} to ${fmt(placed.maxThickness, 4)})` : placed.placement === 'offset' ? `Offset ${fmt(placed.offset, 4)} · PSHELL T ${fmt(thickness, 4)}` : `On the faces · PSHELL T ${fmt(thickness, 4)}`];
+      if (placed.placement === 'midsurface' && placed.maxThickness > placed.minThickness * 1.02) lines.push(`Warning: the sheet thickness varies by ${fmt(100 * (placed.maxThickness / placed.minThickness - 1), 2)}%; the property uses the median.`);
+      for (const f of failed.slice(0, 6)) lines.push(`Face ${f.face} not meshed: ${f.issues[0] || 'unknown reason'}`);
+      if (q.oddEdges?.length) lines.push(`Odd counts on edges ${q.oddEdges.slice(0, 8).join(', ')} lower quad quality on their faces.`);
+      if (q.pads?.length) {
+        // Pads as meshed, alike ones counted together: a through hole has one on each side.
+        const kinds = new Map();
+        for (const p of q.pads) { const key = `Ø${fmt(p.diameter, 3)} → ${fmt(p.size, 3)} mm, ${p.perSide}/side${p.shrunk ? ' (shrunk to fit)' : ''}`; kinds.set(key, (kinds.get(key) || 0) + 1); }
+        lines.push(`Pads: ${[...kinds].map(([key, n]) => (n > 1 ? `${n} × ` : '') + key).join('; ')}`);
+      }
+      report = { text: lines.join('\n'), error: !!failed.length };
+      engine().setCadVisible(false); engine().setCadSelectionMode('none'); hooks.render();
+      hooks.message(`Shell mesh added: ${q.elements.toLocaleString()} elements, min scaled Jacobian ${q.minScaledJacobian.toFixed(3)}.`, !!failed.length);
     }
     function legacyBody() {
       const options = discrete() ? [['tet', 'Tetrahedral volume'], ['tri', 'Triangular surface']] : [['tet', 'Tetrahedral volume'], ['tri', 'Triangular surface'], ['quad', 'Quadrilateral surface'], ['sweep', 'Sweep quads → hex'], ['layered', 'Sweep partitioned columns']];
@@ -1306,6 +1402,39 @@
           case 'mesh-preview': buildMeshPreview(); break;
           case 'mesh-add': hooks.run(addMesh); break;
           case 'gmsh-mesh': hooks.run(async () => { try { await gmshMesh(); } catch (error) { report = { error: true, text: error.message }; hooks.render(); throw error; } }); break;
+          case 'shell-mesh': hooks.run(async () => { try { await shellMesh(); } catch (error) { report = { error: true, text: error.message }; hooks.render(); throw error; } }); break;
+          case 'shell-element': shell.element = value; hooks.render(); break;
+          case 'shell-mesher': shell.mesher = value; hooks.render(); break;
+          case 'shell-placement': shell.placement = value; hooks.render(); break;
+          case 'shell-scope': shell.scope = value; hooks.render(); break;
+          case 'shell-pid': shell.pidPerFace = value === 'face'; hooks.render(); break;
+          case 'shell-side': {
+            const picked = selection.kind === 'face' ? selection.ids.slice() : [];
+            if (value === 'a') { shell.faces = picked; shell.facesB = shell.facesB.filter(f => !picked.includes(f)); }
+            else { shell.facesB = picked; shell.faces = shell.faces.filter(f => !picked.includes(f)); }
+            hooks.render(); break;
+          }
+          case 'shell-grow': shell.faces = F().tangentSide(session.topology, shell.faces); shell.facesB = shell.facesB.filter(f => !shell.faces.includes(f)); setSelection('face', shell.faces); hooks.render(); hooks.message(`Side A: ${shell.faces.length} faces.`); break;
+          case 'shell-opposite': {
+            const found = F().oppositeSide(session.topology, shell.faces);
+            shell.facesB = found.faces; setSelection('face', shell.facesB); hooks.render();
+            hooks.message(found.missing.length ? `Side B: ${found.faces.length} faces. No opposite face found for face${found.missing.length === 1 ? '' : 's'} ${found.missing.join(', ')}; pick side B by hand.` : `Side B: ${found.faces.length} faces.`, !!found.missing.length);
+            break;
+          }
+          case 'shell-show': setPick('face'); setSelection('face', value === 'b' ? shell.facesB : shell.faces); hooks.render(); break;
+          case 'shell-half': shell.offset = -Number(shell.thickness) / 2; hooks.render(); break;
+          case 'shell-pad-add': {
+            const holes = pickedHoles();
+            for (const hole of holes) {
+              const pad = { faces: hole.faces.map(Number).sort((a, b) => a - b), diameter: hole.diameter, size: shell.padSize, perSide: shell.padSide };
+              const at = shell.pads.findIndex(p => p.faces.some(f => pad.faces.includes(f)));
+              if (at >= 0) shell.pads[at] = pad; else shell.pads.push(pad);
+            }
+            hooks.render(); hooks.message(`${holes.length} pad${holes.length === 1 ? '' : 's'} set; ${shell.pads.length} in all.`); break;
+          }
+          case 'shell-pad-remove': shell.pads.splice(Number(value), 1); hooks.render(); break;
+          case 'shell-pad-clear': shell.pads = []; hooks.render(); break;
+          case 'shell-pad-show': setPick('face'); setSelection('face', [...new Set(shell.pads.flatMap(p => p.faces))]); hooks.render(); break;
           case 'legacy-axis': legacy.sweepAxis = value; hooks.render(); break;
           case 'legacy-use-source': case 'legacy-use-target': if (selection.kind === 'face' && selection.ids.length === 1) { legacy[act === 'legacy-use-source' ? 'sourceFace' : 'targetFace'] = selection.ids[0]; hooks.render(); } break;
           default: break;
@@ -1377,6 +1506,12 @@
         if (field === 'auto-blends') { autoState.blends = !!value; return; }
         if (field === 'auto-holes') { autoState.holes = !!value; return; }
         if (field === 'mesh-live') { meshSettings.live = !!value; if (value) scheduleMesh(); return; }
+        if (field === 'shell-size') { shell.size = Number(value) > 0 ? Number(value) : null; return; }
+        if (field === 'shell-circle') { shell.perCircle = Math.max(4, Math.min(128, Math.round(Number(value) || 12))); return; }
+        if (field === 'shell-offset') { shell.offset = Number(value); return; }
+        if (field === 'shell-thickness') { shell.thickness = Number(value); return; }
+        if (field === 'shell-pad-size') { shell.padSize = Number(value) > 0 ? Number(value) : null; return; }
+        if (field === 'shell-pad-side') { const n = Math.round(Number(value)); shell.padSide = n >= 2 ? Math.min(64, n) : null; return; }
         if (field === 'legacy-method' && kind === 'change') { legacy.method = value; hooks.render(); return; }
         if (field === 'legacy-size') { legacy.size = Number(value); return; }
         if (field === 'legacy-source') { legacy.sourceFace = value; return; }
@@ -1583,7 +1718,7 @@
         if (owned && !matchesGenerated(owned)) { if (generated) generated.stale = true; report = null; }
         const settings = {
           version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
-          mesh: { ...meshSettings }, legacy: JSON.parse(JSON.stringify(legacy)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups }
+          mesh: { ...meshSettings }, legacy: JSON.parse(JSON.stringify(legacy)), shell: JSON.parse(JSON.stringify(shell)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups }
         };
         const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report };
         if (session) { original.prepared = await api('export', token()); original.prepared.history = [...auditHistory, ...(original.prepared.history || [])]; }
@@ -1609,7 +1744,17 @@
           if (Number(s.sizing?.size) > 0) sizing.size = Number(s.sizing.size);
           if (Number.isInteger(s.sizing?.minCount) && s.sizing.minCount > 0) sizing.minCount = s.sizing.minCount;
           if (['prepare', 'size', 'mesh'].includes(s.step)) step = s.step;
-          if (s.mesh && ['mapped', 'gmsh'].includes(s.mesh.method)) meshSettings = { ...meshSettings, method: s.mesh.method, order: s.mesh.order === 2 ? 2 : 1, scope: s.mesh.scope === 'selected' ? 'selected' : 'all', live: s.mesh.live !== false, pidPerSolid: !!s.mesh.pidPerSolid };
+          if (s.shell && typeof s.shell === 'object') {
+            const v = s.shell, ids = list => Array.isArray(list) ? list.filter(Number.isSafeInteger).slice(0, 10000) : [];
+            shell = { ...shell, element: v.element === 'tri' ? 'tri' : 'quad', mesher: ['quadtree', 'paved'].includes(v.mesher) ? v.mesher : 'recombined',
+              placement: ['surface', 'midsurface', 'offset'].includes(v.placement) ? v.placement : 'surface', scope: v.scope === 'selected' ? 'selected' : 'all',
+              faces: ids(v.faces), facesB: ids(v.facesB), size: Number(v.size) > 0 ? Number(v.size) : null, perCircle: Number.isInteger(v.perCircle) ? Math.max(4, Math.min(128, v.perCircle)) : 12,
+              offset: Number.isFinite(v.offset) ? v.offset : 0, thickness: Number(v.thickness) > 0 ? Number(v.thickness) : 1, pidPerFace: !!v.pidPerFace,
+              pads: Array.isArray(v.pads) ? v.pads.filter(p => p && ids(p.faces).length).slice(0, 1000).map(p => ({ faces: ids(p.faces), diameter: Number(p.diameter) > 0 ? Number(p.diameter) : 0,
+                size: Number(p.size) > 0 ? Number(p.size) : null, perSide: Number.isInteger(p.perSide) && p.perSide >= 2 && p.perSide <= 64 ? p.perSide : null })) : [],
+              padSize: Number(v.padSize) > 0 ? Number(v.padSize) : null, padSide: Number.isInteger(v.padSide) && v.padSide >= 2 && v.padSide <= 64 ? v.padSide : null };
+          }
+          if (s.mesh && ['mapped', 'gmsh', 'shell'].includes(s.mesh.method)) meshSettings = { ...meshSettings, method: s.mesh.method, order: s.mesh.order === 2 ? 2 : 1, scope: s.mesh.scope === 'selected' ? 'selected' : 'all', live: s.mesh.live !== false, pidPerSolid: !!s.mesh.pidPerSolid };
           if (s.legacy && ['tet', 'tri', 'quad', 'sweep', 'layered'].includes(s.legacy.method)) legacy = { ...legacy, ...s.legacy, layerCounts: typeof s.legacy.layerCounts === 'object' && s.legacy.layerCounts ? s.legacy.layerCounts : {} };
           if (Array.isArray(s.passages) && s.passages.length <= 24) passages = s.passages.filter(p => p && ['x', 'y', 'z'].includes(p.axis) && Array.isArray(p.center) && p.center.length === 3 && Array.isArray(p.range) && p.range.length === 2);
           if (s.display) display = { ...display, color: ['status', 'solid', 'plain'].includes(s.display.color) ? s.display.color : 'status', seeds: s.display.seeds !== false, labels: s.display.labels !== false, groups: s.display.groups !== false };

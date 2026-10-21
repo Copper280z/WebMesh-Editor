@@ -39,6 +39,8 @@ import sys
 import tempfile
 import threading
 import time
+
+import quadmesh_bridge
 from urllib.parse import unquote, urlsplit
 
 from cad_sessions import CadError, CadSessions
@@ -111,8 +113,9 @@ def health(gmsh):
     kernel = importlib.util.find_spec("gmsh") is not None or any((Path(folder) / "gmsh.py").is_file()
                 for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
     return {"ok": True, "gmsh": {"available": version is not None, "version": version},
-            "cad": {"available": kernel, "operations": ["preview", "slice", "fuse", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped"],
+            "cad": {"available": kernel, "operations": ["preview", "slice", "fuse", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped", "shell"],
                     "nativeMapping": True},
+            "quadmesh": quadmesh_bridge.status(),
             "formats": ["step", "iges", "brep", "stl"], "topologies": ["tri", "quad", "tet", "hex"],
             "orders": [1, 2], "limits": {"cadBytes": MAX_CAD, "timeoutSeconds": MESH_TIMEOUT,
                                         "meshBytes": MAX_MESH, "residentBytes": MAX_RSS},
@@ -140,6 +143,54 @@ def validate_request(data):
     if len(divisions) != 3 or any(type(n) is not int or not 1 <= n <= 80 for n in divisions):
         raise MeshError("Divisions must be an integer from 1 to 80, or three such integers.", status=400)
     return topology, dimension, order, size, divisions
+
+
+def validate_shell_request(data):
+    """Shell meshing of CAD faces: quads (quadmesh) or triangles (Gmsh)."""
+    element = data.get("element", "quad")
+    if element not in {"quad", "tri"}:
+        raise MeshError("Shell elements are quad or tri.", status=400)
+    mesher = data.get("mesher", "recombined")
+    if mesher not in quadmesh_bridge.MESHERS:
+        raise MeshError(f"Choose the {' or '.join(quadmesh_bridge.MESHERS)} face mesher.", status=400)
+    finite_number(data.get("size"), "Element size", minimum=1e-6)
+    per_circle = data.get("elementsPerCircle", 12)
+    if type(per_circle) is not int or not 4 <= per_circle <= 128:
+        raise MeshError("Elements per circle must be an integer from 4 to 128.", status=400)
+    def face_list(value, name):
+        if value is None:
+            return
+        if not isinstance(value, list) or len(value) > 10_000 or any(type(f) is not int or f < 1 for f in value):
+            raise MeshError(f"{name} must be a list of CAD face IDs.", status=400)
+    face_list(data.get("faceIds"), "Faces")
+    face_list(data.get("facesB"), "Opposite faces")
+    placement = data.get("placement", "surface")
+    if placement not in {"surface", "midsurface", "offset"}:
+        raise MeshError("Place the shell on the faces, at the midsurface, or at an offset.", status=400)
+    if placement == "offset":
+        finite_number(data.get("offset"), "Offset")
+    for key, field in (("edgeDivisions", "divisions"), ("edgeSizes", "size")):
+        items = data.get(key, [])
+        if not isinstance(items, list) or len(items) > 10_000 or any(
+                not isinstance(item, dict) or type(item.get("id")) is not int
+                or (type(item.get(field)) is not int if field == "divisions" else isinstance(item.get(field), bool) or not isinstance(item.get(field), (int, float)))
+                for item in items):
+            raise MeshError(f"{key} must list edge IDs with their {field}.", status=400)
+    pads = data.get("pads", [])
+    def bad_pad(pad):
+        size, side = pad.get("size"), pad.get("perSide")
+        return (not isinstance(pad.get("faces"), list) or not 1 <= len(pad["faces"]) <= 64 or any(type(f) is not int or f < 1 for f in pad["faces"])
+                or (size is not None and (isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size) or size <= 0))
+                or (side is not None and (type(side) is not int or not 2 <= side <= 64)))
+    if not isinstance(pads, list) or len(pads) > 1000 or any(not isinstance(pad, dict) or bad_pad(pad) for pad in pads):
+        raise MeshError("Pads list the faces of a hole, with an optional size and 2 to 64 elements per side.", status=400)
+    if pads and element != "quad":
+        raise MeshError("Pads are rings of quads: mesh with quad elements.", status=400)
+    if pads and not quadmesh_bridge.MESHERS[mesher]["fixed"]:
+        raise MeshError("Pads need fixed boundary nodes: mesh with Recombined or Paved.", status=400)
+    if element == "quad" and not quadmesh_bridge.available(mesher):
+        library = quadmesh_bridge.MESHERS[mesher]["library"]
+        raise MeshError(quadmesh_bridge.status()["libraries"][library]["error"], status=503)
 
 
 def geometry_source(data, directory):
@@ -556,7 +607,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         if not self.trusted_request():
             return
         endpoint = urlsplit(self.path).path
-        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh"}:
+        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
@@ -605,6 +656,8 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 else:
                     if endpoint == "/api/cad/mesh":
                         validate_request(data)
+                    if endpoint == "/api/cad/shell":
+                        validate_shell_request(data)
                     method = endpoint.rsplit("/", 1)[1]
                     handler = self.server.cad_sessions.import_cad if method == "import" else getattr(self.server.cad_sessions, method)
                     result = handler(data)

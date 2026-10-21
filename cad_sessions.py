@@ -436,3 +436,10 @@ class CadSessions:
             _, record = self.lookup(data)
             source = record["states"][record["cursor"]]["path"]
         return self.runner({**{k: v for k, v in data.items() if k not in {"cadId", "revision"}}, "action": "mesh"}, source, None)
+
+    def shell(self, data):
+        """Shell mesh of the current revision's faces; the session does not change."""
+        with self.lock:
+            _, record = self.lookup(data)
+            source = record["states"][record["cursor"]]["path"]
+        return self.runner({**{k: v for k, v in data.items() if k not in {"cadId", "revision"}}, "action": "shell"}, source, None)

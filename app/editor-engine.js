@@ -28578,6 +28578,9 @@ ${formatRanges(v.ranges, 500)}`;
       reserveDependent(nid, e.cm, `RBE2 ${e.eid}`);
     }
     const missingProperties = Array.from(propertyTypes).filter(([id]) => !model.properties.has(id) && !providedProperties.has(id));
+    // A regenerated shell mesh reuses its PSHELLs; shellThickness updates their T.
+    const shellThickness = options.shellThickness == null ? null : finite(options.shellThickness, "Shell thickness");
+    if (shellThickness != null && !(shellThickness > 0)) throw new Error("Shell thickness must be positive.");
     let material = null;
     if (missingProperties.length) {
       const input = options.material || {};
@@ -28642,6 +28645,10 @@ ${formatRanges(v.ranges, 500)}`;
       if (material) model.materials.set(material.mid, material);
       for (const [id, , prop] of missingProperties) model.properties.set(id, prop);
       for (const [id, prop] of providedProperties) if (!model.properties.has(id)) model.properties.set(id, prop);
+      if (shellThickness != null) for (const [id, type] of propertyTypes) {
+        const prop = model.properties.get(id);
+        if (type === "PSHELL" && prop && prop.type === "PSHELL" && Number(prop.t) !== shellThickness) model.properties.set(id, { ...prop, t: shellThickness });
+      }
       rebuildNodeIndexFromModel();
       invalidateElementLookup();
       refreshSemanticRelationshipIndexes("workbench-append");

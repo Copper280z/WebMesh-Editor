@@ -202,6 +202,8 @@
       features.push(feature); for (const f of chain) byFace.set(f, feature);
     }
     features.sort((a, b) => ({ hole: 0, boss: 1, fillet: 2, chamfer: 3 })[a.kind] - ({ hole: 0, boss: 1, fillet: 2, chamfer: 3 })[b.kind] || (b.radius || b.width || 0) - (a.radius || a.width || 0));
+    // Cuts generated later check every hole of the model, not just the ones they are for.
+    ctx.features = features;
     return { features, byFace, ctx };
   }
 
@@ -286,6 +288,10 @@
    * Planes that box holes into square cells within the faces that surround
    * them: the cell side is the host face's narrow width, so the radial split
    * that follows gives four well-shaped sectors instead of long slivers.
+   * Holes side by side across that width form a column and share it: each
+   * gets an equal part, with a bounded cut between them. No cut passes through
+   * a hole, here or elsewhere in the solid: one that would is moved just clear
+   * of it, or left out.
    */
   function holeCells(ctx, features) {
     const cells = [], solids = new Set();
@@ -299,31 +305,80 @@
       const spans = dirs.map(d => { const t = outer.map(p => dot(p, d)); return { d, lo: Math.min(...t), hi: Math.max(...t) }; }).map(x => ({ ...x, width: x.hi - x.lo }));
       if (spans.length < 2) continue;
       spans.sort((a, b) => a.width - b.width);
-      const side = spans[0].width, long = spans[spans.length - 1];
-      if (side < feature.diameter * 1.05) continue;
-      cells.push({ feature, host: host.id, long, side, t: dot(feature.center, long.d) });
-      for (const v of feature.solids) solids.add(Number(v));
+      const short = spans[0], long = spans[spans.length - 1];
+      if (short.width < feature.diameter * 1.05) continue;
+      cells.push({ feature, host: host.id, axis, long, short, t: dot(feature.center, long.d), s: dot(feature.center, short.d) });
     }
-    // Neighbors closer than a cell share the plane midway between them.
-    const planes = new Map();
+    const holes = (ctx.features || features).filter(f => f.kind === 'hole');
+    const tol = ctx.span * 1e-6, reach = ctx.span * 1e-3;
+    // The hole a cut plane would pass through, among the solids it slices.
+    const through = (origin, normal, scope) => holes.find(h => {
+      if (!h.solids.some(v => scope.has(Number(v)))) return false;
+      const along = Math.abs(dot(normal, unit(h.axis)));
+      const extent = h.radius * Math.sqrt(Math.max(0, 1 - along * along)) + along * (h.depth || 0) / 2;
+      return Math.abs(dot(sub(origin, h.center), normal)) < extent - tol;
+    });
+    const planes = new Map(), rays = [];
     const groups = new Map();
     for (const cell of cells) { const key = `${cell.host}:${cell.long.d.map(x => x.toFixed(6))}`; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(cell); }
     for (const list of groups.values()) {
+      const { long, short, axis } = list[0], scope = new Set(list.flatMap(c => c.feature.solids.map(Number)));
       list.sort((a, b) => a.t - b.t);
-      list.forEach((cell, i) => {
-        const prev = list[i - 1], next = list[i + 1];
-        const lo = prev && prev.t + prev.side / 2 > cell.t - cell.side / 2 ? (prev.t + cell.t) / 2 : cell.t - cell.side / 2;
-        const hi = next && next.t - next.side / 2 < cell.t + cell.side / 2 ? (next.t + cell.t) / 2 : cell.t + cell.side / 2;
-        for (const offset of [lo, hi]) {
-          // Skip a plane that would leave a sliver at the end of the host face.
-          if (offset - cell.long.lo < cell.side * 0.2 || cell.long.hi - offset < cell.side * 0.2) continue;
-          const key = `${cell.long.d.map(x => x.toFixed(6))}:${offset.toFixed(6)}`;
-          if (!planes.has(key)) planes.set(key, { origin: add(cell.feature.center, scale(cell.long.d, offset - cell.t)), normal: cell.long.d.slice() });
+      // Holes side by side across the width (level within a radius) share it equally.
+      const columns = [];
+      for (const cell of list) {
+        const last = columns[columns.length - 1];
+        if (last && cell.t - last.t < Math.max(cell.feature.radius, last.cells[0].feature.radius)) last.cells.push(cell);
+        else columns.push({ t: cell.t, cells: [cell] });
+      }
+      for (const column of columns) {
+        column.cells.sort((a, b) => a.s - b.s);
+        column.splits = column.cells.slice(1).map((c, i) => (c.s + column.cells[i].s) / 2);
+        const edges = [short.lo, ...column.splits, short.hi];
+        column.side = Math.min(...edges.slice(1).map((v, i) => v - edges[i]));
+      }
+      const usable = columns.filter(c => c.cells.every(cell => c.side >= cell.feature.diameter * 1.05));
+      // A plane position, moved clear of any hole it would pass through; null when it cannot be.
+      const resolved = new Map();
+      const place = (offset, column) => {
+        const key = offset.toFixed(6);
+        if (!resolved.has(key)) {
+          const at = x => add(column.cells[0].feature.center, scale(long.d, x - column.t));
+          let x = offset;
+          const hole = through(at(x), long.d, scope);
+          if (hole) {
+            const along = Math.abs(dot(long.d, unit(hole.axis)));
+            const extent = hole.radius * Math.sqrt(Math.max(0, 1 - along * along)) + along * (hole.depth || 0) / 2;
+            const d = dot(sub(at(x), hole.center), long.d), sense = d >= 0 ? 1 : -1;
+            x += sense * (extent + hole.radius * 0.25) - d;
+            if (Math.abs(x - offset) > column.side * 0.25 || through(at(x), long.d, scope)) x = null;
+          }
+          resolved.set(key, x);
+          if (x != null) planes.set(`${long.d.map(v => v.toFixed(6))}:${x.toFixed(6)}`, { origin: at(x), normal: long.d.slice() });
+        }
+        return resolved.get(key);
+      };
+      usable.forEach((column, i) => {
+        const prev = usable[i - 1], next = usable[i + 1];
+        const lo = prev && prev.t + prev.side / 2 > column.t - column.side / 2 ? (prev.t + column.t) / 2 : column.t - column.side / 2;
+        const hi = next && next.t - next.side / 2 < column.t + column.side / 2 ? (next.t + column.t) / 2 : column.t + column.side / 2;
+        // A plane that would leave a sliver at the end of the host face is skipped: the cell runs to that end.
+        const start = lo - long.lo < column.side * 0.2 ? long.lo - reach : place(lo, column);
+        const end = long.hi - hi < column.side * 0.2 ? long.hi + reach : place(hi, column);
+        for (const c of column.cells) for (const v of c.feature.solids) solids.add(Number(v));
+        if (start == null || end == null) return;
+        // Cuts between the holes of a column end on its planes, so they never reach a neighbor's cell.
+        const base = column.cells[0];
+        for (const s of column.splits) {
+          rays.push({ origin: add(base.feature.center, add(scale(long.d, start - base.t), scale(short.d, s - base.s))), axis: axis.slice(), direction: long.d.slice(), length: end - start });
         }
       });
     }
-    if (!planes.size) return null;
-    return { kind: 'slice', planes: [...planes.values()].slice(0, 16), volumeIds: [...solids], label: `Boxed ${features.length} hole${features.length === 1 ? '' : 's'} in square cells` };
+    if (!planes.size && !rays.length) return null;
+    const operation = { kind: 'slice', planes: [...planes.values()].slice(0, 16), volumeIds: [...solids], label: `Boxed ${features.length} hole${features.length === 1 ? '' : 's'} in square cells` };
+    // Cuts between holes end on the planes: keep them only when every plane fits in one operation.
+    if (rays.length && planes.size + rays.length <= 16) operation.rays = rays;
+    return operation;
   }
 
   /** Inscribed square through-passage spanning the feature; the kernel fits its open ends. */
@@ -1354,5 +1409,69 @@
       blocked: solids(st.analysis).filter(v => !v.mappable).map(v => v.id) };
   }
 
-  return { recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, pocketCuts, openingLevels, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, context };
+  /* ------------------------------------------------------------------ */
+  /* Sheet sides, for midsurface shells                                  */
+  /* ------------------------------------------------------------------ */
+
+  /** The picked faces plus every face they meet tangentially (within 5°) in the same solid. */
+  function tangentSide(topology, faceIds) {
+    const faces = new Map(topology.faces.map(f => [Number(f.id), f]));
+    const angles = new Map((topology.volumes || []).map(v => [Number(v.id), new Map((v.edgeAngles || []).map(([e, a]) => [Number(e), a]))]));
+    const side = new Set(faceIds.map(Number)), queue = [...side];
+    while (queue.length) {
+      const face = faces.get(queue.pop());
+      for (const v of face?.volumes || []) {
+        for (const e of face.edges || []) {
+          const angle = angles.get(Number(v))?.get(Number(e));
+          if (angle == null || Math.abs(angle - 180) > 5) continue;
+          for (const other of topology.faces) {
+            const id = Number(other.id);
+            if (!side.has(id) && (other.volumes || []).includes(v) && (other.edges || []).includes(e)) { side.add(id); queue.push(id); }
+          }
+        }
+      }
+    }
+    return [...side].sort((a, b) => a - b);
+  }
+
+  /**
+   * The faces across the sheet from the given ones: for each, the nearest face of
+   * the same solid that is parallel (planes) or coaxial (cylinders) and overlaps it.
+   */
+  function oppositeSide(topology, faceIds) {
+    const chosen = new Set(faceIds.map(Number)), b = topology.bounds;
+    const span = Math.max(b[3] - b[0], b[4] - b[1], b[5] - b[2]) || 1;
+    const overlaps = (p, q, reach) => [0, 1, 2].every(i => p.bounds[i] - reach <= q.bounds[i + 3] && q.bounds[i] - reach <= p.bounds[i + 3]);
+    const gap = (a, c) => {
+      const s = a.surface, t = c.surface;
+      if (s?.kind === 'plane' && t?.kind === 'plane') {
+        const n = unit(s.normal);
+        if (Math.abs(Math.abs(dot(n, unit(t.normal))) - 1) > 1e-3) return null;
+        return Math.abs(dot(sub(t.origin, s.origin), n));
+      }
+      if (s?.kind === 'cylinder' && t?.kind === 'cylinder') {
+        const axis = unit(s.axis);
+        if (Math.abs(Math.abs(dot(axis, unit(t.axis))) - 1) > 1e-3) return null;
+        const d = sub(t.origin, s.origin), off = sub(d, scale(axis, dot(d, axis)));
+        if (norm(off) > span * 1e-6) return null;
+        return Math.abs(s.radius - t.radius);
+      }
+      return null;
+    };
+    const opposite = new Set(), missing = [];
+    for (const id of chosen) {
+      const face = topology.faces.find(f => Number(f.id) === id);
+      if (!face) continue;
+      const candidates = topology.faces
+        .filter(f => !chosen.has(Number(f.id)) && (f.volumes || []).some(v => (face.volumes || []).includes(v)))
+        .map(f => ({ id: Number(f.id), d: gap(face, f), f }))
+        .filter(c => c.d != null && c.d > span * 1e-6 && overlaps(face, c.f, c.d * 1.01 + span * 1e-6));
+      if (!candidates.length) { missing.push(id); continue; }
+      const nearest = Math.min(...candidates.map(c => c.d));
+      for (const c of candidates) if (c.d <= nearest * 1.01) opposite.add(c.id);
+    }
+    return { faces: [...opposite].sort((x, y) => x - y), missing };
+  }
+
+  return { tangentSide, oppositeSide, recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, pocketCuts, openingLevels, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, context };
 }));
