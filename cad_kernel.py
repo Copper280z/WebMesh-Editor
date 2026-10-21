@@ -3,11 +3,8 @@
 
 A worker imports one immutable BREP snapshot, performs one operation, and exits;
 failed operations cannot alter a session. Geometry runs on OpenCASCADE through
-cad_geom.py (the `gmsh` argument below is that kernel, named for the tag-based
+cad_geom.py (the `geom` argument below is that kernel, named for the tag-based
 API shape it keeps). Gmsh is an optional meshing plugin: see cad_gmsh_plugin.py.
-
-WEBMESH_CAD_BACKEND selects the geometry kernel: `occ` (OpenCASCADE through
-OCP) or `gmsh` (Gmsh's own OpenCASCADE wrapper, kept for comparison).
 """
 
 import gzip
@@ -17,30 +14,17 @@ import os
 from pathlib import Path
 import sys
 
-BACKENDS = ("occ", "gmsh")
-DEFAULT_BACKEND = "gmsh"
-
-
-def backend():
-    name = os.environ.get("WEBMESH_CAD_BACKEND", DEFAULT_BACKEND).strip().lower()
-    if name not in BACKENDS:
-        raise ValueError(f"WEBMESH_CAD_BACKEND must be one of {', '.join(BACKENDS)}, not {name!r}.")
-    return name
-
 
 def geometry_module():
-    """A geometry kernel with the tag-based shape of the Gmsh API (see cad_geom.py)."""
-    if backend() == "occ":
-        import cad_geom
-        return cad_geom.module()
-    import cad_gmsh_plugin
-    return cad_gmsh_plugin.load()
-
-
+    """A fresh geometry kernel (cad_geom), with the tag-based shape of the Gmsh API the CAD code was written against."""
+    if os.environ.get("WEBMESH_CAD_BACKEND", "occ").strip().lower() != "occ":
+        raise ValueError("WEBMESH_CAD_BACKEND no longer selects Gmsh: the CAD core runs on OpenCASCADE and Gmsh is a meshing plugin (cad_gmsh_plugin.py).")
+    import cad_geom
+    return cad_geom.module()
 
 
 def available():
-    """Whether the selected geometry kernel can be loaded in this process."""
+    """Whether the geometry kernel can be loaded in this process."""
     try:
         geometry_module()
     except ImportError:
@@ -48,23 +32,18 @@ def available():
     return True
 
 
-def native(gmsh):
-    """True for the OpenCASCADE kernel, False for Gmsh's own."""
-    return bool(getattr(gmsh, "native", False))
-
-
-def safe_mass(gmsh, dimension, tag, native=None):
-    """OpenCASCADE mass of an entity; `native` may hold the current occ entities of that dimension."""
+def safe_mass(geom, dimension, tag, known=None):
+    """OpenCASCADE mass of an entity; `known` may hold the current occ entities of that dimension."""
     try:
-        if (dimension, tag) not in (native if native is not None else gmsh.model.occ.getEntities(dimension)):
+        if (dimension, tag) not in (known if known is not None else geom.model.occ.getEntities(dimension)):
             return 0.0
-        return float(gmsh.model.occ.getMass(dimension, tag))
+        return float(geom.model.occ.getMass(dimension, tag))
     except Exception:
         return 0.0
 
 
-def topology(gmsh):
-    model = gmsh.model
+def topology(geom):
+    model = geom.model
     faces, edges, volumes = [], [], []
     # Listing the kernel's entities is costly; the model does not change here.
     occ = {dimension: set(model.occ.getEntities(dimension)) for dimension in (1, 2, 3)}
@@ -77,13 +56,13 @@ def topology(gmsh):
             center = list(map(float, model.occ.getCenterOfMass(2, tag)))
         except Exception:
             center = [(bounds[i] + bounds[i + 3]) / 2 for i in range(3)]
-        face = {"id": tag, "type": model.getType(2, tag), "area": safe_mass(gmsh, 2, tag, occ[2]),
+        face = {"id": tag, "type": model.getType(2, tag), "area": safe_mass(geom, 2, tag, occ[2]),
                 "bounds": bounds, "center": center,
                 "edges": [abs(int(t)) for _, t in model.getBoundary([(2, tag)], oriented=False)],
                 "volumes": list(map(int, model.getAdjacencies(2, tag)[0]))}
         if not face["volumes"]:
             # A ring opened by one cut keeps the cut face, free of any solid.
-            result = open_cut(gmsh, tag, _probe(gmsh))
+            result = open_cut(geom, tag, _probe(geom))
             if result and result[1]:
                 face["openIn"] = result[0]
         try:
@@ -103,13 +82,13 @@ def topology(gmsh):
             pass
         faces.append(face)
     for _, tag in model.getEntities(1):
-        edges.append({"id": tag, "type": model.getType(1, tag), "length": safe_mass(gmsh, 1, tag, occ[1]),
+        edges.append({"id": tag, "type": model.getType(1, tag), "length": safe_mass(geom, 1, tag, occ[1]),
                       "bounds": list(map(float, model.getBoundingBox(1, tag))),
                       "faces": list(map(int, model.getAdjacencies(1, tag)[0]))})
     by_face = {face["id"]: face for face in faces}
     for _, tag in model.getEntities(3):
         boundary = [abs(int(t)) for _, t in model.getBoundary([(3, tag)], oriented=False)]
-        volumes.append({"id": tag, "volume": safe_mass(gmsh, 3, tag, occ[3]), "faces": boundary,
+        volumes.append({"id": tag, "volume": safe_mass(geom, 3, tag, occ[3]), "faces": boundary,
                         "bounds": list(map(float, model.getBoundingBox(3, tag))),
                         "mapped": len(boundary) == 6 and all(len(by_face[t]["edges"]) == 4 for t in boundary)})
     bounds = list(map(float, model.getBoundingBox(-1, -1)))
@@ -173,60 +152,26 @@ def topology(gmsh):
                           "radius": f.get("radius")} for f in faces if f["type"] != "Plane"]}
 
 
-def tessellation(gmsh, data, cache=None, keys=None, out=None):
+def tessellation(geom, data, cache=None, keys=None, out=None):
     """Display triangles of every face, as flat positions and owning face ids.
 
-    Faces with an analytic surface whose triangles the previous revision
-    already computed (`cache`, keyed by the Signatures `keys`) are not meshed
-    again; only new or changed faces are. Triangles go into `out` for the next.
+    OpenCASCADE's incremental mesher keeps chords within diagonal/500 of the
+    surface and turns at most 1/48 of a circle per segment. Faces with an
+    analytic surface whose triangles the previous revision already computed
+    (`cache`, keyed by the Signatures `keys`) are not meshed again; only new or
+    changed faces are. Triangles go into `out` for the next revision.
     """
-    model = gmsh.model
+    model = geom.model
     bounds = data["bounds"]
     diagonal = math.sqrt(sum((bounds[i + 3] - bounds[i]) ** 2 for i in range(3)))
     previous = (cache or {}).get("triangles", {}) if keys is not None and out is not None else {}
     analytic = {face["id"] for face in data["faces"] if face.get("surface", {}).get("kind") in {"plane", "cylinder", "sphere"}}
     reused = {tag: previous[keys.face[tag]] for tag in analytic if keys.face.get(tag) in previous}
-    if native(gmsh):
-        # OpenCASCADE's incremental mesher: chords within diagonal/500 of the surface and turning at most
-        # 1/48 of a circle per segment; the faces the previous revision tessellated are reused.
-        faces = [tag for _, tag in model.getEntities(2)]
-        made = gmsh.tessellate([tag for tag in faces if tag not in reused], max(diagonal / 500, 1e-6), 2 * math.pi / 48)
-        positions, face_ids = [], []
-        for tag in faces:
-            triangles = reused[tag] if tag in reused else made.get(tag, [])
-            positions.extend(triangles)
-            face_ids.extend([tag] * (len(triangles) // 9))
-            if tag in analytic and out is not None:
-                out["triangles"][keys.face[tag]] = triangles
-        if len(face_ids) > 250_000:
-            raise ValueError("CAD preview exceeds 250,000 triangles. Simplify the geometry first.")
-        return positions, face_ids
-    size = max(diagonal / 24, 1e-5)
-    gmsh.option.setNumber("Mesh.MeshSizeMin", size)
-    gmsh.option.setNumber("Mesh.MeshSizeMax", size)
-    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 48)
-    gmsh.option.setNumber("Mesh.ElementOrder", 1)
-    if not data.get("discrete"):
-        faces = [tag for _, tag in model.getEntities(2)]
-        if reused:
-            gmsh.option.setNumber("Mesh.MeshOnlyVisible", 1)
-            model.setVisibility([(2, tag) for tag in reused], 0)
-        if len(reused) < len(faces):
-            model.mesh.generate(2)
-    node_ids, coordinates, _ = model.mesh.getNodes()
-    nodes = {int(nid): list(map(float, coordinates[3 * i:3 * i + 3])) for i, nid in enumerate(node_ids)}
+    faces = [tag for _, tag in model.getEntities(2)]
+    made = geom.tessellate([tag for tag in faces if tag not in reused], max(diagonal / 500, 1e-6), 2 * math.pi / 48)
     positions, face_ids = [], []
-    for _, tag in model.getEntities(2):
-        if tag in reused:
-            triangles = reused[tag]
-        else:
-            triangles = []
-            types, _, connectivity = model.mesh.getElements(2, tag)
-            for element_type, node_list in zip(types, connectivity):
-                if element_type != 2:
-                    raise ValueError("CAD preview returned unexpected non-triangle elements.")
-                for nid in node_list:
-                    triangles.extend(nodes[int(nid)])
+    for tag in faces:
+        triangles = reused[tag] if tag in reused else made.get(tag, [])
         positions.extend(triangles)
         face_ids.extend([tag] * (len(triangles) // 9))
         if tag in analytic and out is not None:
@@ -236,9 +181,9 @@ def tessellation(gmsh, data, cache=None, keys=None, out=None):
     return positions, face_ids
 
 
-def edge_polylines(gmsh, data):
+def edge_polylines(geom, data):
     """Display polylines of every edge; mapped-meshing samples move here from the topology."""
-    model = gmsh.model
+    model = geom.model
     edges = []
     for edge in data["edges"]:
         tag = edge["id"]
@@ -257,14 +202,11 @@ def edge_polylines(gmsh, data):
     return edges
 
 
-def preview(gmsh, data, edges=None, cache=None, keys=None, out=None):
-    """Display tessellation and edge polylines. Edges are sampled once the mesh
-    exists, since discrete (STL) curves follow it; OpenCASCADE curves do not."""
-    positions, face_ids = tessellation(gmsh, data, cache, keys, out)
+def preview(geom, data, edges=None, cache=None, keys=None, out=None):
+    """Display tessellation and edge polylines."""
+    positions, face_ids = tessellation(geom, data, cache, keys, out)
     if edges is None:
-        edges = edge_polylines(gmsh, data)
-    if not data.get("discrete") and not native(gmsh):
-        gmsh.model.mesh.clear()
+        edges = edge_polylines(geom, data)
     return {"positions": positions, "triangleFaceIds": face_ids, "edges": edges, "faces": data["faces"]}
 
 
@@ -275,14 +217,14 @@ def write_early(path, result):
     os.replace(partial, path)
 
 
-def rectangular_passages(gmsh, operation, volumes):
+def rectangular_passages(geom, operation, volumes):
     """Explicit reviewed box cuts, optionally replacing selected curved features.
 
     Width and height use the two non-axis coordinates in XYZ order. The axis
     coordinate of center is ignored: range sets the two passage endpoints. This
     is a CAD preparation edit, never an automatic meshing simplification.
     """
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     specifications = operation.get("passages")
     if operation.get("kind") == "passage":
         specifications = [operation]
@@ -321,7 +263,7 @@ def rectangular_passages(gmsh, operation, volumes):
         if not result:
             raise ValueError("The selected feature faces could not be replaced before cutting the passages.")
         volumes = model.getEntities(3)
-    mass = sum(safe_mass(gmsh, 3, tag) for _, tag in volumes)
+    mass = sum(safe_mass(geom, 3, tag) for _, tag in volumes)
     tolerance = max(mass * 1e-9, 1e-8)
     tools = []
     # Probe slab for the end checks. OpenCASCADE returns an empty intersection
@@ -378,7 +320,7 @@ def rectangular_passages(gmsh, operation, volumes):
     solids = [entity for entity in result if entity[0] == 3]
     if not solids or any(len([entity for entity in group if entity[0] == 3]) != 1 for group in mapping[:len(volumes)]):
         raise ValueError("The passages would sever a solid or remove it completely. Reduce the opening to preserve its ligaments.")
-    final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in solids)
+    final_mass = sum(safe_mass(geom, 3, tag) for _, tag in solids)
     if final_mass >= mass - tolerance:
         raise ValueError("The passage cuts did not remove material.")
 
@@ -398,9 +340,9 @@ def _unit3(value, label):
     return [v / length for v in vector]
 
 
-def _both_sides_inside(gmsh, face, volume, step):
+def _both_sides_inside(geom, face, volume, step):
     """True when points just off both sides of a face lie inside one solid."""
-    model = gmsh.model
+    model = geom.model
     try:
         lower, upper = model.getParametrizationBounds(2, face)
         for a in (0.5, 0.3, 0.7, 0.15, 0.85):
@@ -418,7 +360,7 @@ def _both_sides_inside(gmsh, face, volume, step):
     return False
 
 
-def pinched_edges(gmsh):
+def pinched_edges(geom):
     """Edges where three or more faces of one solid meet, as (solid, edge) pairs.
 
     Each edge of a manifold solid bounds exactly two of its faces (a seam bounds
@@ -426,7 +368,7 @@ def pinched_edges(gmsh):
     it, or two regions joined only along the edge, as when a plane cuts through
     a re-entrant corner. Neither can be meshed conformingly.
     """
-    model = gmsh.model
+    model = geom.model
     found = []
     for _, volume in model.getEntities(3):
         uses = {}
@@ -437,9 +379,9 @@ def pinched_edges(gmsh):
     return found
 
 
-def _face_sample(gmsh, face):
+def _face_sample(geom, face):
     """A point on a trimmed face and the unit normal there, or None."""
-    model = gmsh.model
+    model = geom.model
     lower, upper = model.getParametrizationBounds(2, face)
     for a in (0.5, 0.3, 0.7, 0.15, 0.85):
         for b in (0.5, 0.3, 0.7, 0.15, 0.85):
@@ -451,7 +393,7 @@ def _face_sample(gmsh, face):
     return None
 
 
-def open_cut(gmsh, face, step):
+def open_cut(geom, face, step):
     """(solid, complete) for a free planar face lying inside one solid, else None.
 
     A ring cut once stays one solid, and OpenCASCADE leaves the cut face apart
@@ -461,14 +403,14 @@ def open_cut(gmsh, face, step):
     it, separates the pieces. A face with an edge inside the material is a cut
     that stops short (complete is False).
     """
-    model = gmsh.model
+    model = geom.model
     if len(model.getAdjacencies(2, face)[0]) or model.getType(2, face) != "Plane":
         return None
     import cad_sheets
-    if cad_sheets.is_sheet(gmsh, face):
+    if cad_sheets.is_sheet(geom, face):
         return None  # a midsurface also lies inside a solid, but it is a sheet, not a cut
     try:
-        sample = _face_sample(gmsh, face)
+        sample = _face_sample(geom, face)
         if sample is None:
             return None
         point, normal = sample
@@ -500,26 +442,26 @@ def open_cut(gmsh, face, step):
         return None
 
 
-def open_cuts(gmsh, step):
+def open_cuts(geom, step):
     """Complete open cuts in the model, as {face: solid}."""
     found = {}
-    for _, tag in gmsh.model.getEntities(2):
-        result = open_cut(gmsh, int(tag), step)
+    for _, tag in geom.model.getEntities(2):
+        result = open_cut(geom, int(tag), step)
         if result and result[1]:
             found[int(tag)] = result[0]
     return found
 
 
-def _probe(gmsh):
-    lower = gmsh.model.getBoundingBox(-1, -1)
+def _probe(geom):
+    lower = geom.model.getBoundingBox(-1, -1)
     return max(math.sqrt(sum((lower[i + 3] - lower[i]) ** 2 for i in range(3))) * 1e-4, 1e-7)
 
 
-def remove_loose(gmsh, keep=()):
+def remove_loose(geom, keep=()):
     """Remove faces, edges and points that bound no solid, except the faces in keep and sheets."""
     import cad_sheets
-    model, occ = gmsh.model, gmsh.model.occ
-    keep = set(keep) | {int(tag) for _, tag in model.getEntities(2) if cad_sheets.is_sheet(gmsh, int(tag))}
+    model, occ = geom.model, geom.model.occ
+    keep = set(keep) | {int(tag) for _, tag in model.getEntities(2) if cad_sheets.is_sheet(geom, int(tag))}
     # Faces first, then the edges and points nothing uses any more: a recursive
     # removal skips a face whose edges another removed face shares.
     for dimension in (2, 1, 0):
@@ -530,9 +472,9 @@ def remove_loose(gmsh, keep=()):
             occ.synchronize()
 
 
-def _material_side(gmsh, face, axis, scope, step):
+def _material_side(geom, face, axis, scope, step):
     """+1 or -1: the side of a planar face, along `axis`, where its own solid lies."""
-    model = gmsh.model
+    model = geom.model
     owners = [int(v) for v in model.getAdjacencies(2, face)[0] if not scope or int(v) in scope]
     if not owners:
         return None
@@ -551,14 +493,14 @@ def _material_side(gmsh, face, axis, scope, step):
     return None
 
 
-def slice_solids(gmsh, operation, volumes):
+def slice_solids(geom, operation, volumes):
     """Fragment solids with arbitrary planes and coaxial cylinders.
 
     Planes and cylinders are generated here from validated numbers, sized to
     pass completely through the model. Fragmenting keeps every resulting piece
     and imprints the new interfaces on neighbors so their meshes can conform.
     """
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     planes = operation.get("planes", [])
     cylinders = operation.get("cylinders", [])
     rays = operation.get("rays", [])
@@ -639,7 +581,7 @@ def slice_solids(gmsh, operation, volumes):
         face = ray.get("face")
         if face is not None and (type(face) is not int or (2, face) not in model.getEntities(2)):
             raise ValueError("A cut names a face that does not exist in this revision.")
-        side = _material_side(gmsh, face, axis, set(scope_of(ray)), max(diagonal * 1e-5, 1e-7)) if face is not None else None
+        side = _material_side(geom, face, axis, set(scope_of(ray)), max(diagonal * 1e-5, 1e-7)) if face is not None else None
         if side is None:
             start, extent = [origin[i] - reach * axis[i] for i in range(3)], 2 * reach
         else:
@@ -673,12 +615,12 @@ def slice_solids(gmsh, operation, volumes):
     # A ring opened by an earlier cut keeps that cut as a free face; a cut
     # through the same solid now takes it along, so together they separate it.
     untouched, pending = set(), []
-    for face, solid in open_cuts(gmsh, offset).items():
+    for face, solid in open_cuts(geom, offset).items():
         group = next((g for g in groups if not g[0] or solid in g[0]), None)
         if group:
             group[1].append((2, face))
             # Fragments renumber faces: recognize this cut's pieces by position.
-            pending.append((_face_sample(gmsh, face), list(model.getBoundingBox(2, face))))
+            pending.append((_face_sample(geom, face), list(model.getBoundingBox(2, face))))
         else:
             untouched.add(face)
     for scope, group in groups:
@@ -705,25 +647,25 @@ def slice_solids(gmsh, operation, volumes):
     for _, tag in model.getEntities(2):
         if tag in untouched:
             continue
-        result = open_cut(gmsh, int(tag), offset)
+        result = open_cut(geom, int(tag), offset)
         if result and result[0] in touched:
             if result[1]:
                 kept.add(int(tag))
             else:
                 short = True
-    remove_loose(gmsh, keep=kept)
+    remove_loose(geom, keep=kept)
 
     tolerance = diagonal * 1e-7
 
     def earlier(face):
-        sample, box = _face_sample(gmsh, face), model.getBoundingBox(2, face)
+        sample, box = _face_sample(geom, face), model.getBoundingBox(2, face)
         return sample is not None and any(
             old and abs(sum((sample[0][i] - old[0][i]) * old[1][i] for i in range(3))) < tolerance
             and all(old_box[i] - tolerance <= box[i] and box[i + 3] <= old_box[i + 3] + tolerance for i in range(3))
             for old, old_box in pending)
 
     def on_tool(face):
-        sample = _face_sample(gmsh, face)
+        sample = _face_sample(geom, face)
         return sample is not None and any(abs(sum((sample[0][i] - o[i]) * n[i] for i in range(3))) < tolerance for o, n in tool_planes)
     opened = any(on_tool(face) and not earlier(face) for face in kept if face not in untouched)
     # A cutting surface that ends inside material embeds a slit instead of
@@ -743,28 +685,28 @@ def slice_solids(gmsh, operation, volumes):
             continue
         if not any(abs(sum((point[i] - o[i]) * n[i] for i in range(3))) < diagonal * 1e-7 for o, n in flat):
             continue
-        if _both_sides_inside(gmsh, tag, int(owners[0]), step):
+        if _both_sides_inside(geom, tag, int(owners[0]), step):
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
     if len(model.getEntities(3)) <= before and not opened:
         if short:
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
         raise ValueError("The slice did not divide a solid. Move it through the material of the chosen solids.")
     import cad_sheets
-    if any(not len(model.getAdjacencies(2, tag)[0]) and tag not in kept and not cad_sheets.is_sheet(gmsh, int(tag)) for _, tag in model.getEntities(2)):
+    if any(not len(model.getAdjacencies(2, tag)[0]) and tag not in kept and not cad_sheets.is_sheet(geom, int(tag)) for _, tag in model.getEntities(2)):
         # OpenCASCADE keeps a cut that stops inside the material as an internal face.
         if short:
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
         raise ValueError("The slice left surface fragments outside every solid. Adjust the cut and try again.")
 
 
-def fuse_solids(gmsh, operation, volumes):
+def fuse_solids(geom, operation, volumes):
     """Merge neighboring solids back into one, e.g. to redo an unwanted cut.
 
     Coplanar faces left by the removed interfaces are unified. Every other
     solid stays, and the result is imprinted again so neighbors keep sharing
     conforming faces.
     """
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     selected = operation.get("volumeIds")
     if (not isinstance(selected, list) or not 2 <= len(selected) <= 256 or len(set(selected)) != len(selected)
             or any(type(tag) is not int or (3, tag) not in volumes for tag in selected)):
@@ -777,42 +719,42 @@ def fuse_solids(gmsh, operation, volumes):
     if len(model.getEntities(3)) > 1:
         occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
         occ.synchronize()
-    remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
+    remove_loose(geom, keep=open_cuts(geom, _probe(geom)))
     if len(model.getEntities(3)) != before - len(selected) + 1:
         raise ValueError("Fusing changed other solids. The previous geometry was retained.")
 
 
-def prepare(gmsh, operation, sheets=None):
+def prepare(geom, operation, sheets=None):
     """Apply one preparation operation. `sheets` (records, see cad_sheets) are
     changed in place: a sheet operation edits them; a solid operation keeps them."""
     import cad_sheets
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     kind = operation.get("kind")
     sheets = [] if sheets is None else sheets
     if kind in cad_sheets.OPERATIONS:
-        cad_sheets.apply(gmsh, operation, sheets)
+        cad_sheets.apply(geom, operation, sheets)
         return
-    captured = cad_sheets.capture(gmsh, sheets)
-    cad_sheets.protect(gmsh, sheets)
-    _prepare_solids(gmsh, operation, kind)
-    sheets[:] = cad_sheets.rematch(gmsh, captured)
+    captured = cad_sheets.capture(geom, sheets)
+    cad_sheets.protect(geom, sheets)
+    _prepare_solids(geom, operation, kind)
+    sheets[:] = cad_sheets.rematch(geom, captured)
 
 
-def _prepare_solids(gmsh, operation, kind):
-    model, occ = gmsh.model, gmsh.model.occ
+def _prepare_solids(geom, operation, kind):
+    model, occ = geom.model, geom.model.occ
     volumes = model.getEntities(3)
     if not volumes:
         raise ValueError("CAD preparation requires closed solid volumes.")
-    original_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in volumes)
-    pinched_before = len(pinched_edges(gmsh))
+    original_mass = sum(safe_mass(geom, 3, tag) for _, tag in volumes)
+    pinched_before = len(pinched_edges(geom))
     if kind == "defeature":
         faces = operation.get("faceIds", [])
         if not isinstance(faces, list) or not faces or any(type(t) is not int or (2, t) not in model.getEntities(2) for t in faces):
             raise ValueError("Select existing CAD faces to remove. Include all faces of the hole, boss or fillet.")
-        before = sum(safe_mass(gmsh, 3, t) for _, t in volumes)
+        before = sum(safe_mass(geom, 3, t) for _, t in volumes)
         result = occ.defeature([tag for _, tag in volumes], faces, removeVolume=True)
         occ.synchronize()
-        after = sum(safe_mass(gmsh, 3, t) for _, t in model.getEntities(3))
+        after = sum(safe_mass(geom, 3, t) for _, t in model.getEntities(3))
         if not result or abs(after - before) < max(before, 1) * 1e-10:
             raise ValueError("Removing these faces did not change the solid. Select the complete feature, including blind-hole caps.")
     elif kind == "heal":
@@ -823,7 +765,7 @@ def _prepare_solids(gmsh, operation, kind):
             # Entity tags and BREP reference ordering can change on a clean heal.
             # Compare geometry/incidence independently of numbering, while keeping
             # tolerances and shape flags so actual representation repairs count.
-            gmsh.write(str(path))
+            geom.write(str(path))
             lines = path.read_text().splitlines()
             tolerances, flags = [], []
             for index, line in enumerate(lines):
@@ -842,7 +784,7 @@ def _prepare_solids(gmsh, operation, kind):
                     upper, lower = model.getAdjacencies(dimension, tag)
                     bounds = tuple(float(f"{value:.12g}") for value in model.getBoundingBox(dimension, tag))
                     entities.append((dimension, model.getType(dimension, tag), bounds,
-                                     float(f"{safe_mass(gmsh, dimension, tag):.12g}"), len(upper), len(lower)))
+                                     float(f"{safe_mass(geom, dimension, tag):.12g}"), len(upper), len(lower)))
             return Counter(entities), Counter(tolerances), Counter(flags)
 
         with tempfile.TemporaryDirectory(prefix="webmesh-heal-check-") as temporary:
@@ -850,14 +792,14 @@ def _prepare_solids(gmsh, operation, kind):
             occ.healShapes(volumes, tolerance=1e-7, fixDegenerated=True, fixSmallEdges=True,
                            fixSmallFaces=True, sewFaces=True, makeSolids=True)
             occ.synchronize()
-            healed_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in model.getEntities(3))
+            healed_mass = sum(safe_mass(geom, 3, tag) for _, tag in model.getEntities(3))
             tolerance = max(original_mass * 1e-6, 1e-8)
             if abs(healed_mass - original_mass) > tolerance:
                 raise ValueError(f"Healing would change solid material volume by {healed_mass - original_mass:g}, beyond tolerance {tolerance:g}. The previous CAD was retained; use explicit defeaturing to remove features.")
             if signature(Path(temporary) / "after.brep") == before_signature:
                 raise ValueError("Healing found no geometry, topology, or tolerance repairs to make. The previous CAD was retained.")
     elif kind in {"passage", "passages"}:
-        rectangular_passages(gmsh, operation, volumes)
+        rectangular_passages(geom, operation, volumes)
     elif kind == "project":
         axis = operation.get("axis")
         selected = operation.get("faceIds", [])
@@ -889,7 +831,7 @@ def _prepare_solids(gmsh, operation, kind):
         if discard:
             occ.remove(discard, recursive=True)
         occ.synchronize()
-        remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
+        remove_loose(geom, keep=open_cuts(geom, _probe(geom)))
         if len(model.getEntities(3)) <= len(volumes):
             raise ValueError("The projected faces did not partition a solid. Choose an internal ledge or pocket floor.")
     elif kind == "split":
@@ -924,22 +866,22 @@ def _prepare_solids(gmsh, operation, kind):
             # stays intact, but shared topology must reflect the split faces.
             occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
             occ.synchronize()
-        remove_loose(gmsh, keep=open_cuts(gmsh, _probe(gmsh)))
+        remove_loose(geom, keep=open_cuts(geom, _probe(geom)))
         if len(model.getEntities(3)) <= before:
             raise ValueError("The plane did not split a solid. Choose a coordinate through the material.")
     elif kind == "slice":
-        slice_solids(gmsh, operation, volumes)
+        slice_solids(geom, operation, volumes)
     elif kind == "fuse":
-        fuse_solids(gmsh, operation, volumes)
+        fuse_solids(geom, operation, volumes)
     else:
         raise ValueError("Unknown preparation operation. Choose slice, fuse, split, project, passages, defeature, heal, or a sheet operation (surface, extend, join, sheet).")
-    if not model.getEntities(3) or any(safe_mass(gmsh, 3, t) <= 0 for _, t in model.getEntities(3)):
+    if not model.getEntities(3) or any(safe_mass(geom, 3, t) <= 0 for _, t in model.getEntities(3)):
         raise ValueError("The operation did not produce valid positive-volume CAD solids.")
     if kind in {"split", "project", "slice", "fuse"}:
-        final_mass = sum(safe_mass(gmsh, 3, tag) for _, tag in model.getEntities(3))
+        final_mass = sum(safe_mass(geom, 3, tag) for _, tag in model.getEntities(3))
         if abs(final_mass - original_mass) > max(original_mass * 1e-7, 1e-8):
             raise ValueError("The split changed the solid volume beyond CAD tolerance. The previous geometry was retained.")
-    pinched = pinched_edges(gmsh)
+    pinched = pinched_edges(geom)
     if len(pinched) > pinched_before:
         volume, edge = pinched[-1]
         verb = {"fuse": "Fusing these solids", "slice": "This cut"}.get(kind, "This change")
@@ -966,13 +908,13 @@ def write_cache(path, cache):
         Path(path).unlink(missing_ok=True)
 
 
-def load(gmsh, path):
+def load(geom, path):
     """Import CAD with its free faces (sheets) as well as its solids; stray curves and points go."""
-    occ = gmsh.model.occ
+    occ = geom.model.occ
     occ.importShapes(str(path), highestDimOnly=False)
     occ.synchronize()
     for dimension in (1, 0):
-        loose = [entity for entity in gmsh.model.getEntities(dimension) if not len(gmsh.model.getAdjacencies(*entity)[0])]
+        loose = [entity for entity in geom.model.getEntities(dimension) if not len(geom.model.getAdjacencies(*entity)[0])]
         if loose:
             occ.remove(loose)
             occ.synchronize()
@@ -1014,61 +956,61 @@ def execute(request):
             import cad_shell
             cad_shell.check_request(request)  # refuse a bad request before it needs Gmsh
         return run_plugin(request)
-    gmsh = geometry_module()
-    gmsh.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
-    gmsh.option.setNumber("General.Terminal", 0)
-    gmsh.option.setNumber("General.NumThreads", 1)
-    gmsh.logger.start()
+    geom = geometry_module()
+    geom.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
+    geom.option.setNumber("General.Terminal", 0)
+    geom.option.setNumber("General.NumThreads", 1)
+    geom.logger.start()
     try:
-        load(gmsh, request["input"])
+        load(geom, request["input"])
         action = request["action"]
         import cad_sheets
-        sheets = cad_sheets.clean(gmsh, request.get("sheets"))
+        sheets = cad_sheets.clean(geom, request.get("sheets"))
         if sheets is None:
             # A file's own free faces are its sheets (a surface model); open cuts are not.
-            sheets = cad_sheets.discovered(gmsh, open_cut, _probe(gmsh)) if action == "import" else []
+            sheets = cad_sheets.discovered(geom, open_cut, _probe(geom)) if action == "import" else []
         # Free faces other than sheets (what an operation left over) do not carry over.
-        cad_sheets.protect(gmsh, sheets)
-        remove_loose(gmsh)
+        cad_sheets.protect(geom, sheets)
+        remove_loose(geom)
         if action == "prepare":
-            prepare(gmsh, request["operation"], sheets)
+            prepare(geom, request["operation"], sheets)
         if action == "shell":
             from cad_shell import shell_mesh
-            result = shell_mesh(gmsh, {**request, "sheets": sheets})
+            result = shell_mesh(geom, {**request, "sheets": sheets})
         elif action == "mesh":
             raise ValueError("Meshing with Gmsh needs the Gmsh plugin.")
         else:
-            captured = cad_sheets.capture(gmsh, sheets)
-            gmsh.write(request["output"])
+            captured = cad_sheets.capture(geom, sheets)
+            geom.write(request["output"])
             # BREP serialization assigns fresh entity tags on import. Preview the
             # exact canonical snapshot that the next worker will load.
-            gmsh.clear()
-            load(gmsh, request["output"])
-            sheets = cad_sheets.rematch(gmsh, captured)
-            cad_sheets.protect(gmsh, sheets)
-            remove_loose(gmsh)
-            data = topology(gmsh)
+            geom.clear()
+            load(geom, request["output"])
+            sheets = cad_sheets.rematch(geom, captured)
+            cad_sheets.protect(geom, sheets)
+            remove_loose(geom)
+            data = topology(geom)
             data["discrete"] = False
             data["sheets"] = sheets
             from cad_mapping import augment
             cache = read_cache(request.get("cache"))
-            augment(gmsh, data, cache)
+            augment(geom, data, cache)
             keys, out = data.pop("_signatures"), data.pop("_cache")
             if request.get("early"):
                 # Lite preview: report the topology first, then finish the
                 # display tessellation that committing this result needs.
-                edges = edge_polylines(gmsh, data)
+                edges = edge_polylines(geom, data)
                 write_early(request["early"], {"topology": data, "preview": {"lite": True, "edges": edges},
-                                               "log": "\n".join(gmsh.logger.get())[-24_000:]})
-                result = {"topology": data, "preview": preview(gmsh, data, edges, cache, keys, out)}
+                                               "log": "\n".join(geom.logger.get())[-24_000:]})
+                result = {"topology": data, "preview": preview(geom, data, edges, cache, keys, out)}
             else:
-                result = {"topology": data, "preview": preview(gmsh, data, None, cache, keys, out)}
+                result = {"topology": data, "preview": preview(geom, data, None, cache, keys, out)}
             if request.get("cacheOut"):
                 write_cache(request["cacheOut"], out)
-        result["log"] = "\n".join(gmsh.logger.get())[-24_000:]
+        result["log"] = "\n".join(geom.logger.get())[-24_000:]
         return result
     finally:
-        gmsh.finalize()
+        geom.finalize()
 
 
 def main(request_path=None):
@@ -1093,7 +1035,7 @@ def serve():
         return
     request_path = Path(line)
     os.chdir(request_path.parent)
-    log = os.open(request_path.parent / "gmsh.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    log = os.open(request_path.parent / "worker.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(log, 1)
     os.dup2(log, 2)
     if [path.stat().st_mtime for path in sources if path.is_file()] != stamps:

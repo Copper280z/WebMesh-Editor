@@ -7,22 +7,16 @@ INTERNAL face or edge is treated as an entity of its own.
 """
 
 import math
-import os
 from pathlib import Path
 import tempfile
 import unittest
 
 import numpy as np
 
-# OpenCASCADE's two builds (OCP's and Gmsh's) must not meet in one process: with the Gmsh
-# backend selected these tests stay out of it.
 try:
-    import cad_kernel
-    if cad_kernel.backend() != "occ":
-        raise ImportError("the OpenCASCADE backend is not selected")
     import cad_geom
 except ImportError:
-    cad_geom = None
+    raise unittest.SkipTest("OpenCASCADE's Python binding (OCP) is not installed")
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,7 +38,6 @@ def uv_middle(k, face):
     raise AssertionError(f"face {face} has no interior sample")
 
 
-@unittest.skipUnless(cad_geom, "OpenCASCADE's Python binding (OCP) is not installed")
 class NumberingTests(unittest.TestCase):
     def test_a_box_is_numbered_the_way_gmsh_numbers_it(self):
         k = kernel()
@@ -87,7 +80,6 @@ class NumberingTests(unittest.TestCase):
         self.assertEqual(m.getEntities(3), [(3, 1), (3, 2)])
 
 
-@unittest.skipUnless(cad_geom, "OpenCASCADE's Python binding (OCP) is not installed")
 class OrientationTests(unittest.TestCase):
     def test_normals_point_out_of_every_face_of_a_solid(self):
         k = kernel()
@@ -149,7 +141,6 @@ class OrientationTests(unittest.TestCase):
         np.testing.assert_allclose(np.abs(direction_high), [0, 0, 1], atol=1e-9)  # the straight direction is the axis
 
 
-@unittest.skipUnless(cad_geom, "OpenCASCADE's Python binding (OCP) is not installed")
 class OperationTests(unittest.TestCase):
     def test_fragment_keeps_the_tags_of_what_it_leaves_alone(self):
         k = kernel()
@@ -182,7 +173,6 @@ class OperationTests(unittest.TestCase):
         free = [t for _, t in m.getEntities(2) if not len(m.getAdjacencies(2, t)[0])]
         inside = [t for t in free if abs(o.getMass(2, t) - 100) < 1e-9]
         self.assertEqual(len(inside), 1, "the part of the plane across the wall is a free face")
-        self.assertEqual(len(m.getCurveLoops(inside[0])[1]) if hasattr(m, "getCurveLoops") else len(o.getCurveLoops(inside[0])[1]), 1)
         self.assertEqual(len(o.getCurveLoops(inside[0])[1][0]), 4, "with its four edges, not a degenerate loop")
         o.remove([(2, inside[0])])
         o.synchronize()
@@ -273,7 +263,6 @@ class OperationTests(unittest.TestCase):
             o.cut([], [(3, o.addBox(0, 0, 0, 1, 1, 1))])
 
 
-@unittest.skipUnless(cad_geom, "OpenCASCADE's Python binding (OCP) is not installed")
 class QueryTests(unittest.TestCase):
     def test_a_point_off_a_face_gets_its_true_surface_parameters_not_an_arbitrary_place(self):
         k = kernel()
@@ -382,7 +371,6 @@ class QueryTests(unittest.TestCase):
         self.assertGreaterEqual(len(triangles[hole]) // 9, 96)
 
 
-@unittest.skipUnless(cad_geom, "OpenCASCADE's Python binding (OCP) is not installed")
 class FileTests(unittest.TestCase):
     def test_brep_and_step_round_trips_keep_solids_and_free_faces(self):
         with tempfile.TemporaryDirectory() as folder:

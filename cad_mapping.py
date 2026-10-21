@@ -28,8 +28,8 @@ def _angle(a, b):
 
 
 class _Geometry:
-    def __init__(self, gmsh, data):
-        self.model = gmsh.model
+    def __init__(self, geom, data):
+        self.model = geom.model
         bounds = data["bounds"]
         self.span = max(max(bounds[i + 3] - bounds[i] for i in range(3)), 1e-9)
         self.tolerance = max(self.span * 1e-7, 1e-10)
@@ -564,14 +564,14 @@ def usable_cache(cache, span):
     return empty_cache(max(span * 1e-7, 1e-10))
 
 
-def augment(gmsh, data, cache=None):
+def augment(geom, data, cache=None):
     """Add mapped-meshing classification data to a topology record in place.
 
     `cache` holds results for entities of an earlier revision (see
     Signatures); the cache for this revision is returned in data["_cache"]
     for the caller to store, and is not part of the topology.
     """
-    geometry = _Geometry(gmsh, data)
+    geometry = _Geometry(geom, data)
     model = geometry.model
     cache = usable_cache(cache, geometry.span)
     keys = Signatures(data, cache["quantum"])

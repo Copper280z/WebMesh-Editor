@@ -25,11 +25,11 @@ FLAT = 0.05  # a face mesh with a quad this flat also tries the other conforming
 class Edges:
     """Node distributions of CAD edges, shared by every face that uses them."""
 
-    def __init__(self, gmsh, size, per_circle, counts=None, sizes=None, even_edges=False):
+    def __init__(self, geom, size, per_circle, counts=None, sizes=None, even_edges=False):
         # even_edges: every edge even (the recombination mesher keeps every
         # other boundary node, so corners must fall on even positions); else
         # natural counts with each loop made even.
-        self.gmsh, self.size, self.per_circle, self.even_edges = gmsh, size, per_circle, even_edges
+        self.geom, self.size, self.per_circle, self.even_edges = geom, size, per_circle, even_edges
         self.counts, self.sizes = counts or {}, sizes or {}
         self.points, self.ids, self.vertex_ids = {}, {}, {}
         self.next_id = 1
@@ -51,7 +51,7 @@ class Edges:
             if length <= 0:
                 self.degenerate.add(edge)
                 continue
-            vertices = self.gmsh.model.getAdjacencies(1, edge)[1]
+            vertices = self.geom.model.getAdjacencies(1, edge)[1]
             closed = len(vertices) < 2 or int(vertices[0]) == int(vertices[-1])
             self.planned[edge] = self.count(edge, length, samples, closed)
         for _ in range(12):
@@ -137,7 +137,7 @@ class Edges:
 
     def curve(self, edge):
         """(params, points, cumulative length) of a dense sample of the edge."""
-        model = self.gmsh.model
+        model = self.geom.model
         lower, upper = model.getParametrizationBounds(1, edge)
         params = np.linspace(lower[0], upper[0], SAMPLES + 1)
         points = np.array(model.getValue(1, edge, params.tolist()), dtype=float).reshape(-1, 3)
@@ -168,7 +168,7 @@ class Edges:
         """Node ids and points of an edge from its start vertex to its end vertex."""
         if edge in self.ids:
             return self.ids[edge], self.points[edge]
-        model = self.gmsh.model
+        model = self.geom.model
         params, samples, cumulative = self.curve(edge)
         length = float(cumulative[-1])
         if length <= 0:
@@ -199,7 +199,7 @@ class Edges:
         return self.next_id - 1
 
 
-def oriented_loops(gmsh, face):
+def oriented_loops(geom, face):
     """Each boundary loop of a face as [(edge, sense), ...] in traversal order.
 
     Edges that bound the face once take their direction from the face's
@@ -207,7 +207,7 @@ def oriented_loops(gmsh, face):
     has arrived. OpenCASCADE may list a wire against the face's orientation, so
     both orders are tried and the one that closes is kept.
     """
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     _, curve_lists = occ.getCurveLoops(face)
     signs = {}
     for _, tag in model.getBoundary([(2, face)], oriented=True):
@@ -272,9 +272,9 @@ def _align(loops_uv, periodic, period):
             uv[:, periodic] += period * round((target - middle(uv)) / period)
 
 
-def _periodic(gmsh, face, loops, edges):
+def _periodic(geom, face, loops, edges):
     """The periodic parameter direction of a face with a seam (or None), and its periods."""
-    model = gmsh.model
+    model = geom.model
     seams = {c for loop in loops for c, _ in loop if sum(1 for d, _ in loop if d == c) > 1}
     lower, upper = model.getParametrizationBounds(2, face)
     periods = [upper[0] - lower[0], upper[1] - lower[1]]
@@ -286,9 +286,9 @@ def _periodic(gmsh, face, loops, edges):
     return (0 if abs(seam_uv[0, 0] - seam_uv[1, 0]) < abs(seam_uv[0, 1] - seam_uv[1, 1]) else 1), periods
 
 
-def _scales(gmsh, face):
+def _scales(geom, face):
     """Lengths along u and v per unit parameter, averaged over the face."""
-    model = gmsh.model
+    model = geom.model
     lower, upper = model.getParametrizationBounds(2, face)
     du, dv = [], []
     for a in (0.2, 0.5, 0.8):
@@ -335,12 +335,12 @@ def _quality(points):
     return worst
 
 
-def _loops_uv(gmsh, face, loops, edges):
+def _loops_uv(geom, face, loops, edges):
     """Each loop of a face as a dense polyline in its scaled parameter plane,
     with the edge each point lies on (unwrapped across a periodic seam)."""
-    model = gmsh.model
-    su, sv = _scales(gmsh, face)
-    periodic, periods = _periodic(gmsh, face, loops, edges)
+    model = geom.model
+    su, sv = _scales(geom, face)
+    periodic, periods = _periodic(geom, face, loops, edges)
     out = []
     for loop in loops:
         points, owner = [], []
@@ -382,7 +382,7 @@ def _square_angle(polyline, owner):
     return angle
 
 
-def plan_pads(gmsh, request, loops_of, edges, size, per_circle, mesher):
+def plan_pads(geom, request, loops_of, edges, size, per_circle, mesher):
     """Size every pad and pin its hole's edge counts before any node is placed.
 
     A pad's square has k elements per side (4k nodes on the hole). Its default
@@ -398,7 +398,7 @@ def plan_pads(gmsh, request, loops_of, edges, size, per_circle, mesher):
         return {}, []
     if not quadmesh_bridge.MESHERS[mesher]["fixed"]:
         raise ValueError("Pads need fixed boundary nodes: mesh with Recombined or Paved.")
-    model = gmsh.model
+    model = geom.model
     even = mesher == "recombined"  # its recombination keeps every other boundary node: corners on even positions
 
     def per_side(x):
@@ -424,7 +424,7 @@ def plan_pads(gmsh, request, loops_of, edges, size, per_circle, mesher):
             raise ValueError(f"Pad {index + 1}: the hole of face {where} is not in any face being meshed.")
         for face, li in found:
             if face not in frames:
-                polys = _loops_uv(gmsh, face, loops_of[face], edges)
+                polys = _loops_uv(geom, face, loops_of[face], edges)
                 outer = max(range(len(polys)), key=lambda i: abs(_area(polys[i][0])))
                 frames[face] = {"polys": polys, "outer": outer, "angle": _square_angle(*polys[outer]), "pads": []}
             frame = frames[face]
@@ -535,36 +535,11 @@ def _pad_square(hole, pad):
     return square
 
 
-def _inside_loops(points, polys):
-    """Even-odd test of points against a face's loops (outer and holes) in its parameter plane."""
-    inside = np.zeros(len(points), dtype=bool)
-    for poly in polys:
-        a, b = poly, np.roll(poly, -1, axis=0)
-        for q, point in enumerate(points):
-            x, y = point
-            crossing = ((a[:, 1] > y) != (b[:, 1] > y)) & (x < a[:, 0] + (y - a[:, 1]) * (b[:, 0] - a[:, 0]) / np.where(b[:, 1] == a[:, 1], 1, b[:, 1] - a[:, 1]))
-            inside[q] ^= bool(np.count_nonzero(crossing) % 2)
-    return inside
-
-
-def _clear_of_loops(points, polys, distance):
-    """Whether every point is farther than `distance` from the face's loops (not on its boundary)."""
-    for poly in polys:
-        a, b = poly, np.roll(poly, -1, axis=0)
-        d = b - a
-        length = np.maximum(np.einsum("ij,ij->i", d, d), 1e-300)
-        for point in points:
-            t = np.clip(np.einsum("ij,ij->i", point - a, d) / length, 0, 1)
-            if float(np.min(np.linalg.norm(a + d * t[:, None] - point, axis=1))) <= distance:
-                return False
-    return True
-
-
-def _face_uv(gmsh, face, loops, edges, points, polys=None):
+def _face_uv(geom, face, loops, edges, points, polys=None):
     """Scaled parameter-plane coordinates of points on a face, unwrapped like its loops."""
-    model = gmsh.model
-    su, sv = _scales(gmsh, face)
-    periodic, periods = _periodic(gmsh, face, loops, edges)
+    model = geom.model
+    su, sv = _scales(geom, face)
+    periodic, periods = _periodic(geom, face, loops, edges)
     uv = np.array(model.getParametrization(2, face, np.asarray(points).ravel().tolist()), dtype=float).reshape(-1, 2)
     _unwrap(uv, periodic, periods)
     scaled = np.column_stack([uv[:, 0] * su, uv[:, 1] * sv])
@@ -577,58 +552,25 @@ def _face_uv(gmsh, face, loops, edges, points, polys=None):
     return scaled
 
 
-def embedded_edges(gmsh, face, loops, edges, candidates):
+def embedded_edges(geom, face, loops, edges, candidates):
     """Edges lying inside a face without bounding it: junctions that stop partway
     across it, such as a brace's foot on a floor. OpenCASCADE marks such an edge
     INTERNAL in the face's wire and keeps it out of the face's loops; the kernel
-    lists them directly. A kernel that does not (Gmsh's wrapper) leaves them to
-    be found by shape: on the face's surface, and inside its loops."""
-    model = gmsh.model
+    lists them. Only edges of `candidates` (those of sheets) are junctions."""
     own = {c for loop in loops for c, _ in loop}
-    if hasattr(model, "getInternalEdges"):
-        allowed = set(candidates)
-        return [c for c in model.getInternalEdges(face) if c in allowed and c not in own and c not in edges.degenerate
-                and edges.curve(c)[2][-1] > 0]
-    b = model.getBoundingBox(-1, -1)
-    tolerance = max(math.sqrt(sum((b[i + 3] - b[i]) ** 2 for i in range(3))) * 1e-5, 1e-7)
-    box = model.getBoundingBox(2, face)
-    polys, found = None, []
-    for c in candidates:
-        if c in own or c in edges.degenerate:
-            continue
-        e = model.getBoundingBox(1, c)
-        if any(e[i] > box[i + 3] + tolerance or e[i + 3] < box[i] - tolerance for i in range(3)):
-            continue
-        _, samples, cumulative = edges.curve(c)
-        if cumulative[-1] <= 0:
-            continue
-        pick = samples[np.linspace(0, len(samples) - 1, 5).astype(int)]
-        closest = np.array(model.getClosestPoint(2, face, pick.ravel().tolist())[0], dtype=float).reshape(-1, 3)
-        if float(np.max(np.linalg.norm(closest - pick, axis=1))) > tolerance:
-            continue
-        # Gmsh maps a point beyond the face's parameter range to an arbitrary place on it:
-        # a point that does not map back to itself is off the face.
-        uv = np.array(model.getParametrization(2, face, pick.ravel().tolist()), dtype=float)
-        back = np.array(model.getValue(2, face, uv.tolist()), dtype=float).reshape(-1, 3)
-        if float(np.max(np.linalg.norm(back - pick, axis=1))) > tolerance:
-            continue
-        if polys is None:
-            polys = [uv for uv, _ in _loops_uv(gmsh, face, loops, edges)]
-        # Its inner points lie inside the face, clear of its boundary; its ends may be on it.
-        inner = _face_uv(gmsh, face, loops, edges, pick[1:-1], polys)
-        if _inside_loops(inner, polys).all() and _clear_of_loops(inner, polys, tolerance * 10):
-            found.append(c)
-    return found
+    allowed = set(candidates)
+    return [c for c in geom.model.getInternalEdges(face) if c in allowed and c not in own and c not in edges.degenerate
+            and edges.curve(c)[2][-1] > 0]
 
 
-def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None, curves=()):
+def mesh_face(geom, face, edges, mesher, size, per_circle, pads=None, curves=()):
     """Quads of one face: (boundary-mapped node ids, new interior nodes, quads, report)."""
-    model = gmsh.model
-    loops = oriented_loops(gmsh, face)
+    model = geom.model
+    loops = oriented_loops(geom, face)
     if not loops:
         raise ValueError(f"Face {face} has no boundary (a closed sphere or torus); slice it before shell meshing.")
-    su, sv = _scales(gmsh, face)
-    periodic, periods = _periodic(gmsh, face, loops, edges)
+    su, sv = _scales(geom, face)
+    periodic, periods = _periodic(geom, face, loops, edges)
     loop_ids, loop_uv = [], []
     for loop in loops:
         ids, points = [], []
@@ -667,11 +609,11 @@ def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None, curves=())
     # Junctions that stop inside the face: open curves through their own (shared) nodes.
     for c in curves:
         node_ids, node_points = edges.nodes(c)
-        request.append({"points": _face_uv(gmsh, face, loops, edges, node_points, scaled).tolist(), "role": "curve"})
+        request.append({"points": _face_uv(geom, face, loops, edges, node_points, scaled).tolist(), "role": "curve"})
         request_ids.append(list(node_ids))
     if not quadmesh_bridge.MESHERS[mesher]["fixed"]:
         # The quadtree samples its own boundary; give it the curves densely.
-        dense = [uv for uv, _ in _loops_uv(gmsh, face, loops, edges)]
+        dense = [uv for uv, _ in _loops_uv(geom, face, loops, edges)]
         request = [{"points": dense[i].tolist(), "role": "outer" if rank == 0 else "hole", "fixed": False} for rank, i in enumerate(order)]
         if curves:
             raise ValueError(f"Face {face} has {len(curves)} junction{'s' if len(curves) > 1 else ''} inside it, which the quadtree cannot follow: mesh it with Paved or Recombined.")
@@ -729,8 +671,8 @@ def _properties(faces, request):
     return pid_of, thickness, offsets
 
 
-def _select_faces(gmsh, request):
-    existing = sorted(int(tag) for _, tag in gmsh.model.getEntities(2))
+def _select_faces(geom, request):
+    existing = sorted(int(tag) for _, tag in geom.model.getEntities(2))
     chosen = request.get("faceIds") or existing
     if not isinstance(chosen, list) or any(type(f) is not int or f not in existing for f in chosen):
         raise ValueError("Choose existing CAD faces to mesh, or leave the selection empty for every face.")
@@ -743,30 +685,30 @@ def _controls(request):
     return counts, sizes
 
 
-def quad_shell(gmsh, request):
-    model = gmsh.model
+def quad_shell(geom, request):
+    model = geom.model
     size = float(request["size"])
     per_circle = int(request.get("elementsPerCircle", 12))
     mesher = request.get("mesher", "recombined")
-    faces = _select_faces(gmsh, request)
+    faces = _select_faces(geom, request)
     area = sum(float(model.occ.getMass(2, f)) for f in faces)
     if area / (size * size) > MAX_ELEMENTS:
         raise ValueError(f"About {area / (size * size):,.0f} elements exceed the {MAX_ELEMENTS:,} limit. Raise the element size.")
     counts, sizes = _controls(request)
-    edges = Edges(gmsh, size, per_circle, counts, sizes, even_edges=mesher == "recombined")
+    edges = Edges(geom, size, per_circle, counts, sizes, even_edges=mesher == "recombined")
     loops_of, broken = {}, {}
     for f in faces:
         try:
-            loops_of[f] = oriented_loops(gmsh, f)
+            loops_of[f] = oriented_loops(geom, f)
         except ValueError as exc:
             broken[f] = str(exc)
-    pads_of, pads = plan_pads(gmsh, request, loops_of, edges, size, per_circle, mesher)
+    pads_of, pads = plan_pads(geom, request, loops_of, edges, size, per_circle, mesher)
     edges.plan(loops_of)
     # Junction curves come from sheets (faces of no solid): a solid's edges inside a sheet lying
     # on its face are that face's boundary, not junctions.
     sheet_edges = [int(tag) for _, tag in model.getEntities(1)
                    if all(not len(model.getAdjacencies(2, f)[0]) for f in model.getAdjacencies(1, tag)[0])]
-    curves_of = {f: embedded_edges(gmsh, f, loops, edges, sheet_edges) for f, loops in loops_of.items()}
+    curves_of = {f: embedded_edges(geom, f, loops, edges, sheet_edges) for f, loops in loops_of.items()}
     for f, loops in loops_of.items():
         bad = sorted({c for loop in loops for c, _ in loop if c in edges.degenerate})
         if bad:
@@ -787,7 +729,7 @@ def quad_shell(gmsh, request):
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [broken[face]]})
             continue
         try:
-            meshed = mesh_face(gmsh, face, edges, mesher, size, per_circle, pads_of.get(face), curves_of.get(face, ()))
+            meshed = mesh_face(geom, face, edges, mesher, size, per_circle, pads_of.get(face), curves_of.get(face, ()))
         except ValueError as exc:
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [str(exc)]})
             continue
@@ -830,9 +772,9 @@ def _node_normals(elements, coordinates):
     return {n: v / (np.linalg.norm(v) or 1.0) for n, v in sums.items()}
 
 
-def _closest_on_faces(gmsh, points, faces):
+def _closest_on_faces(geom, points, faces):
     """Closest points on the trimmed faces (falling back to the untrimmed surface)."""
-    model = gmsh.model
+    model = geom.model
     points = np.asarray(points, dtype=float)
     best = np.full(len(points), np.inf)
     fallback = np.full(len(points), np.inf)
@@ -853,7 +795,7 @@ def _closest_on_faces(gmsh, points, faces):
     return nearest, best
 
 
-def place(gmsh, elements, coordinates, request):
+def place(geom, elements, coordinates, request):
     """Move the mesh off the faces it was made on: to the midsurface or by an offset."""
     placement = request.get("placement", "surface")
     if placement == "surface":
@@ -861,7 +803,7 @@ def place(gmsh, elements, coordinates, request):
     nodes = sorted({n for e in elements for n in e["nodes"]})
     points = np.array([coordinates[n] for n in nodes])
     if placement == "midsurface":
-        nearest, distance = _closest_on_faces(gmsh, points, request["facesB"])
+        nearest, distance = _closest_on_faces(geom, points, request["facesB"])
         for n, p, q in zip(nodes, points, nearest):
             coordinates[n] = (p + q) / 2
         return {"placement": "midsurface", "thickness": float(np.median(distance)), "minThickness": float(distance.min()),
@@ -870,7 +812,7 @@ def place(gmsh, elements, coordinates, request):
         # Along the surface normal of the faces each node lies on (averaged
         # where faces meet), so an offset of a cylinder stays a cylinder.
         offset = float(request["offset"])
-        model = gmsh.model
+        model = geom.model
         faces_of = {}
         for element in elements:
             for n in element["nodes"]:
@@ -925,7 +867,7 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
     _, by_property, _ = _properties(faces, request) if request is not None else ({}, {}, {})
     return {"mesh": {"nodes": nodes, "elements": out}, "quality": quality,
             "thicknessByProperty": {str(pid): t for pid, t in by_property.items()},
-            "stats": {"nodes": len(nodes), "elements": len(out), "topology": "quad" if mesher != "gmsh" else "tri", "dimension": 2, "order": 1,
+            "stats": {"nodes": len(nodes), "elements": len(out), "topology": "quad" if mesher != "geom" else "tri", "dimension": 2, "order": 1,
                       "parts": len({e["pid"] for e in out}), "faces": len(faces)}}
 
 
@@ -951,25 +893,25 @@ def check_request(request):
         raise ValueError("Pads are rings of quads: mesh with quad elements.")
 
 
-def finish(gmsh, request, made):
+def finish(geom, request, made):
     """Place a meshed shell (on the faces, at the midsurface or offset) and report it."""
     elements, coordinates, reports, edges, faces, mesher, pads = made
-    placed = place(gmsh, elements, coordinates, request)
+    placed = place(geom, elements, coordinates, request)
     return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads, request)
 
 
-def check_faces(gmsh, request):
+def check_faces(geom, request):
     """Refuse a midsurface whose opposite side names faces the model does not have."""
     if request.get("placement") == "midsurface":
-        existing = {int(tag) for _, tag in gmsh.model.getEntities(2)}
+        existing = {int(tag) for _, tag in geom.model.getEntities(2)}
         if any(type(f) is not int or f not in existing for f in request["facesB"]):
             raise ValueError("Pick the faces of the opposite side for the midsurface.")
 
 
-def shell_mesh(gmsh, request):
+def shell_mesh(geom, request):
     """Quad shell mesh of the chosen faces. Triangles are Gmsh's (cad_gmsh_plugin)."""
     check_request(request)
-    check_faces(gmsh, request)
+    check_faces(geom, request)
     if request.get("element", "quad") != "quad":
         raise ValueError("Triangle shells come from the Gmsh plugin.")
-    return finish(gmsh, request, quad_shell(gmsh, request))
+    return finish(geom, request, quad_shell(geom, request))

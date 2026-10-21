@@ -1,31 +1,34 @@
 # WebMesh Studio 3.0
 
-WebMesh Studio is a modular, browser-based finite element pre/post processor for Nastran `.bdf` and `.dat` decks. Build connected meshes from primitives, assemble them with patterns, mesh CAD through a local Gmsh service, define model cards, and review MYSTRAN F06 results.
+WebMesh Studio is a modular, browser-based finite element pre/post processor for Nastran `.bdf` and `.dat` decks. Build connected meshes from primitives, assemble them with patterns, prepare and mesh CAD through a local OpenCASCADE service, define model cards, and review MYSTRAN F06 results.
 
 ## Start the editor
 
 **Browser only:** open `WebMeshEditor.html` in a current desktop browser with WebGL enabled. Keep the `app/`, `styles/`, and `vendor/` folders beside it. Scratch modeling, patterns, deck editing, export, and results review run locally without an installation, build step, CDN, or server.
 
-**With CAD meshing:** install the Gmsh command-line executable and check that `gmsh -version` works. Start the included Python server from the repository directory:
+**With CAD:** install the Python packages the CAD service needs, then start the included server from the repository directory:
 
 ```sh
+python3 -m pip install numpy cadquery-ocp
 python3 server.py
 ```
 
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The CAD & mesh workspace reports when Gmsh is connected. The HTTP server uses the Python standard library. Interactive CAD tools also need Gmsh’s Python bindings and NumPy. Homebrew Gmsh includes the bindings; other installations can use `python3 -m pip install gmsh numpy`. If Gmsh is outside `PATH`, provide its executable explicitly:
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The HTTP server uses the Python standard library. CAD import (STEP/STP, IGES/IGS, BREP), preparation, sheets, topology, display and quad shell meshing run on OpenCASCADE through its Python binding [OCP](https://pypi.org/project/cadquery-ocp/) (`cadquery-ocp`; OpenCASCADE is LGPL-2.1), with NumPy; `cadquery-ocp` brings the VTK wheel along. `/api/health` and the CAD & mesh workspace report the CAD service and the optional plugin below. The quad meshers are built separately (see Shell meshing).
+
+**Optional Gmsh plugin.** None of the above needs Gmsh. Install it (`brew install gmsh`, or `python3 -m pip install gmsh`) to add the meshers WebMesh does not have itself: tetrahedra, triangle (CTRIA3) shells, Gmsh's own quad and hex methods and sweeps, STL import, and the legacy `/api/mesh` path. Without it those choices are shown disabled, with the reason, and a request for one answers `503` saying what to install. Gmsh is GPL-2.0-or-later; WebMesh's core never imports it: one module (`cad_gmsh_plugin.py`) loads it on demand, and a Gmsh task runs in a process of its own. Set `WEBMESH_BLOCK_GMSH=1` to run as if it were not installed. If the `gmsh` program is outside `PATH`, provide it explicitly:
 
 ```sh
 python3 server.py --gmsh /absolute/path/to/gmsh --port 8765
 ```
 
-The service binds to `127.0.0.1`. CAD is processed on your machine in a temporary working directory. A static web host can serve the browser editor, but CAD meshing requires opening the editor from this local service.
+The service binds to `127.0.0.1`. CAD is processed on your machine in a temporary working directory. A static web host can serve the browser editor, but CAD requires opening the editor from this local service.
 
 ## Modeling workflow
 
 | Workspace | Tools |
 | --- | --- |
 | Geometry | Blocks, rectangular plates, solid or hollow cylinders, and annuli; dimensions, origin, divisions, mesh topology, element order, material and thickness |
-| CAD & mesh | STEP/STP, IGES/IGS, BREP and STL import; a guided **Prepare → Size → Mesh** hex workflow: selection-driven slicing and defeaturing with result previews, live mapped-block status, solved edge-count equations, and native mapped HEX8/HEX20; Gmsh tet/tri/quad and sweep methods remain available |
+| CAD & mesh | STEP/STP, IGES/IGS, BREP and STL import; a guided **Prepare → Size → Mesh** hex workflow: selection-driven slicing and defeaturing with result previews, live mapped-block status, solved edge-count equations, and native mapped HEX8/HEX20; the optional Gmsh plugin adds tet/tri/quad and sweep methods and STL import |
 | Pattern | Linear arrays in one, two or three vector directions; circular arrays about any axis and center; selected elements or the whole model; optional coincident-node welding |
 | Model setup | Materials, properties, loads, constraints, coordinate systems, individual entities, schema-based card modification, transforms, selection and connectivity checks |
 | Post-process | MYSTRAN F06 result sets, deformed shapes and animation, stress/strain/force contours, temperature load contours, legends and criteria |
@@ -43,7 +46,7 @@ Scratch meshes use shared nodes within each primitive. Adjacent tetrahedral cell
 | Tetrahedron | CTETRA, 4 nodes | CTETRA, 10 nodes |
 | Hexahedron | CHEXA, 8 nodes | CHEXA, 20 nodes |
 
-Nastran uses the same `CTETRA` and `CHEXA` card names for both orders. The meshing layer preserves all midside connectivity and converts Gmsh's node ordering to Nastran ordering. Generated shell properties are `PSHELL`; generated solid properties are `PSOLID`. Default material values are `E = 210000`, `nu = 0.3`, and `rho = 7.85e-9`, consistent with mm, N, s and tonne. The editor does not convert units: all imported geometry, material values, loads and results must use one consistent system.
+Nastran uses the same `CTETRA` and `CHEXA` card names for both orders. The meshing layer preserves all midside connectivity and converts the Gmsh plugin's node ordering to Nastran ordering. Generated shell properties are `PSHELL`; generated solid properties are `PSOLID`. Default material values are `E = 210000`, `nu = 0.3`, and `rho = 7.85e-9`, consistent with mm, N, s and tonne. The editor does not convert units: all imported geometry, material values, loads and results must use one consistent system.
 
 ### Patterns and joining
 
@@ -113,7 +116,7 @@ HEX20 versions of each have the same blocks and quality. Every equation of the c
 4. Select each outer wall’s middle layer → **Box 3 holes in square cells** (6.01 mm cells, the passage height), then pick each Ø4.6 hole → **Split around hole**: 44/46.
 5. Select the angled wall’s layer under the passages → **Cut along 12 imprint edges**, the same over them, then each crossing column → **Cut between re-entrant edges**: 64/64.
 
-After step 1, **Auto-fix** (with fillet and chamfer removal off) finds the same decomposition by itself in 18 steps and about 13 seconds. The Gmsh column sweep (**Mesh → Other (Gmsh)**) remains an alternative.
+After step 1, **Auto-fix** (with fillet and chamfer removal off) finds the same decomposition by itself in 18 steps and about 13 seconds. The Gmsh column sweep (**Mesh → Other (Gmsh)**, with the Gmsh plugin installed) remains an alternative.
 
 A solid is a mapped block when every face has exactly four corners, no edge is re-entrant (dihedral above 220°) or a knife edge (below 20°), and its faces group across flat edges into six logical sides meeting at eight corners. Corners and dihedrals below 140° are block corners and edges, 140–220° are flat; angles between 115° and 165° are resolved per face so it gets four corners (a 144° corner of an otherwise three-cornered face is promoted, the bluntest of five is demoted), and the matching edges follow that choice. Composite sides are allowed: imprinted faces from neighboring splits (T-junctions) are meshed as one structured grid. Blocks whose parallel edges differ by more than 10× are reported as strongly tapered.
 
@@ -121,7 +124,7 @@ A solid is a mapped block when every face has exactly four corners, no edge is r
 
 **3 · Mesh.** Mapped hex meshing runs in the browser without Gmsh. Each CAD edge is divided by arc length (exactly on lines and circles), each face is filled by transfinite interpolation and projected onto its plane, cylinder or sphere (other surfaces use the CAD tessellation), and each block interior by 3D transfinite interpolation. Shared CAD edges and faces give the same nodes to neighboring blocks, so interfaces conform. HEX20 midside nodes lie on the CAD curves and surfaces. The live preview colors faces by scaled Jacobian and lists the worst blocks; inverted meshes cannot be added. **Add to model** creates CHEXA elements with one PSOLID (or one per solid) and replaces the previous CAD mesh in one undo step. Mappable solids can be meshed alone or all together; unmappable solids are skipped.
 
-Geometry operations still use OpenCASCADE through Gmsh’s Python API (the only B-rep kernel available locally). Each request runs in its own kernel process, started ahead of time so Python, Gmsh and NumPy are already loaded when the request arrives. Results for faces and edges an operation leaves unchanged (corner and edge angles, cylinder sidedness, display triangles) are reused from the previous revision; they are keyed by geometry, since entity IDs renumber on every revision, and checked in the tests against a fresh computation. On the corner bracket a slice preview takes about 0.45 s (0.9 s without the cache), and a hole removal about 0.6 s. Classification uses kernel geometry queries — evaluation, projection and point containment — not the Gmsh mesher. The Gmsh tet/tri/quad, sweep and column-sweep methods remain under **Mesh → Other (Gmsh)** and reuse fixed edge counts as exact divisions.
+Geometry operations run on OpenCASCADE through its Python binding OCP (`cad_geom.py` gives the CAD code the small tag-based interface it was written against: entities numbered by position in OpenCASCADE's traversal order, queries about the model as last synchronized, edits that keep the tags of what they leave alone). A freshly read file gets the same entity numbers the earlier Gmsh-based kernel gave. Each request runs in its own kernel process, started ahead of time so Python, OpenCASCADE and NumPy are already loaded when the request arrives. Results for faces and edges an operation leaves unchanged (corner and edge angles, cylinder sidedness, display triangles) are reused from the previous revision; they are keyed by geometry, since entity IDs renumber on every revision, and checked in the tests against a fresh computation. Classification uses kernel geometry queries — evaluation, projection and point containment — not a mesher; display triangles come from OpenCASCADE's incremental mesher. The Gmsh tet/tri/quad, sweep and column-sweep methods, available with the Gmsh plugin, remain under **Mesh → Other (Gmsh)** and reuse fixed edge counts as exact divisions.
 
 ## Sheets: midsurface and offset models
 
@@ -141,14 +144,14 @@ Shell meshing with **Faces: Sheets** meshes every sheet: elements on sheets of o
 
 **Mesh → Shell** meshes CAD faces with CQUAD4 or CTRIA3 shell elements and adds them with a PSHELL property.
 
-- **Quads** come from native face meshers that share one C ABI: quadmesh (`~/Documents/quadmesh/cpp2`, built with Meson; `WEBMESH_QUADMESH_LIB` names another build) and the paved Q-Morph mesher (`~/Documents/quadmesh/paved`, built with `zig build`; `WEBMESH_PAVED_LIB`). `/api/health` reports which are available. Meshing is edge first: every CAD edge of the chosen faces gets one node distribution (at least the element size, and at least **Per circle** elements around a full circle), shared by every face that uses it, so neighboring faces conform. Faces bounded by four edges (chamfer bands, bends, tube walls) get equal counts on opposite edges, so they mesh as regular strips. Each face is meshed in its parameter plane, scaled to true lengths, with those boundary nodes fixed, and mapped back onto the surface; shell normals point out of the solid (Gmsh's face normal), and on a sheet follow its own normal. **Recombined** (the default) triangulates, pairs triangles into quads and subdivides; it gets even counts on every edge. **Paved** lays rows of quads that follow every boundary and hole; edge counts stay natural and each boundary loop is made even along the cheapest chain of long edges. If one of them returns inverted quads on a face, or a quad flat enough to have a straight corner, that face is retried with the other, which keeps the same boundary nodes. **Quadtree** meshes each face on its own, so faces then do not share nodes along their edges. Edge counts from Size are used. Faces with a zero-length edge (a cone apex or a pole) are skipped and reported.
+- **Quads** come from native face meshers that share one C ABI: quadmesh (`~/Documents/quadmesh/cpp2`, built with Meson; `WEBMESH_QUADMESH_LIB` names another build) and the paved Q-Morph mesher (`~/Documents/quadmesh/paved`, built with `zig build`; `WEBMESH_PAVED_LIB`). `/api/health` reports which are available. Meshing is edge first: every CAD edge of the chosen faces gets one node distribution (at least the element size, and at least **Per circle** elements around a full circle), shared by every face that uses it, so neighboring faces conform. Faces bounded by four edges (chamfer bands, bends, tube walls) get equal counts on opposite edges, so they mesh as regular strips. Each face is meshed in its parameter plane, scaled to true lengths, with those boundary nodes fixed, and mapped back onto the surface; shell normals point out of the solid (the face normal, following its orientation), and on a sheet follow its own normal. **Recombined** (the default) triangulates, pairs triangles into quads and subdivides; it gets even counts on every edge. **Paved** lays rows of quads that follow every boundary and hole; edge counts stay natural and each boundary loop is made even along the cheapest chain of long edges. If one of them returns inverted quads on a face, or a quad flat enough to have a straight corner, that face is retried with the other, which keeps the same boundary nodes. **Quadtree** meshes each face on its own, so faces then do not share nodes along their edges. Edge counts from Size are used. Faces with a zero-length edge (a cone apex or a pole) are skipped and reported.
 - **Pads** put one ring of quads around a picked hole, with a square outside; the square's nodes are fixed and the rest of the face is meshed to them, so the hole's size change happens inside the ring. Pick holes (a bore face or its edge) and **Add picked**; **Pad size** and **Per side** apply to the holes added, and left blank the pad is a guess: k = round(D/h + 2) elements per side, each about the element size h, so the ring is about one element thick, shrunk to stay about one element (at least half an element) clear of the face's other boundaries, with k then following the square's size (at least 2). A size entered is used as given, and refused if it runs off the face or into a neighbor. The hole gets 4k nodes, and the square lines up with the face's longest straight edge. Pads are built in the face's parameter plane, so they also work on curved walls such as a tube's; they need Recombined or Paved quads (Recombined: an even number per side). A hole that meets its face's edge or seam cannot be padded.
-- **Triangles** come from Gmsh, restricted to the chosen faces.
+- **Triangles** (CTRIA3) come from the optional Gmsh plugin, restricted to the chosen faces; without the plugin the choice is disabled.
 - **Place** puts the shell on the faces, at the **Midsurface** of a sheet, or at an **Offset**. For a midsurface, pick one face of the sheet, then **Use picked** for side A, **Whole side** (adds every face the side continues into tangentially, such as bends) and **Opposite of A** (the nearest parallel or coaxial faces across the sheet). Each node of side A's mesh moves halfway to the closest point of side B, and the PSHELL thickness is the measured distance (the report warns when it varies). An offset moves the mesh along the surface normal (positive outward); **−T/2** offsets an outer face to the midsurface.
 
 `examples/shells/` holds test parts made by `make_parts.py`: round tubes (Ø35 × 4 and Ø75 × 10), square tubes (35 × 4 and 75 × 10, corner radii 2t outside and t inside) and a Z-bent bracket (3 mm sheet, 3 mm inner bend radius), each with and without holes. All mesh as closed, conforming quad shells, and their midsurfaces measure the exact wall thickness.
 
-## CAD meshing with Gmsh
+## CAD preparation and meshing
 
 Imported CAD is displayed immediately as selectable surfaces and edges, before any finite-element mesh exists. **Prepare geometry** and **Mesh** are separate steps. CAD has its own visibility switch and preparation undo, while the finite-element model retains its own undo history.
 
@@ -157,11 +160,11 @@ Imported CAD is displayed immediately as selectable surfaces and edges, before a
 - **Partition by face projection:** select planar floor or end faces and project their outlines along X, Y or Z. This splits the solid into constant-section columns without changing its volume.
 - **Simplify holes to passages:** replace selected feature faces with explicit rectangular through-passages in one reversible operation. Define the passage axes, centers, sections and extents to retain structural openings.
 - **Heal geometry:** repair small/degenerate edges and faces, sew surfaces and rebuild solids.
-- **Sweep quads → hex:** select a planar source face and optionally its matching opposite face, set the source surface size and number of through-thickness layers. The source is meshed entirely with quads and swept to hexes. Two exact CAD Boolean differences check that this proposed extrusion matches the prepared solid before meshing. Transverse holes, bosses or variable sections must be prepared first. The current sweep supports one translated constant-section solid.
+- **Sweep quads → hex (Gmsh plugin):** select a planar source face and optionally its matching opposite face, set the source surface size and number of through-thickness layers. The source is meshed entirely with quads and swept to hexes. Two exact CAD Boolean differences check that this proposed extrusion matches the prepared solid before meshing. Transverse holes, bosses or variable sections must be prepared first. The current sweep supports one translated constant-section solid.
 - **Map prepared blocks:** mesh compatible six-face blocks with four-sided faces and matching curve divisions. Geometry preparation is explicit; this does not automatically decompose arbitrary solids.
-- **Sweep partitioned columns:** choose the sweep axis and set a layer count for each detected elevation interval. Adjacent columns share their quad mesh and layer interfaces, including where shorter columns end. The generated solids must match the prepared CAD exactly before meshing proceeds.
-- **Triangle, quad and tetrahedral methods:** mesh the prepared geometry. Quad generation rejects mixed element output. Both linear and quadratic elements are supported.
-- **STL:** displayed as discrete geometry, with triangle and tetrahedral meshing. STEP/BREP preparation and mapped or swept hexes require boundary-representation CAD.
+- **Sweep partitioned columns (Gmsh plugin):** choose the sweep axis and set a layer count for each detected elevation interval. Adjacent columns share their quad mesh and layer interfaces, including where shorter columns end. The generated solids must match the prepared CAD exactly before meshing proceeds.
+- **Triangle, quad and tetrahedral methods (Gmsh plugin):** mesh the prepared geometry. Quad generation rejects mixed element output. Both linear and quadratic elements are supported.
+- **STL (Gmsh plugin):** displayed as discrete geometry, with triangle and tetrahedral meshing. STEP/BREP preparation and mapped or swept hexes require boundary-representation CAD.
 
 Every generated CAD mesh is checked for requested element types, nonpositive Jacobians, non-manifold interfaces and face-connected components. Sweeps report minimum Jacobian and scaled Jacobian, with symmetric CAD difference volumes. Each set of bodies keeps its own mesh (**Meshes in the model**, in the Mesh step): a hex mesh of some solids, a shell mesh of some faces or sheets, side by side. A new mesh replaces, in one undo step, only the meshes covering any of the same solids or faces, and each can be removed on its own; nodes still referenced by other model definitions are retained. Element-based loads that would become dangling references block replacement.
 
@@ -263,7 +266,7 @@ Linear, nearest-neighbor and cubic interpolation act on temperatures before the 
 
 ## Scope and validation
 
-The mesh checker detects missing references, duplicate IDs/connectivity, degenerate or inverted linear cells, damaged midside connectivity and boundary topology issues. It is not a substitute for solver-specific quality checks. CAD-generated meshes additionally check first- and second-order Jacobians in Gmsh. Complete material/unit validity, all element formulations and full solver-deck completeness still need separate verification. Rendered curved elements use faceted tessellation.
+The mesh checker detects missing references, duplicate IDs/connectivity, degenerate or inverted linear cells, damaged midside connectivity and boundary topology issues. It is not a substitute for solver-specific quality checks. Meshes made by the Gmsh plugin are additionally checked for first- and second-order Jacobians in Gmsh; native mapped hexes and shells are checked by WebMesh. Complete material/unit validity, all element formulations and full solver-deck completeness still need separate verification. Rendered curved elements use faceted tessellation.
 
 Interactive scratch generation and pattern operations are capped at 500,000 nodes and 250,000 elements per generated operation. Large imported decks use the existing compact worker/typed-array rendering path. Browser memory and GPU capacity still determine practical limits.
 
@@ -278,7 +281,7 @@ The repository is source-ready and has no JavaScript build requirement:
 | `styles/editor.css` | Existing editor/card styles |
 | `app/workbench.js` | Workspace UI, docked editors and project orchestration |
 | `app/cad-workspace.js` | Prepare → Size → Mesh workspace: inferred actions, previews, Auto-fix, sizing and native mesh commits |
-| `cad_shell.py`, `quadmesh_bridge.py` | Shell meshing of CAD faces (edge-first quads through quadmesh, pads around holes, Gmsh triangles, midsurface and offset placement) and the quadmesh library loader |
+| `cad_shell.py`, `quadmesh_bridge.py` | Shell meshing of CAD faces (edge-first quads through quadmesh, pads around holes, triangles through the Gmsh plugin, midsurface and offset placement) and the quadmesh library loader |
 | `cad_sheets.py` | Sheets: midsurface and offset surfaces from solid faces, extend, join, edit; sheet records followed through every operation |
 | `app/cad-viewport.js` | CAD display, solid/face/edge/vertex picking with hover, per-entity colors, preview overlays and 3D labels |
 | `app/hex-mapping.js` | Mapped-block recognition, edge-count equations and integer solver, transfinite HEX8/HEX20 generation and quality |
@@ -290,13 +293,15 @@ The repository is source-ready and has no JavaScript build requirement:
 | `app/card-worker.js` | Readable parser/writer worker, wrapped as an uncalled factory for offline Blob-worker startup |
 | `app/nastran-schema.js` | Readable schema for card forms |
 | `vendor/three-runtime.js` | Bundled Three.js, controls, label renderer and environment loaders; preserved MIT notices |
-| `server.py` | Loopback HTTP server, bounded worker execution and Gmsh bridge |
+| `server.py` | Loopback HTTP server, bounded worker execution, and the health report of the CAD service and its optional plugin |
 | `cad_sessions.py` | Revisioned CAD snapshots, undo and prepared BREP export |
-| `cad_kernel.py` | Isolated OpenCASCADE preparation (slice, defeature, passages, projection, heal) and CAD display tessellation |
+| `cad_geom.py` | OpenCASCADE (OCP) geometry layer: tagged entities, model snapshot, queries, edits and Booleans with their history, display tessellation, BREP/STEP/IGES files |
+| `cad_kernel.py` | Isolated worker: preparation (slice, defeature, passages, projection, heal), topology and CAD display, and the hand-off of Gmsh tasks to the plugin |
+| `cad_gmsh_plugin.py` | The Gmsh plugin and the only module that imports Gmsh: tet and Gmsh quad/hex meshes, triangle shells, STL import |
 | `cad_mapping.py` | Exact classification data: oriented face loops, corner and dihedral angles, analytic surface and curve descriptors |
-| `cad_sweep.py` | Mapped/swept mesh generation, geometry equivalence and mesh validation |
-| `cad_controls.py` | Revision-specific local sizes, exact counts and shared-boundary constraints |
-| `cad_mesh_extrusion.py` | Mixed mapped/bulk quad profiles and conforming explicit hex extrusion |
+| `cad_sweep.py` | Gmsh plugin: mapped/swept mesh generation, geometry equivalence and mesh validation |
+| `cad_controls.py` | Gmsh plugin: revision-specific local sizes, exact counts and shared-boundary constraints |
+| `cad_mesh_extrusion.py` | Gmsh plugin: mixed mapped/bulk quad profiles and conforming explicit hex extrusion |
 
 `window.WebMeshAPI` is the boundary between the new workbench and the existing engine: state/ID queries, global-coordinate mesh reads, validated append, preview, import/export, selection, card editors and history controls. Changes emit `webmesh:change`; engine availability emits `webmesh:ready`. Keep solver data in the engine and geometry algorithms in the modeling module rather than duplicating them in UI code.
 
@@ -307,7 +312,7 @@ node --test tests/*.test.cjs
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Or use `npm test` and `npm run test:cad`. Mapped-meshing fixtures in `tests/fixtures/mapping` are real kernel topologies; regenerate them with `python3 tests/fixtures/mapping/make_fixtures.py`. `tests/cad-hex-workflow.test.cjs` starts the local server and runs the L-bracket (bore kept and removed) and corner bracket (holes removed by Auto-fix, holes kept by hand) workflows end to end; it is skipped when the Gmsh/OpenCASCADE kernel is not installed. JavaScript tests cover analytic mesh topology, volume/orientation, conforming quadratic midsides, patterns/welding, append validation, parser continuations, scalar interpolation and solver-card roundtrips. Python tests cover request validation, HTTP behavior and actual CAD-to-mesh integration. Gmsh integration cases are skipped when the required executable or Python bindings are unavailable. No browser automation package is required by these suites.
+Or use `npm test` and `npm run test:cad`. Mapped-meshing fixtures in `tests/fixtures/mapping` are real kernel topologies; regenerate them with `python3 tests/fixtures/mapping/make_fixtures.py`. `tests/cad-hex-workflow.test.cjs` starts the local server and runs the L-bracket (bore kept and removed) and corner bracket (holes removed by Auto-fix, holes kept by hand) workflows end to end; it is skipped when the OpenCASCADE kernel is not installed. JavaScript tests cover analytic mesh topology, volume/orientation, conforming quadratic midsides, patterns/welding, append validation, parser continuations, scalar interpolation and solver-card roundtrips. Python tests cover request validation, HTTP behavior and actual CAD-to-mesh integration. Cases that need the Gmsh plugin are skipped when its executable or Python bindings are unavailable, and `WEBMESH_BLOCK_GMSH=1` runs the whole suite as if it were not installed (the core's tests all run, and one of them runs an import, a defeature and a shell mesh with `import gmsh` made to fail). OpenCASCADE's and Gmsh's builds must not share a process, so a test that uses Gmsh directly runs it in a subprocess. `tests/test_cad_parity.py` holds results recorded from the earlier Gmsh-based kernel (counts, areas and volumes of every example, fifteen preparation operations, shell meshes) which the OpenCASCADE kernel reproduces. No browser automation package is required by these suites.
 
 ## Historical release notes
 

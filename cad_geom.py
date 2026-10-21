@@ -1174,8 +1174,6 @@ class _Logger:
 class Kernel:
     """The module object: what ``import gmsh`` provides, for the geometry subset."""
 
-    native = True  # the OpenCASCADE kernel itself, not Gmsh
-
     def __init__(self):
         self.registry = Registry()
         self.option = _Option()

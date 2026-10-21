@@ -58,14 +58,13 @@ class PluginBoundaryTests(unittest.TestCase):
         self.assertEqual(report["topologies"], ["hex"])
         self.assertTrue(any("Gmsh plugin" in note for note in report["notes"]))
         self.assertTrue({"slice", "defeature", "shell", "mapped", "join"} <= set(report["cad"]["operations"]))
-        if cad_kernel.backend() == "occ":
-            self.assertTrue(report["cad"]["available"])
-            self.assertIn("OpenCASCADE", report["cad"]["kernel"])
+        self.assertTrue(report["cad"]["available"])
+        self.assertIn("OpenCASCADE", report["cad"]["kernel"])
         if cad_gmsh_plugin.module_available():
             self.assertTrue(server.health(server.find_gmsh())["plugins"]["gmsh"]["available"])
 
 
-@unittest.skipUnless(KERNEL and cad_kernel.backend() == "occ", "the OpenCASCADE kernel runs the core without Gmsh")
+@unittest.skipUnless(KERNEL, "the OpenCASCADE kernel is not available")
 class WithoutGmshTests(unittest.TestCase):
     """A server whose Gmsh plugin is blocked: the core answers, Gmsh-only requests are refused with the reason."""
 
@@ -129,7 +128,7 @@ class WithoutGmshTests(unittest.TestCase):
             cad_kernel.execute({"action": "mesh", "input": str(folder / "block.step"), "output": None, "topology": "tet", "size": 10})
 
 
-@unittest.skipUnless(cad_kernel.backend() == "occ", "the core's independence from Gmsh is a property of the OpenCASCADE backend")
+@unittest.skipUnless(KERNEL, "the OpenCASCADE kernel is not available")
 class CoreWorksWhenGmshCannotBeImportedTests(unittest.TestCase):
     def test_import_prepare_shell_and_preview_with_the_gmsh_import_made_to_fail(self):
         script = """

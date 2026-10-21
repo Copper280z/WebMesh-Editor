@@ -109,19 +109,15 @@ def find_gmsh(explicit=None):
 
 def cad_kernel_status():
     """Whether the OpenCASCADE kernel (OCP) is installed, without loading it into this process."""
-    import cad_kernel
-    backend = cad_kernel.backend()
-    if backend == "gmsh":
-        return {"available": cad_gmsh_plugin.module_available(), "kernel": "Gmsh's OpenCASCADE wrapper (comparison backend)", "backend": backend}
     if importlib.util.find_spec("OCP") is None:
-        return {"available": False, "kernel": None, "backend": backend,
+        return {"available": False, "kernel": None,
                 "note": "OpenCASCADE's Python binding is missing: python3 -m pip install cadquery-ocp"}
     try:
         from importlib.metadata import version
         number = version("cadquery-ocp")
     except Exception:
         number = None
-    return {"available": True, "kernel": "OpenCASCADE" + (f" (OCP {number})" if number else ""), "backend": backend}
+    return {"available": True, "kernel": "OpenCASCADE" + (f" (OCP {number})" if number else "")}
 
 
 def health(gmsh):
@@ -397,7 +393,7 @@ def watch_process(process, directory, until=None, deadline=None):
     released = False
     try:
         while True:
-            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG), ("worker-result.json", MAX_MESH), ("early-result.json", MAX_MESH)):
+            for filename, maximum in (("mesh.msh", MAX_MESH), ("gmsh.log", MAX_LOG), ("worker.log", MAX_LOG), ("worker-result.json", MAX_MESH), ("early-result.json", MAX_MESH)):
                 try:
                     size = (directory / filename).stat().st_size
                 except FileNotFoundError:
@@ -496,7 +492,7 @@ class WarmWorkers:
     def take(self, request_path, plugin=False):
         if plugin:
             # A Gmsh task must not share a process with OpenCASCADE (OCP): a fresh interpreter, no preloaded libraries.
-            with open(request_path.parent / "gmsh.log", "ab") as log:
+            with open(request_path.parent / "worker.log", "ab") as log:
                 return subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), str(request_path)], cwd=request_path.parent,
                                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         with self.lock:
@@ -547,7 +543,7 @@ def run_cad_worker(request, source, output, early=None, started=None):
             request["early"] = str(early_path)
         request_path = directory / "request.json"
         request_path.write_text(json.dumps(request, allow_nan=False))
-        log_path = directory / "gmsh.log"
+        log_path = directory / "worker.log"
         log_path.touch()
         process = WARM.take(request_path, plugin=cad_gmsh_plugin.handles(request))
         if started is not None:

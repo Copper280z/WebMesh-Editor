@@ -49,7 +49,7 @@ def binding_folder():
 
 def module_available():
     """Whether the Gmsh Python module can be imported (without importing it)."""
-    if blocked():
+    if blocked() or sys.modules.get("gmsh", 1) is None:  # None: an import hook has made 'import gmsh' fail
         return False
     return importlib.util.find_spec("gmsh") is not None or binding_folder() is not None
 

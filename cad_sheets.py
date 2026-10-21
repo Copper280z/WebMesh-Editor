@@ -21,32 +21,32 @@ OPERATIONS = {"surface", "extend", "join", "split-sheets", "sheet"}
 protected = []
 
 
-def _span(gmsh):
-    b = gmsh.model.getBoundingBox(-1, -1)
+def _span(geom):
+    b = geom.model.getBoundingBox(-1, -1)
     return max(math.sqrt(sum((b[i + 3] - b[i]) ** 2 for i in range(3))), 1e-9)
 
 
-def _loose(gmsh):
-    return {int(tag) for _, tag in gmsh.model.getEntities(2) if not len(gmsh.model.getAdjacencies(2, tag)[0])}
+def _loose(geom):
+    return {int(tag) for _, tag in geom.model.getEntities(2) if not len(geom.model.getAdjacencies(2, tag)[0])}
 
 
-def signature(gmsh, face):
-    return np.array(gmsh.model.occ.getCenterOfMass(2, face), dtype=float), float(gmsh.model.occ.getMass(2, face))
+def signature(geom, face):
+    return np.array(geom.model.occ.getCenterOfMass(2, face), dtype=float), float(geom.model.occ.getMass(2, face))
 
 
 def _same(a, b, tolerance):
     return float(np.linalg.norm(a[0] - b[0])) <= tolerance and abs(a[1] - b[1]) <= max(abs(b[1]), 1.0) * 1e-6
 
 
-def capture(gmsh, records):
+def capture(geom, records):
     """Each record with its face's signature, to find the face again later."""
-    return [(dict(record), signature(gmsh, record["face"])) for record in records]
+    return [(dict(record), signature(geom, record["face"])) for record in records]
 
 
-def rematch(gmsh, captured):
+def rematch(geom, captured):
     """The records with their faces' current tags; a record whose face is gone is dropped."""
-    tolerance = _span(gmsh) * 1e-6 * 10
-    free = {face: signature(gmsh, face) for face in _loose(gmsh)}
+    tolerance = _span(geom) * 1e-6 * 10
+    free = {face: signature(geom, face) for face in _loose(geom)}
     out, taken = [], set()
     for record, old in captured:
         match = next((face for face, now in free.items() if face not in taken and _same(now, old, tolerance)), None)
@@ -56,29 +56,29 @@ def rematch(gmsh, captured):
     return out
 
 
-def protect(gmsh, records):
-    protected[:] = [signature(gmsh, r["face"]) for r in records]
+def protect(geom, records):
+    protected[:] = [signature(geom, r["face"]) for r in records]
 
 
-def is_sheet(gmsh, face):
+def is_sheet(geom, face):
     """True for a free face that is one of the protected sheets."""
-    if not protected or len(gmsh.model.getAdjacencies(2, face)[0]):
+    if not protected or len(geom.model.getAdjacencies(2, face)[0]):
         return False
-    tolerance = _span(gmsh) * 1e-6 * 10
+    tolerance = _span(geom) * 1e-6 * 10
     try:
-        now = signature(gmsh, face)
+        now = signature(geom, face)
     except Exception:
         return False
     return any(_same(now, old, tolerance) for old in protected)
 
 
-def clean(gmsh, raw):
+def clean(geom, raw):
     """Sheet records sent with a request, keeping those whose face is a free face of this model."""
     if raw is None:
         return None
     if not isinstance(raw, list) or len(raw) > 10_000:
         raise ValueError("Sheets must be a list of face records.")
-    free, out = _loose(gmsh), []
+    free, out = _loose(geom), []
     for item in raw:
         if not isinstance(item, dict) or type(item.get("face")) is not int or type(item.get("sheet")) is not int or item["sheet"] < 1:
             raise ValueError("Each sheet names its face and sheet number.")
@@ -94,25 +94,25 @@ def clean(gmsh, raw):
     return out
 
 
-def discovered(gmsh, open_cut, step):
+def discovered(geom, open_cut, step):
     """Sheets of an imported file: its free faces, except the open cuts preparation leaves inside solids."""
     out = []
-    for face in sorted(_loose(gmsh)):
-        cut = open_cut(gmsh, face, step)
+    for face in sorted(_loose(geom)):
+        cut = open_cut(geom, face, step)
         if cut and cut[1]:
             continue
         out.append({"face": face, "sheet": len(out) + 1, "thickness": None, "offset": 0.0, "label": f"Imported surface {len(out) + 1}"})
     return out
 
 
-def surface(gmsh, face):
+def surface(geom, face):
     """The face's analytic surface, fitted from its shape (see cad_mapping)."""
     from cad_mapping import _surface
-    return _surface(SimpleNamespace(model=gmsh.model, span=_span(gmsh)), face, gmsh.model.getType(2, face))
+    return _surface(SimpleNamespace(model=geom.model, span=_span(geom)), face, geom.model.getType(2, face))
 
 
-def _sample(gmsh, face):
-    model = gmsh.model
+def _sample(geom, face):
+    model = geom.model
     lower, upper = model.getParametrizationBounds(2, face)
     for a in (0.5, 0.3, 0.7, 0.15, 0.85):
         for b in (0.5, 0.3, 0.7, 0.15, 0.85):
@@ -123,14 +123,14 @@ def _sample(gmsh, face):
     raise ValueError(f"Face {face} has no interior point to measure from.")
 
 
-def _normal_at(gmsh, face, point):
+def _normal_at(geom, face, point):
     """The face's unit normal at the point of it nearest `point`."""
-    uv = gmsh.model.getParametrization(2, face, list(point))
-    normal = np.array(gmsh.model.getNormal(face, list(uv)), dtype=float)
+    uv = geom.model.getParametrization(2, face, list(point))
+    normal = np.array(geom.model.getNormal(face, list(uv)), dtype=float)
     return normal / (np.linalg.norm(normal) or 1.0)
 
 
-def _outward(gmsh, face, normal):
+def _outward(geom, face, normal):
     """The face normal pointing out of the solid the face bounds: Gmsh's face normal already
     does (a sheet: its own normal)."""
     return normal
@@ -143,28 +143,28 @@ def _radial(axis, origin, point):
     return vector / (np.linalg.norm(vector) or 1.0), foot
 
 
-def _scale_about_axis(gmsh, dimtags, origin, axis, factor):
+def _scale_about_axis(geom, dimtags, origin, axis, factor):
     """Scale distances from an axis (a cylinder's radius) and keep positions along it."""
     p = np.outer(axis, axis)
     a = p + factor * (np.eye(3) - p)
     b = (1 - factor) * (np.eye(3) - p) @ origin
-    gmsh.model.occ.affineTransform(dimtags, [*a[0], b[0], *a[1], b[1], *a[2], b[2]])
+    geom.model.occ.affineTransform(dimtags, [*a[0], b[0], *a[1], b[1], *a[2], b[2]])
 
 
 def _next_sheet(records):
     return max((r["sheet"] for r in records), default=0) + 1
 
 
-def make_surface(gmsh, operation, records):
+def make_surface(geom, operation, records):
     """A sheet between two faces (Midway, or on either one) or from one face (offset, with a thickness)."""
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     faces = operation.get("faces")
     existing = {int(tag) for _, tag in model.getEntities(2)}
     if not isinstance(faces, list) or len(faces) not in (1, 2) or any(type(f) is not int or f not in existing for f in faces) or len(set(faces)) != len(faces):
         raise ValueError("Pick two faces for a midsurface, or one face to copy or offset.")
-    tolerance = _span(gmsh) * 1e-6
+    tolerance = _span(geom) * 1e-6
     place = operation.get("place", "mid" if len(faces) == 2 else "offset")
-    kinds = [surface(gmsh, f) for f in faces]
+    kinds = [surface(geom, f) for f in faces]
     if len(faces) == 2:
         if place not in ("mid", "first", "second"):
             raise ValueError("Place a midsurface midway, on the first face or on the second.")
@@ -190,7 +190,7 @@ def make_surface(gmsh, operation, records):
                 raise ValueError(f"Faces {a} and {b} are the same cylinder.")
             thickness, rm = abs(ra - rb), (ra + rb) / 2
             middle = lambda point: _radial(axis, oa, point)[1] + rm * _radial(axis, oa, point)[0]  # noqa: E731
-            move = lambda dimtags: _scale_about_axis(gmsh, dimtags, oa, axis, rm / ra)  # noqa: E731
+            move = lambda dimtags: _scale_about_axis(geom, dimtags, oa, axis, rm / ra)  # noqa: E731
         elif sa["kind"] == sb["kind"] == "sphere":
             ca, cb = np.array(sa["center"]), np.array(sb["center"])
             if float(np.linalg.norm(ca - cb)) > tolerance * 10:
@@ -216,8 +216,8 @@ def make_surface(gmsh, operation, records):
             raise ValueError("Enter a finite offset.")
         if thickness is not None and (isinstance(thickness, bool) or not isinstance(thickness, (int, float)) or not math.isfinite(thickness) or thickness <= 0):
             raise ValueError("Enter a positive thickness, or leave it unknown.")
-        point, normal = _sample(gmsh, a)
-        out = _outward(gmsh, a, normal)
+        point, normal = _sample(geom, a)
+        out = _outward(geom, a, normal)
         copy = occ.copy([(2, a)])
         if offset:
             if sa["kind"] == "plane":
@@ -228,7 +228,7 @@ def make_surface(gmsh, operation, records):
                 radius = float(sa["radius"]) + offset * float(np.dot(out, u))
                 if radius <= tolerance:
                     raise ValueError("The offset would shrink the cylinder to nothing.")
-                _scale_about_axis(gmsh, copy, origin, axis, radius / float(sa["radius"]))
+                _scale_about_axis(geom, copy, origin, axis, radius / float(sa["radius"]))
             elif sa["kind"] == "sphere":
                 center = np.array(sa["center"])
                 radius = float(sa["radius"]) + offset * float(np.dot(out, (point - center) / (np.linalg.norm(point - center) or 1.0)))
@@ -250,10 +250,10 @@ def make_surface(gmsh, operation, records):
     if len(faces) == 1:
         # Along the copy's own normal: a free face keeps its surface's orientation, which
         # can be opposite to the one the face had in its solid.
-        sheet_normal = _normal_at(gmsh, face, point + out * offset)
+        sheet_normal = _normal_at(geom, face, point + out * offset)
         zoffset = 0.0 if behind is None else -behind * float(np.sign(np.dot(out, sheet_normal)))
     else:
-        point, normal = _sample(gmsh, face)
+        point, normal = _sample(geom, face)
         zoffset = float(np.dot(middle(point) - point, normal))
     if abs(zoffset) < tolerance:
         zoffset = 0.0
@@ -263,8 +263,8 @@ def make_surface(gmsh, operation, records):
     return records
 
 
-def _line_ends(gmsh, edge):
-    model = gmsh.model
+def _line_ends(geom, edge):
+    model = geom.model
     lower, upper = model.getParametrizationBounds(1, edge)
     points = np.array(model.getValue(1, edge, [lower[0], (lower[0] + upper[0]) / 2, upper[0]]), dtype=float).reshape(3, 3)
     chord = points[2] - points[0]
@@ -274,11 +274,11 @@ def _line_ends(gmsh, edge):
     return points[0], points[2]
 
 
-def _inside_flat(gmsh, face, point, normal):
+def _inside_flat(geom, face, point, normal):
     """Whether a point in a flat face's plane lies inside the face (holes excluded), by
     counting crossings of the face's sampled edges: Gmsh's parametric test can say
     inside for points well outside a copied face."""
-    model = gmsh.model
+    model = geom.model
     u = np.cross(normal, np.eye(3)[int(np.argmin(np.abs(normal)))])
     u /= np.linalg.norm(u)
     w = np.cross(normal, u)
@@ -295,20 +295,20 @@ def _inside_flat(gmsh, face, point, normal):
     return crossings % 2 == 1
 
 
-def extend(gmsh, operation, records):
+def extend(geom, operation, records):
     """Extend straight edges of flat sheets, in their own plane, until they meet a flat target face."""
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     edges, target = operation.get("edges"), operation.get("target")
     sheet_faces = {r["face"]: r for r in records}
     if type(target) is not int or (2, target) not in model.getEntities(2):
         raise ValueError("Pick the face to extend to.")
     if not isinstance(edges, list) or not edges or any(type(e) is not int or (1, e) not in model.getEntities(1) for e in edges):
         raise ValueError("Pick sheet edges to extend.")
-    goal = surface(gmsh, target)
+    goal = surface(geom, target)
     if goal["kind"] != "plane":
         raise ValueError(f"Face {target} is not flat: edges extend to flat faces only, for now.")
     ot, nt = np.array(goal["origin"]), np.array(goal["normal"])
-    tolerance = _span(gmsh) * 1e-6
+    tolerance = _span(geom) * 1e-6
     strips = {}
     for edge in edges:
         owners = [int(f) for f in model.getAdjacencies(1, edge)[0] if int(f) in sheet_faces]
@@ -317,8 +317,8 @@ def extend(gmsh, operation, records):
         face = owners[0]
         if face == target:
             raise ValueError("An edge cannot be extended to its own face.")
-        own = surface(gmsh, face)
-        ends = _line_ends(gmsh, edge)
+        own = surface(geom, face)
+        ends = _line_ends(geom, edge)
         if own["kind"] != "plane" or ends is None:
             raise ValueError(f"Edge {edge} is not a straight edge of a flat sheet.")
         p0, p1 = ends
@@ -327,7 +327,7 @@ def extend(gmsh, operation, records):
         direction = np.cross(ns, tangent)
         middle = (p0 + p1) / 2
         probe = middle + direction * max(tolerance * 1e3, float(np.linalg.norm(p1 - p0)) * 1e-3)
-        if _inside_flat(gmsh, face, probe, ns):
+        if _inside_flat(geom, face, probe, ns):
             direction = -direction
         along = float(np.dot(direction, nt))
         if abs(along) < 1e-9:
@@ -359,9 +359,9 @@ def extend(gmsh, operation, records):
     return records
 
 
-def join(gmsh, operation, records):
+def join(geom, operation, records):
     """Fuse sheets where they meet, so every junction becomes an edge they share."""
-    occ = gmsh.model.occ
+    occ = geom.model.occ
     chosen = operation.get("faces")
     faces = [r["face"] for r in records] if not chosen else chosen
     if not isinstance(faces, list) or any(type(f) is not int for f in faces) or not set(faces) <= {r["face"] for r in records}:
@@ -382,9 +382,9 @@ def join(gmsh, operation, records):
     return records
 
 
-def _drop(gmsh, faces):
+def _drop(geom, faces):
     """Remove faces, then the edges and points no other face uses."""
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     boundary = {abs(int(t)) for f in faces for _, t in model.getBoundary([(2, f)], oriented=False)}
     occ.remove([(2, f) for f in faces])
     occ.synchronize()
@@ -394,10 +394,10 @@ def _drop(gmsh, faces):
         occ.synchronize()
 
 
-def split(gmsh, operation, records):
+def split(geom, operation, records):
     """Split sheets along a plane: each sheet face it crosses becomes pieces that share
     the cut as an edge, a control curve the mesh follows (where a brace meets a floor)."""
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     plane = operation.get("plane")
     if not isinstance(plane, dict):
         raise ValueError("Split needs a plane: an origin and a normal.")
@@ -410,11 +410,11 @@ def split(gmsh, operation, records):
     chosen = operation.get("faces") or list(by_face)
     if not isinstance(chosen, list) or any(type(f) is not int or f not in by_face for f in chosen):
         raise ValueError("Split works on sheets: pick sheet faces, or none for all of them.")
-    tolerance = _span(gmsh) * 1e-6
+    tolerance = _span(geom) * 1e-6
     targets = []
     for face in sorted(set(chosen)):
         # A sheet lying in the plane is not split by it.
-        own = surface(gmsh, face)
+        own = surface(geom, face)
         if own["kind"] == "plane" and abs(abs(float(np.dot(own["normal"], normal))) - 1) < 1e-9 and abs(float(np.dot(np.array(own["origin"]) - origin, normal))) < tolerance:
             continue
         b = model.getBoundingBox(2, face)
@@ -442,7 +442,7 @@ def split(gmsh, operation, records):
     kept = {t for group in pieces.values() for t in group}
     leftovers = [int(t) for d, t in mapping[len(targets)] if d == 2 and int(t) not in kept]
     if leftovers:
-        _drop(gmsh, leftovers)
+        _drop(geom, leftovers)
     out = [r for r in records if r["face"] not in pieces]
     for face, group in pieces.items():
         out.extend({**by_face[face], "face": t} for t in group)
@@ -452,10 +452,10 @@ def split(gmsh, operation, records):
     return records
 
 
-def edit(gmsh, operation, records):
+def edit(geom, operation, records):
     """Change a sheet's thickness, offset or name, or remove it, or some of its faces
     (pieces a join split off, such as the overhang past a junction)."""
-    model, occ = gmsh.model, gmsh.model.occ
+    model, occ = geom.model, geom.model.occ
     sheet = operation.get("sheet")
     mine = [r for r in records if r["sheet"] == sheet]
     if type(sheet) is not int or not mine:
@@ -467,7 +467,7 @@ def edit(gmsh, operation, records):
             if not isinstance(faces, list) or not faces or any(type(f) is not int or f not in own for f in faces):
                 raise ValueError(f"Pick faces of sheet {sheet} to remove.")
             mine = [r for r in mine if r["face"] in faces]
-        _drop(gmsh, [r["face"] for r in mine])
+        _drop(geom, [r["face"] for r in mine])
         gone = {r["face"] for r in mine}
         records[:] = [r for r in records if r["face"] not in gone]
         return records
@@ -491,6 +491,6 @@ def edit(gmsh, operation, records):
     return records
 
 
-def apply(gmsh, operation, records):
+def apply(geom, operation, records):
     kind = operation.get("kind")
-    return {"surface": make_surface, "extend": extend, "join": join, "split-sheets": split, "sheet": edit}[kind](gmsh, operation, records)
+    return {"surface": make_surface, "extend": extend, "join": join, "split-sheets": split, "sheet": edit}[kind](geom, operation, records)
