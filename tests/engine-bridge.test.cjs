@@ -325,3 +325,47 @@ test('card synchronization removes replaced quadratic shell records from exporte
   vm.runInContext(source.slice(start, end), context);
   assert.deepEqual(plain(workerModel.cardStream.map(card => card.name + ':' + card.tokens[1])), ['CQUAD8:2', 'CTRIA6:4', 'GRID:20', 'OTHER:1']);
 });
+
+const quad = (first, eid, pid = 1, extra = {}) => ({
+  nodes: Array.from({ length: 4 }, (_, i) => ({ id: first + i, x: i % 2, y: i > 1 ? 1 : 0, z: first })),
+  elements: [{ id: eid, pid, type: 'CQUAD4', nodes: [first, first + 1, first + 3, first + 2], ...extra }]
+});
+
+test('meshes of one CAD source stay side by side; one append can replace several of them', async () => {
+  const c = fixture();
+  await c.workbenchAppendMesh(quad(1, 1), { ownerTag: 'cad#1' });
+  await c.workbenchAppendMesh(quad(11, 2), { ownerTag: 'cad#2', replaceOwner: true });
+  assert.deepEqual(plain(c.workbenchGetMesh().elements.map(row => row.ownerTag)), ['cad#1', 'cad#2'], 'a new owner does not replace another');
+  await c.workbenchAppendMesh(quad(21, 3), { ownerTag: 'cad#2', replaceOwner: true, replaceOwners: ['cad#1'] });
+  assert.deepEqual(plain(c.workbenchGetMesh().elements.map(row => [row.id, row.ownerTag])), [[3, 'cad#2']]);
+  assert.equal(c.model.nodes.size, 5, 'both replaced meshes lose their nodes; the unrelated GRID stays');
+  assert.equal(c.historyManager.stack.length, 3, 'the double replacement is one history step');
+});
+
+test('removing one CAD mesh takes its elements and unused nodes in one step and leaves the others', async () => {
+  const c = fixture();
+  await c.workbenchAppendMesh(quad(1, 1), { ownerTag: 'cad#1' });
+  await c.workbenchAppendMesh(quad(11, 2), { ownerTag: 'cad#2' });
+  const left = await c.workbenchRemoveMeshOwner('cad#1');
+  assert.deepEqual(plain(left.elements), []);
+  assert.deepEqual(plain(c.workbenchGetMesh().elements.map(row => row.ownerTag)), ['cad#2']);
+  assert.equal(c.model.nodes.size, 5);
+  assert.equal(c.historyManager.stack.length, 3);
+  await c.workbenchRemoveMeshOwner('cad#1');
+  assert.equal(c.historyManager.stack.length, 3, 'removing an empty owner records nothing');
+  await assert.rejects(c.workbenchAppendMesh({ nodes: [], elements: [] }, { ownerTag: 'cad#2' }), /nonempty mesh/);
+});
+
+test('sheets of several thicknesses get one PSHELL thickness each, and offset shells keep ZOFFS', async () => {
+  const c = fixture();
+  const sheets = quad(1, 1, 4, { zoffs: -1.5 });
+  sheets.nodes.push(...quad(11, 2).nodes); sheets.elements.push({ ...quad(11, 2, 5).elements[0] });
+  await c.workbenchAppendMesh(sheets, { ownerTag: 'cad#3', thickness: 1, thicknessByProperty: { 4: 3, 5: 4 } });
+  assert.deepEqual([c.model.properties.get(4).t, c.model.properties.get(5).t], [3, 4]);
+  assert.equal(c.model.elems.quad.find(e => e.eid === 1).zoffs, -1.5);
+  assert.equal('zoffs' in c.model.elems.quad.find(e => e.eid === 2), false);
+  // Remeshing with new thicknesses updates the reused properties.
+  const again = quad(21, 3, 4); again.nodes.push(...quad(31, 4).nodes); again.elements.push({ ...quad(31, 4, 5).elements[0] });
+  await c.workbenchAppendMesh(again, { ownerTag: 'cad#3', replaceOwner: true, thicknessByProperty: { 4: 2.5, 5: 6 } });
+  assert.deepEqual([c.model.properties.get(4).t, c.model.properties.get(5).t], [2.5, 6]);
+});

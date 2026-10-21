@@ -308,14 +308,6 @@ def _area(points):
     return 0.5 * float(np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1]))
 
 
-def _solid_signs(gmsh):
-    signs = {}
-    for _, volume in gmsh.model.getEntities(3):
-        for _, tag in gmsh.model.getBoundary([(3, volume)], oriented=True):
-            signs.setdefault(abs(int(tag)), 1 if tag > 0 else -1)
-    return signs
-
-
 def _quality(points):
     """Minimum scaled Jacobian of a 3D quad (corner sines about its mean normal),
     or of a triangle (scaled so an equilateral one is 1)."""
@@ -543,7 +535,7 @@ def _pad_square(hole, pad):
     return square
 
 
-def mesh_face(gmsh, face, edges, mesher, size, per_circle, sign, pads=None):
+def mesh_face(gmsh, face, edges, mesher, size, per_circle, pads=None):
     """Quads of one face: (boundary-mapped node ids, new interior nodes, quads, report)."""
     model = gmsh.model
     loops = oriented_loops(gmsh, face)
@@ -622,8 +614,25 @@ def mesh_face(gmsh, face, edges, mesher, size, per_circle, sign, pads=None):
         uv = np.column_stack([nodes2d[interior, 0] / su, nodes2d[interior, 1] / sv])
         new_points = np.array(model.getValue(2, face, uv.ravel().tolist()), dtype=float).reshape(-1, 3)
     return {"mapped": mapped, "interior": interior, "points": new_points, "uv": nodes2d / [su, sv], "quads": result["quads"],
-            "valid": result["valid"], "issues": result["issues"], "summary": result["summary"], "sign": sign, "mesher": used,
+            "valid": result["valid"], "issues": result["issues"], "summary": result["summary"], "mesher": used,
             "pad_points": pad_points, "pad_quads": pad_quads}
+
+
+def _properties(faces, request):
+    """Each face's property number and element offset. A sheet's thickness and
+    offset set its group, so sheets of one thickness share a PSHELL; other faces
+    share one (or, with pidPerFace, every face gets its own)."""
+    sheets = {r["face"]: r for r in request.get("sheets") or []}
+    per_face = request.get("pidPerFace", False)
+    pid_of, thickness, groups = {}, {}, {}
+    for face in faces:
+        record = sheets.get(face)
+        key = face if per_face else None if record is None else (record["thickness"], record["offset"])
+        pid_of[face] = groups.setdefault(key, len(groups) + 1)
+        if record is not None and record["thickness"] is not None:
+            thickness[pid_of[face]] = record["thickness"]
+    offsets = {face: sheets[face]["offset"] for face in faces if face in sheets and sheets[face]["offset"]}
+    return pid_of, thickness, offsets
 
 
 def _select_faces(gmsh, request):
@@ -651,7 +660,6 @@ def quad_shell(gmsh, request):
         raise ValueError(f"About {area / (size * size):,.0f} elements exceed the {MAX_ELEMENTS:,} limit. Raise the element size.")
     counts, sizes = _controls(request)
     edges = Edges(gmsh, size, per_circle, counts, sizes, even_edges=mesher == "recombined")
-    signs = _solid_signs(gmsh)
     loops_of, broken = {}, {}
     for f in faces:
         try:
@@ -672,14 +680,14 @@ def quad_shell(gmsh, request):
     for c in used:
         for node, point in zip(edges.ids[c], edges.points[c]):
             coordinates[node] = point
-    elements, reports, pid_of = [], [], {}
-    per_face = request.get("pidPerFace", False)
+    elements, reports = [], []
+    pid_of, _, offsets = _properties(faces, request)
     for face in faces:
         if face in broken:
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [broken[face]]})
             continue
         try:
-            meshed = mesh_face(gmsh, face, edges, mesher, size, per_circle, signs.get(face, 1), pads_of.get(face))
+            meshed = mesh_face(gmsh, face, edges, mesher, size, per_circle, pads_of.get(face))
         except ValueError as exc:
             reports.append({"face": face, "quads": 0, "valid": False, "issues": [str(exc)]})
             continue
@@ -688,16 +696,19 @@ def quad_shell(gmsh, request):
             local[node] = edges.new()
             coordinates[local[node]] = point
         coordinates.update(meshed["pad_points"])
-        pid = pid_of.setdefault(face, len(pid_of) + 1) if per_face else 1
+        pid = pid_of[face]
         count = 0
         quads = [([local[n] for n in quad], np.mean(meshed["uv"][list(quad)], axis=0), None) for quad in meshed["quads"]]
         quads += [(q["nodes"], q["uv"], q["pad"]) for q in meshed["pad_quads"]]
         for ids, centroid, pad in quads:
             corners = [coordinates[n] for n in ids]
-            normal = np.array(model.getNormal(face, list(centroid)), dtype=float) * meshed["sign"]
+            # Gmsh's face normal already points out of the solid (a sheet: its own normal).
+            normal = np.array(model.getNormal(face, list(centroid)), dtype=float)
             if np.dot(np.cross(corners[2] - corners[0], corners[3] - corners[1]), normal) < 0:
                 ids = [ids[0], ids[3], ids[2], ids[1]]
             element = {"type": "CQUAD4", "pid": pid, "nodes": ids, "face": face}
+            if face in offsets:
+                element["zoffs"] = offsets[face]  # the element normal follows the sheet's
             if pad is not None:
                 element["pad"] = pad
             elements.append(element)
@@ -727,9 +738,8 @@ def tri_shell(gmsh, request):
     model.mesh.generate(2)
     tags, coords, _ = model.mesh.getNodes()
     coordinates = {int(t): np.array(coords[3 * i:3 * i + 3]) for i, t in enumerate(tags)}
-    signs = _solid_signs(gmsh)
     elements, reports = [], []
-    per_face = request.get("pidPerFace", False)
+    pid_of, _, offsets = _properties(faces, request)
     for index, face in enumerate(faces):
         types, _, nodes = model.mesh.getElements(2, face)
         count = 0
@@ -740,10 +750,10 @@ def tri_shell(gmsh, request):
                 ids = [int(n) for n in connectivity[k:k + 3]]
                 p = [coordinates[n] for n in ids]
                 uv = model.getParametrization(2, face, np.mean(p, axis=0).tolist())
-                normal = np.array(model.getNormal(face, list(uv)), dtype=float) * signs.get(face, 1)
+                normal = np.array(model.getNormal(face, list(uv)), dtype=float)
                 if np.dot(np.cross(p[1] - p[0], p[2] - p[0]), normal) < 0:
                     ids = [ids[0], ids[2], ids[1]]
-                elements.append({"type": "CTRIA3", "pid": index + 1 if per_face else 1, "nodes": ids, "face": face})
+                elements.append({"type": "CTRIA3", "pid": pid_of[face], "nodes": ids, "face": face, **({"zoffs": offsets[face]} if face in offsets else {})})
                 count += 1
         reports.append({"face": face, "quads": count, "valid": count > 0, "issues": [] if count else ["Gmsh produced no triangles."]})
     used = {n for e in elements for n in e["nodes"]}
@@ -802,7 +812,7 @@ def place(gmsh, elements, coordinates, request):
         # Along the surface normal of the faces each node lies on (averaged
         # where faces meet), so an offset of a cylinder stays a cylinder.
         offset = float(request["offset"])
-        model, signs = gmsh.model, _solid_signs(gmsh)
+        model = gmsh.model
         faces_of = {}
         for element in elements:
             for n in element["nodes"]:
@@ -812,7 +822,7 @@ def place(gmsh, elements, coordinates, request):
             total = np.zeros(3)
             for face in sorted(faces_of[n]):
                 uv = model.getParametrization(2, face, list(p))
-                normal = np.array(model.getNormal(face, list(uv)), dtype=float) * signs.get(face, 1)
+                normal = np.array(model.getNormal(face, list(uv)), dtype=float)
                 if np.dot(normal, fallback[n]) < 0:
                     normal = -normal
                 total += normal
@@ -822,7 +832,7 @@ def place(gmsh, elements, coordinates, request):
     raise ValueError("Place the shell on the faces, at the midsurface, or at an offset.")
 
 
-def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, pads=None):
+def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, pads=None, request=None):
     # Each mesh edge bounds two elements, or one on the rim of the chosen faces.
     uses = {}
     for element in elements:
@@ -845,7 +855,8 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
     ordered = sorted(coordinates)
     renumber = {old: new for new, old in enumerate(ordered, start=1)}
     nodes = [{"id": renumber[n], "x": float(coordinates[n][0]), "y": float(coordinates[n][1]), "z": float(coordinates[n][2])} for n in ordered]
-    out = [{"id": i, "type": e["type"], "pid": e["pid"], "nodes": [renumber[n] for n in e["nodes"]]} for i, e in enumerate(elements, start=1)]
+    out = [{"id": i, "type": e["type"], "pid": e["pid"], "nodes": [renumber[n] for n in e["nodes"]], **({"zoffs": e["zoffs"]} if "zoffs" in e else {})}
+           for i, e in enumerate(elements, start=1)]
     quality = {"elements": len(out), "nodes": len(nodes), "freeEdges": free, "nonManifoldEdges": nonmanifold,
                "minScaledJacobian": min(qualities) if qualities else None,
                "meanScaledJacobian": float(np.mean(qualities)) if qualities else None,
@@ -853,7 +864,9 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
                "oddEdges": sorted(edges.odd) if edges else [],
                "failedFaces": [r["face"] for r in reports if not r["quads"]], "placement": placed or {"placement": "surface"},
                "pads": pads or []}
+    _, by_property, _ = _properties(faces, request) if request is not None else ({}, {}, {})
     return {"mesh": {"nodes": nodes, "elements": out}, "quality": quality,
+            "thicknessByProperty": {str(pid): t for pid, t in by_property.items()},
             "stats": {"nodes": len(nodes), "elements": len(out), "topology": "quad" if mesher != "gmsh" else "tri", "dimension": 2, "order": 1,
                       "parts": len({e["pid"] for e in out}), "faces": len(faces)}}
 
@@ -880,4 +893,4 @@ def shell_mesh(gmsh, request):
         raise ValueError("Pads are rings of quads: mesh with quad elements.")
     elements, coordinates, reports, edges, faces, mesher, pads = (tri_shell if element == "tri" else quad_shell)(gmsh, request)
     placed = place(gmsh, elements, coordinates, request)
-    return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads)
+    return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads, request)

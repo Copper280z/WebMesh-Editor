@@ -87,7 +87,8 @@
     const ctx = context(topology);
     const tolerance = ctx.span * 1e-6;
     const features = [], byFace = new Map();
-    const cylinders = [...ctx.faces.values()].filter(f => f.surface && f.surface.kind === 'cylinder');
+    // Sheets (faces of no solid) are midsurfaces, not features of a solid.
+    const cylinders = [...ctx.faces.values()].filter(f => f.surface && f.surface.kind === 'cylinder' && (f.volumes || []).length);
     // One bore is often several faces: split by slices, or interrupted where it
     // crosses a pocket and only grazes the floor. Coaxial, equal-radius pieces
     // with a compatible material side form one feature, touching or not.

@@ -16,20 +16,21 @@ function element(id) {
 }
 
 function setup({ imported = 'box', prepared = 'split-box' } = {}) {
-  const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [] };
+  const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [] };
   const listeners = new Map(), elements = new Map();
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
-  const owned = { elements: [], properties: [] };
+  const owned = { elements: [], properties: [] }, owners = new Map();
+  let nextElement = 1000;
   let revision = 0, busy = false, visible = true;
   // Sessions the mock server holds besides the one imported here (left from before a reload), and errors to return once.
   const others = [{ cadId: 'd'.repeat(32), filename: 'old.step', steps: 3, kept: 4, label: 'Sliced the web', revision: 3, created: 0, lastUsed: Date.now() / 1000 - 600, bytes: 40 * 1048576, discrete: false },
     { cadId: 'e'.repeat(32), filename: 'scrap.step', steps: 0, kept: 1, label: 'Imported geometry', revision: 0, created: 0, lastUsed: Date.now() / 1000 - 7200, bytes: 5 * 1048576, discrete: false }];
-  const failNext = {};
+  const failNext = {}, transform = { fn: null };
   const payload = (name, rev) => ({ ...plain(fixture(name)), cadId: 'c'.repeat(32), revision: rev, filename: 'part.step', history: Array.from({ length: rev + 1 }, (_, i) => ({ revision: i, label: i ? 'Changed' : 'Imported geometry' })) });
   const viewport = new Proxy({}, { get: (_, key) => key === 'section' ? () => new Float32Array() : key === 'volumeFaces' || key === 'faceVolumes' ? () => [] : (...args) => { if (key === 'setOverlay') calls.overlays.push(args[0]); } });
   const engine = {
     setCadGeometry() {}, clearCadGeometry() {}, setCadSelectionMode() {}, setCadSplitPlane() {}, setCadVisible(v) { visible = v; },
-    getCadState: () => ({ visible }), getCadViewport: () => viewport, getMeshOwner: () => owned,
+    getCadState: () => ({ visible }), getCadViewport: () => viewport, getMeshOwner: tag => ({ elements: (owners.get(tag) || []).slice(), properties: [5] }),
     selectCad(selection) { calls.selections.push(selection); }
   };
   const document = {
@@ -66,6 +67,7 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
             pads: (data.pads || []).map((p, i) => ({ pad: i, face: 1, holeFaces: p.faces, diameter: 4.6, size: p.size || 8.6, perSide: p.perSide || 2, shrunk: !p.size, minScaledJacobian: 0.7 })) } };
       }
       else throw Error('Unexpected API ' + url);
+      if (transform.fn) result = transform.fn(action, data, result) || result;
       return { ok: true, json: async () => result };
     } };
   vm.createContext(context);
@@ -77,7 +79,15 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
     engine: () => engine, isBusy: () => busy, render() { workspace.render(); workspace.bind(); }, refresh() {}, name() {}, log() {},
     message: (text, error) => calls.messages.push({ text, error: !!error }),
     async run(fn) { busy = true; try { await fn(); } finally { busy = false; } },
-    async appendMesh(result, name, options) { calls.appends.push({ result, name, options }); Object.assign(owned, { elements: result.mesh.elements.map((_, i) => 1000 + i), properties: [5] }); return { elements: owned.elements.slice(), properties: [5] }; }
+    async appendMesh(result, name, options) {
+      calls.appends.push({ result, name, options });
+      // Each owner tag keeps its own elements; replaced owners lose theirs.
+      for (const tag of options.replaceOwners || []) owners.delete(tag);
+      const elements = result.mesh.elements.map(() => nextElement++);
+      owners.set(options.ownerTag, elements); Object.assign(owned, { elements, properties: [5] });
+      return { elements: elements.slice(), properties: [5] };
+    },
+    async removeMesh(tag) { calls.removed.push(tag); owners.delete(tag); }
   };
   const workspace = window.WebMeshCadWorkspace.create(hooks);
   workspace.bind();
@@ -86,7 +96,7 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
   const click = (act, data = {}) => panel.listeners.click[0]({ target: { closest: () => ({ dataset: { act, ...data }, disabled: false, setAttribute() {} }) }, preventDefault() {} });
   const input = (field, value, kind = 'change') => (kind === 'change' ? panel.listeners.change[0] : panel.listeners.input[0])({ target: { closest: selector => selector.includes('data-field') ? { dataset: { field }, value: String(value), type: 'text' } : null } });
   const emit = (name, detail) => (listeners.get(name) || []).forEach(fn => fn({ detail }));
-  return { workspace, calls, click, input, emit, owned, failNext, others, get revision() { return revision; }, setOwned: list => { owned.elements = list; } };
+  return { workspace, calls, click, input, emit, owned, failNext, others, transform, get revision() { return revision; }, setOwned: list => { owned.elements = list; if (!list.length) owners.clear(); } };
 }
 
 async function imported(options) {
@@ -197,13 +207,14 @@ test('native mapped meshes are previewed, then added with CAD ownership', async 
   assert.ok(quality.elements > 0 && quality.inverted === 0);
   await f.workspace.api.addMesh();
   const append = f.calls.appends[0];
-  assert.equal(append.options.ownerTag, 'c'.repeat(32));
+  assert.equal(append.options.ownerTag, 'c'.repeat(32) + '#1', 'each mesh has its own owner tag');
   assert.equal(append.options.topology, 'hex');
   assert.equal(append.result.mesh.elements.length, quality.elements);
   assert.ok(append.result.mesh.elements.every(e => e.type === 'CHEXA' && e.nodes.length === 8 && !('volume' in e)));
   assert.match(f.workspace.getState().report.text, /HEX8 elements/);
   const saved = await f.workspace.serialize();
-  assert.equal(saved.mesh.elements.length, quality.elements);
+  assert.equal(saved.meshes.length, 1);
+  assert.equal(saved.meshes[0].elements.length, quality.elements);
 });
 
 test('model edits after meshing mark the CAD mesh stale; restoring requires complete ownership', async () => {
@@ -216,7 +227,52 @@ test('model edits after meshing mark the CAD mesh stale; restoring requires comp
   f.emit('webmesh:change', { reason: 'undo', reasons: ['model', 'undo'] });
   assert.equal(f.workspace.getState().report, null);
   const saved = await f.workspace.serialize();
-  assert.equal(saved.mesh, undefined);
+  assert.equal(saved.meshes, undefined);
+});
+
+test('meshes of different bodies stay side by side; a new one replaces only the mesh of the same bodies', async () => {
+  const f = await imported({ imported: 'split-box' });
+  const t = f.workspace.getState().topology, settle = async () => { for (let i = 0; i < 40; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
+  f.workspace.api.step('mesh');
+  await f.workspace.api.addMesh();
+  // A shell mesh of two picked faces joins the hex mesh instead of replacing it.
+  f.click('mesh-method', { value: 'shell' });
+  f.click('shell-scope', { value: 'selected' });
+  f.workspace.api.select('face', [t.faces[0].id, t.faces[1].id]);
+  f.click('shell-mesh'); await settle();
+  let appends = f.calls.appends;
+  assert.equal(appends.length, 2);
+  assert.equal(appends[1].options.ownerTag, 'c'.repeat(32) + '#2');
+  assert.deepEqual(plain(appends[1].options.replaceOwners), []);
+  assert.equal(appends[1].options.previousMesh, null, 'the hex mesh is not replaced');
+  let body = f.workspace.render().body;
+  assert.match(body, /Meshes in the model <small>2/);
+  assert.match(body, /Mapped HEX8 · 2 solids/);
+  assert.match(body, /Quad shell · 1 face/, 'the mock shell result meshes face 1');
+  // Meshing the same faces again replaces the shell mesh only.
+  f.click('shell-mesh'); await settle();
+  appends = f.calls.appends;
+  assert.equal(appends[2].options.ownerTag, 'c'.repeat(32) + '#2');
+  assert.ok(appends[2].options.previousMesh, 'the shell mesh is replaced in place');
+  assert.match(f.workspace.render().body, /Meshes in the model <small>2/);
+  // Both are saved, and a restored project rebinds each to the new CAD session.
+  const saved = await f.workspace.serialize();
+  assert.deepEqual(plain(saved.meshes.map(m => [m.id, m.kind])), [[1, 'hex'], [2, 'shell']]);
+  const restored = setup({ imported: 'split-box' });
+  const staged = await restored.workspace.stageRestore(saved);
+  assert.deepEqual(plain(restored.workspace.savedOwners(staged)).map(([tag, elements]) => [tag, elements.length]), [['c'.repeat(32) + '#1', saved.meshes[0].elements.length], ['c'.repeat(32) + '#2', 1]]);
+  // An old project's single mesh comes back as one mesh covering everything.
+  const legacy = { ...saved, meshes: undefined, mesh: { elements: [7, 8], properties: [5] } };
+  assert.deepEqual(plain(restored.workspace.savedOwners(await restored.workspace.stageRestore(legacy))), [['c'.repeat(32) + '#1', [7, 8]]]);
+  // Remove asks for a second click, then takes only that mesh out of the model.
+  f.click('mesh-remove', { value: '1' });
+  assert.match(f.workspace.render().body, /Confirm remove/);
+  assert.equal(f.calls.removed.length, 0);
+  f.click('mesh-remove', { value: '1' }); await settle();
+  assert.deepEqual(f.calls.removed, ['c'.repeat(32) + '#1']);
+  body = f.workspace.render().body;
+  assert.match(body, /Meshes in the model <small>1/);
+  assert.doesNotMatch(body, /Mapped HEX8/);
 });
 
 test('the Gmsh methods reuse fixed edge counts as exact divisions', async () => {
@@ -450,6 +506,101 @@ test('full CAD storage opens the sessions list', async () => {
   const body = f.workspace.render().body;
   assert.match(body, /Sessions on this server/);
   assert.match(body, /old\.step/);
+});
+
+test('the surface tool stays on: each pair of picked faces makes a sheet, listed with its thickness and offset', async () => {
+  const f = await imported({ imported: 'box', prepared: 'box' });
+  const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
+  let made = 0;
+  // The mock kernel: every surface operation adds a sheet face (a box face freed from its solid stands in for it).
+  f.transform.fn = (action, data, result) => {
+    if (action !== 'prepare' || data.operation.kind !== 'surface') return result;
+    made++;
+    const topology = result.topology, face = topology.faces[made - 1];
+    face.volumes = [];
+    topology.sheets = topology.faces.slice(0, made).map((x, i) => ({ face: x.id, sheet: i + 1, thickness: 4, offset: i ? -2 : 0, label: i ? 'Surface on face 3' : 'Midsurface of faces 1 and 2' }));
+    for (const x of topology.faces.slice(0, made)) x.volumes = [];
+    return result;
+  };
+  const faces = f.workspace.getState().topology.faces.map(x => x.id);
+  f.workspace.api.tool('surface');
+  assert.match(f.workspace.render().body, /Pick a face of the wall, then the face across it/);
+  f.workspace.api.select('face', [faces[0]]);
+  assert.match(f.workspace.render().body, new RegExp(`Face ${faces[0]} picked: now pick the face across the wall`));
+  f.workspace.api.select('face', [faces[1]]);
+  await settle();
+  let requests = f.calls.requests.filter(r => r.action === 'prepare');
+  assert.deepEqual(plain(requests[0].data.operation), { kind: 'surface', faces: [faces[0], faces[1]], place: 'mid', label: `Midsurface of faces ${faces[0]} and ${faces[1]}` });
+  assert.equal(f.workspace.getState().tool, 'surface', 'the tool stays on');
+  // The next pair, placed on its first face.
+  f.click('surface-place', { value: 'first' });
+  f.workspace.api.select('face', [faces[2]]); f.workspace.api.select('face', [faces[3]]);
+  await settle();
+  requests = f.calls.requests.filter(r => r.action === 'prepare');
+  assert.equal(requests[1].data.operation.place, 'first');
+  // One face: an offset and a thickness.
+  f.click('surface-mode', { value: 'one' });
+  f.input('surface-offset', -1); f.input('surface-thickness', 3);
+  f.workspace.api.select('face', [faces[4]]);
+  await settle();
+  requests = f.calls.requests.filter(r => r.action === 'prepare');
+  assert.deepEqual(plain(requests[2].data.operation), { kind: 'surface', faces: [faces[4]], offset: -1, thickness: 3, label: `Offset of face ${faces[4]} by -1` });
+  // The sheets are listed with their thickness and offset, and a picked sheet gets its own card.
+  f.workspace.api.tool('surface');
+  let body = f.workspace.render().body;
+  assert.match(body, /Sheets<\/span><small>3/);
+  assert.match(body, /Surface on face 3<\/strong><span>T 4 · ZOFFS -2 · 1 face/);
+  f.workspace.api.select('face', [faces[1]]);
+  body = f.workspace.render().body;
+  assert.match(body, /Sheet 2 · T 4 · ZOFFS -2/);
+  assert.match(body, /Remove sheet/);
+  // Hiding a sheet hides its face only.
+  f.click('toggle-sheet', { id: '2' });
+  assert.ok(f.calls.overlays !== undefined);
+  // Shell meshing offers the sheets as a scope.
+  f.click('step', { value: 'mesh' });
+  f.click('mesh-method', { value: 'shell' });
+  body = f.workspace.render().body;
+  assert.match(body, /Sheets 3/);
+  assert.match(body, /Sheets use their own thickness and offset/);
+  f.click('shell-scope', { value: 'sheets' });
+  f.click('shell-mesh'); await settle();
+  const shell = f.calls.requests.find(r => r.action === 'shell').data;
+  assert.deepEqual(plain(shell.faceIds), faces.slice(0, 3));
+});
+
+test('Extend takes sheet edges, then the face to reach; Join fuses the sheets', async () => {
+  const f = await imported({ imported: 'box', prepared: 'box' });
+  const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
+  // Two of the box's faces stand in for sheets.
+  const withSheets = result => { const t = result.topology; t.faces[0].volumes = []; t.faces[1].volumes = []; t.sheets = [{ face: t.faces[0].id, sheet: 1, thickness: 4, offset: 0, label: 'A' }, { face: t.faces[1].id, sheet: 2, thickness: 4, offset: 0, label: 'B' }]; return result; };
+  f.transform.fn = (action, data, result) => (action === 'prepare' ? withSheets(result) : result);
+  f.workspace.api.tool('surface');
+  f.click('surface-mode', { value: 'one' });
+  const first = f.workspace.getState().topology.faces[0].id;
+  f.workspace.api.select('face', [first]); await settle();
+  const t = f.workspace.getState().topology;
+  f.workspace.api.tool('extend');
+  assert.match(f.workspace.render().body, /Pick straight edges of a flat sheet/);
+  const sheetEdge = t.faces[0].edges[0], solidEdge = t.edges.find(e => !e.faces.some(x => x === t.faces[0].id || x === t.faces[1].id))?.id;
+  f.workspace.api.select('edge', [sheetEdge, ...(solidEdge ? [solidEdge] : [])]);
+  assert.match(f.workspace.render().body, /1 sheet edge picked: now pick the face to extend to/, 'only sheet edges count');
+  f.workspace.api.select('face', [t.faces[1].id]); await settle();
+  const extend = f.calls.requests.filter(r => r.action === 'prepare').pop().data.operation;
+  assert.deepEqual(plain(extend), { kind: 'extend', edges: [sheetEdge], target: t.faces[1].id, label: `Extended 1 sheet edge to face ${t.faces[1].id}` });
+  assert.equal(f.workspace.getState().tool, 'extend', 'the tool stays on');
+  f.click('sheets-join'); await settle();
+  assert.equal(f.calls.requests.filter(r => r.action === 'prepare').pop().data.operation.kind, 'join');
+  // A flat sheet's card splits the other sheets along its plane (control curves for a brace on a floor).
+  f.workspace.api.tool('extend');
+  const now = f.workspace.getState().topology;
+  f.workspace.api.select('face', [now.faces[0].id]);
+  assert.match(f.workspace.render().body, /Split sheets along its plane/);
+  f.click('sheet-split'); await settle();
+  const split = f.calls.requests.filter(r => r.action === 'prepare').pop().data.operation;
+  assert.equal(split.kind, 'split-sheets');
+  assert.deepEqual(plain(split.plane), { origin: plain(now.faces[0].surface.origin), normal: plain(now.faces[0].surface.normal) });
+  assert.deepEqual(plain(split.faces), [now.faces[1].id], 'the other sheets');
 });
 
 test('picked neighboring solids are fused through the preview and apply flow', async () => {

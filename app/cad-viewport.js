@@ -330,18 +330,20 @@
       }
       onChange('cad-display'); return state();
     }
-    function setHiddenVolumes(list) {
+    function setHiddenVolumes(list, faces) {
       hidden = new Set((list || []).map(Number));
+      // Faces of no solid (sheets) are hidden by name.
+      const hiddenFaces = new Set((faces || []).map(Number));
       if (!surface) return state();
-      const hiddenFace = tag => { const owners = faceVolumes.get(tag) || []; return owners.length > 0 && owners.every(v => hidden.has(v)); };
-      if (!hidden.size) { surface.geometry.setIndex(null); visibleTriangles = null; }
+      const hiddenFace = tag => hiddenFaces.has(tag) || (() => { const owners = faceVolumes.get(tag) || []; return owners.length > 0 && owners.every(v => hidden.has(v)); })();
+      if (!hidden.size && !hiddenFaces.size) { surface.geometry.setIndex(null); visibleTriangles = null; }
       else {
         const index = [], map = [];
         for (let t = 0; t < data.triangleCount; t++) if (!hiddenFace(data.triangleFaceIds[t])) { index.push(3 * t, 3 * t + 1, 3 * t + 2); map.push(t); }
         surface.geometry.setIndex(index); visibleTriangles = map;
       }
       if (edgeLines) {
-        if (!hidden.size) edgeLines.geometry.setIndex(null);
+        if (!hidden.size && !hiddenFaces.size) edgeLines.geometry.setIndex(null);
         else {
           const index = [], faceOwners = new Map();
           for (const [face, list] of faceVolumes) for (const v of list) { if (!faceOwners.has(face)) faceOwners.set(face, []); faceOwners.get(face).push(v); }

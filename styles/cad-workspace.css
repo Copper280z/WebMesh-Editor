@@ -327,7 +327,7 @@ kbd{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;bor
 .cad-eye{flex:none;width:24px;height:22px;display:grid;place-items:center;border:0;border-radius:4px;background:none;color:#7f95ab}
 .cad-eye:hover{background:#243142;color:#e6eef7}
 .cad-eye[aria-pressed="false"]{color:#e9be6a}
-.dot.taper{background:#a8d05f}.dot.other{background:#8b9aab}
+.dot.taper{background:#a8d05f}.dot.other{background:#8b9aab}.dot.sheet{background:#7fa8f0}
 .cad-history-list{list-style:none;margin:0;padding:0 0 0 10px;display:flex;flex-direction:column;gap:1px}
 .cad-history-list li{display:flex;align-items:center;gap:7px;padding:3px 4px 3px 6px;border-radius:5px;font-size:10.5px;color:#a9b9ca}
 .cad-history-list li:hover{background:#1b2532}

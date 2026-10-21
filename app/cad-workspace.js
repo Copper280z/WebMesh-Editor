@@ -34,11 +34,13 @@
     check: 'm5 12 4 4L19 6', warn: 'M12 4 2 20h20L12 4Zm0 6v4m0 3h.01', x: 'm6 6 12 12M18 6 6 18',
     target: 'M12 3v4m0 10v4M3 12h4m10 0h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', undo: 'M8 4 3 9l5 5M3 9h10a7 7 0 0 1 0 14', redo: 'm16 4 5 5-5 5m5-5H11a7 7 0 0 0 0 14',
     arrow: 'M4 12h16m-6-6 6 6-6 6', minus: 'M5 12h14', plus: 'M12 5v14M5 12h14', flip: 'M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3',
-    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6', stop: 'M7 7h10v10H7V7Z', shell: 'M3 9l9-5 9 5-9 5-9-5Zm0 5 9 5 9-5'
+    file: 'M14 3H5v18h14V8l-5-5Zm0 0v6h5', mesh: 'M3 4h18v16H3V4Zm0 5h18M3 15h18M9 4v16m6-16v16', spark: 'M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18M6 18l2.5-2.5m7-7L18 6', stop: 'M7 7h10v10H7V7Z', shell: 'M3 9l9-5 9 5-9 5-9-5Zm0 5 9 5 9-5',
+    sheet: 'M3 10l9-5 9 5-9 5-9-5Z', extend: 'M4 12h11m-4-4 4 4-4 4M20 5v14', join: 'M5 5v14M5 12h14M19 5v14'
   };
   const icon = (name, cls = '') => `<svg class="cad-i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ICONS.solid}"/></svg>`;
   const ISSUE = 0xffd400;
   const STATUS_COLORS = { ok: 0x58c79f, blocked: 0xe7735f, conflict: 0xe8b04c, other: 0x8b9aab };
+  const SHEET_COLOR = 0x7fa8f0;
   const GROUP_COLORS = [0x4cc9f0, 0xf72585, 0x7bd389, 0xffb703, 0xb388eb, 0xff7f51, 0x2ec4b6, 0xe0aaff, 0x90be6d, 0xf9844a, 0x48bfe3, 0xff99c8, 0x80ed99, 0xfcbf49, 0x8ecae6, 0xc77dff];
   const hueColor = index => { const h = (index * 137.508) % 360; const s = 0.42, l = 0.62; const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l); const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))); return (Math.round(f(0) * 255) << 16) | (Math.round(f(8) * 255) << 8) | Math.round(f(4) * 255); };
   const rgb = hex => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
@@ -58,17 +60,27 @@
     let pending = null, previewState = { key: null, status: 'idle', data: null, error: null, analysis: null }, previewTimer = null, previewPromise = null;
     let sliceDraft = null, cutDraft = null, passages = [], featureFilter = 'all', checkedFeatures = new Set();
     let sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
-    let display = { color: 'status', xray: false, seeds: true, labels: true, groups: true, hidden: new Set(), showResult: true };
+    let display = { color: 'status', xray: false, seeds: true, labels: true, groups: true, hidden: new Set(), hiddenSheets: new Set(), showResult: true };
     let meshSettings = { method: 'mapped', order: 1, scope: 'all', live: true, pidPerSolid: false };
     let legacy = { method: 'tet', size: null, layers: 4, sourceFace: '', targetFace: '', sweepAxis: 'z', layerCounts: {} };
     // Shell meshing of CAD faces: on the faces, at the midsurface of two sides, or offset.
     // pads: one ring of quads around each listed hole, inside a square (size and perSide null: the mesher's guess).
     let shell = { element: 'quad', mesher: 'recombined', placement: 'surface', scope: 'all', faces: [], facesB: [], size: null, perCircle: 12, offset: 0, thickness: 1, pidPerFace: false,
       pads: [], padSize: null, padSide: null };
-    let meshPreview = null, meshError = null, meshTimer = null, generated = null, committingMesh = false, report = null, auditHistory = [];
+    let meshPreview = null, meshError = null, meshTimer = null, committingMesh = false, report = null, auditHistory = [];
+    // Meshes this CAD source added to the model, one per set of bodies: a hex or tet
+    // mesh covers solids, a shell mesh faces. A new mesh replaces only those covering
+    // any of the same ones, so meshes of different bodies stay side by side.
+    // { id, kind, label, volumes, faces, all?, elements, properties, material, stale, inModel }
+    let meshes = [], meshCounter = 0, removing = null;
+    const meshesBySession = new Map();  // the lists of sessions switched away from in this page
     // CAD sessions open on the server (Sessions): resume one after a reload, or close one to free storage.
     let sessionsInfo = null, sessionsOpen = false, sessionsLoading = false, closing = null;
-    let expanded = { blocked: false, groups: false, sums: false, history: true, solids: true, features: false };
+    let expanded = { blocked: false, groups: false, sums: false, history: true, solids: true, sheets: true, features: false };
+    // Sheets (free faces standing for thin walls) come with the topology: { face, sheet, thickness, offset, label }.
+    // The surface tool stays on after each surface; Extend takes sheet edges, then the face to reach.
+    let surfaceDraft = { mode: 'two', place: 'mid', thickness: null, offset: 0, picked: [], busy: false };
+    let extendDraft = { edges: [], busy: false }, sheetEdit = null, removingSheet = null;
     let treeFilter = 'all', treeShare = 0.42;
     try { const share = Number(localStorage.getItem('webmesh.cad.treeShare')); if (share > 0.15 && share < 0.85) treeShare = share; } catch { /* storage unavailable */ }
     let bound = false, tooltip = null, viewTools = null;
@@ -161,7 +173,7 @@
       pending = null; clearPreview(); tool = null;
       const data = await api(kind, kind === 'revert' ? { ...token(), to: index } : token());
       accept(data, { fit: false, keepStep: true });
-      if (generated) generated.stale = true;
+      markStale();
       hooks.render();
       const label = (data.history || [])[data.cursor]?.label;
       hooks.message(kind === 'undo' ? 'Undid the last geometry change.' : kind === 'redo' ? `Redid: ${label || 'change'}.` : `Went to step ${index}: ${label || 'change'}. Later steps can still be redone.`);
@@ -175,6 +187,137 @@
     }
     function canUndo() { return !!session && !discrete() && historyCursor() > 0; }
     function canRedo() { return !!session && !discrete() && historyCursor() + 1 < (session.history || []).length; }
+
+    /* ------------------------------------------------------------ meshes -- */
+    const meshOwner = m => `${session.cadId}#${m.id}`;
+    function markStale() { for (const m of meshes) m.stale = true; }
+    const freshMeshes = () => meshes.filter(m => !m.stale && m.inModel !== false);
+    const covering = target => meshes.filter(m => m.all || (target.volumes?.length && (m.volumes || []).some(v => target.volumes.includes(v))) || (target.faces?.length && (m.faces || []).some(f => target.faces.includes(f))));
+    function ownedMatches(m) {
+      const owned = engine().getMeshOwner(meshOwner(m)), expected = new Set((m.elements || []).map(Number));
+      m.inModel = owned.elements.length > 0;
+      return expected.size > 0 && expected.size === owned.elements.length && owned.elements.every(id => expected.has(Number(id)));
+    }
+    /** Add a mesh of `target` (its solids or faces) to the model, replacing the meshes it covers in one undo step. */
+    async function commitMesh(target, result, options, label) {
+      const replaced = covering(target), keep = replaced[0];
+      const record = { id: keep?.id ?? ++meshCounter, kind: target.kind, label, volumes: target.volumes || [], faces: target.faces || [], stale: false, inModel: true };
+      committingMesh = true;
+      try { Object.assign(record, await hooks.appendMesh(result, source.name, { ...options, previousMesh: keep || null, ownerTag: meshOwner(record), replaceOwners: replaced.slice(1).map(meshOwner) })); }
+      finally { committingMesh = false; }
+      meshes = [...meshes.filter(m => !replaced.includes(m)), record];
+      return record;
+    }
+    async function removeMesh(id) {
+      const m = meshes.find(x => x.id === id); if (!m) return;
+      committingMesh = true;
+      try { if (m.inModel !== false) await hooks.removeMesh(meshOwner(m)); }
+      finally { committingMesh = false; }
+      meshes = meshes.filter(x => x !== m);
+      if (!freshMeshes().length) { engine().setCadVisible(true); engine().setCadSelectionMode(active ? pick : 'none'); }
+    }
+    function meshesCard() {
+      if (!meshes.length) return '';
+      const rows = meshes.map(m => {
+        const confirm = removing === m.id, gone = m.inModel === false;
+        return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? 'Not in the model (undone)' : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? ' · out of date: the geometry or sizing changed' : ''}`}</small></div>
+          ${m.stale && !gone ? chip('Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
+      }).join('');
+      return `<section class="cad-card"><div class="cad-card-title">Meshes in the model <small>${meshes.length}</small></div>${rows}
+        <p class="cad-note">Each set of bodies keeps its own mesh: a new mesh replaces only the one covering the same solids or faces.</p></section>`;
+    }
+    /* ------------------------------------------------------------ sheets -- */
+    const sheetRecords = () => session?.topology?.sheets || [];
+    const sheetOf = face => sheetRecords().find(r => r.face === Number(face));
+    function sheetGroups() {
+      const groups = new Map();
+      for (const r of sheetRecords()) { if (!groups.has(r.sheet)) groups.set(r.sheet, { ...r, faces: [] }); groups.get(r.sheet).faces.push(r.face); }
+      return [...groups.values()].sort((a, b) => a.sheet - b.sheet);
+    }
+    const sheetNote = s => `${s.thickness ? `T ${fmt(s.thickness, 4)}` : 'T not set'}${s.offset ? ` · ZOFFS ${fmt(s.offset, 4)}` : ''} · ${s.faces.length} face${s.faces.length === 1 ? '' : 's'}`;
+    const hiddenSheetFaces = () => sheetRecords().filter(r => display.hiddenSheets.has(r.sheet)).map(r => r.face);
+    /** Apply a sheet operation; the tool that made it stays open for the next. */
+    async function applySheetOperation(operation, label) {
+      hooks.message(`${label}…`);
+      const data = await api('prepare', { ...token(), operation: { ...operation, label } });
+      markStale();
+      accept(data, { fit: false, keepStep: true });
+      hooks.render(); hooks.log(label);
+      hooks.message(`${label}. ${sheetGroups().length} sheet${sheetGroups().length === 1 ? '' : 's'} in the model.`);
+    }
+    function surfacePick(ids) {
+      const d = surfaceDraft;
+      if (d.busy || hooks.isBusy?.()) return;
+      for (const id of ids) if (!d.picked.includes(id)) d.picked.push(id);
+      const need = d.mode === 'two' ? 2 : 1;
+      if (d.picked.length < need) { renderPart('cad-tool', toolCard); return; }
+      const faces = d.picked.slice(0, need), offset = Number(d.offset) || 0;
+      d.picked = [];
+      const operation = need === 2 ? { kind: 'surface', faces, place: d.place } : { kind: 'surface', faces, offset, ...(Number(d.thickness) > 0 ? { thickness: Number(d.thickness) } : {}) };
+      const label = need === 2 ? { mid: `Midsurface of faces ${faces[0]} and ${faces[1]}`, first: `Surface on face ${faces[0]}`, second: `Surface on face ${faces[1]}` }[d.place]
+        : offset ? `Offset of face ${faces[0]} by ${fmt(offset, 4)}` : `Surface on face ${faces[0]}`;
+      d.busy = true; renderPart('cad-tool', toolCard);
+      hooks.run(async () => { try { await applySheetOperation(operation, label); } finally { d.busy = false; renderPart('cad-tool', toolCard); } });
+    }
+    function surfaceCard() {
+      const d = surfaceDraft, two = d.mode === 'two';
+      const status = d.busy ? 'Making the surface…' : two ? (d.picked.length ? `Face ${d.picked[0]} picked: now pick the face across the wall.` : 'Pick a face of the wall, then the face across it.') : 'Pick a face: the surface is made on it, moved by the offset.';
+      return `<div class="cad-card"><div class="cad-card-title">Surface <small>stays on · Esc ends it</small></div>
+        <div class="cad-row"><span class="cad-row-label">From</span>${seg('surface-mode', [['two', 'Two faces', '', 'A midsurface, or a surface on either face, with the thickness measured between them'], ['one', 'One face', '', 'A copy of one face, moved by an offset, with a thickness you enter']], d.mode, 'compact')}</div>
+        ${two ? `<div class="cad-row"><span class="cad-row-label">Place</span>${seg('surface-place', [['mid', 'Midway'], ['first', 'On first'], ['second', 'On second']], d.place, 'compact')}</div>`
+          : `<div class="cad-size-row">${numberField('surface-offset', 'Offset (+ out)', d.offset)}${numberField('surface-thickness', 'Thickness T', d.thickness ?? '', 'min="0" placeholder="unknown"')}</div>`}
+        <p class="cad-note">${icon('target')} ${esc(status)}</p>
+        <p class="cad-note">${two ? 'On first or On second puts the surface on that face; its elements get an offset (ZOFFS) to the middle of the wall.' : 'The wall is taken to run T into the material from the face; the elements get an offset (ZOFFS) to its middle. Offset 0 copies the face.'} Flat faces, cylinders and spheres.</p></div>`;
+    }
+    function extendPick() {
+      const d = extendDraft;
+      if (d.busy || hooks.isBusy?.()) return;
+      if (selection.kind === 'edge') {
+        const sheetFaces = new Set(sheetRecords().map(r => r.face));
+        d.edges = selection.ids.filter(e => (session.topology.edges.find(x => x.id === e)?.faces || []).some(f => sheetFaces.has(f)));
+        renderPart('cad-tool', toolCard); return;
+      }
+      if (selection.kind !== 'face' || !d.edges.length) return;
+      const target = selection.ids[selection.ids.length - 1], edges = d.edges.slice();
+      d.edges = []; d.busy = true; renderPart('cad-tool', toolCard);
+      hooks.run(async () => {
+        try { await applySheetOperation({ kind: 'extend', edges, target }, `Extended ${edges.length} sheet edge${edges.length === 1 ? '' : 's'} to face ${target}`); }
+        finally { d.busy = false; setPick('edge'); renderPart('cad-tool', toolCard); }
+      });
+    }
+    function extendCard() {
+      const d = extendDraft;
+      const status = d.busy ? 'Extending…' : d.edges.length ? `${d.edges.length} sheet edge${d.edges.length === 1 ? '' : 's'} picked: now pick the face to extend to.` : 'Pick straight edges of a flat sheet (Shift adds), then the face to extend them to.';
+      return `<div class="cad-card"><div class="cad-card-title">Extend <small>stays on · Esc ends it</small></div>
+        <p class="cad-note">${icon('target')} ${esc(status)}</p>
+        <div class="cad-inline">${btn('extend-target', 'Pick the face', { cls: 'ghost small', disabled: !d.edges.length, title: 'Switch to face picking for the face the edges grow to' })}${btn('sheets-join', 'Join sheets', { cls: 'ghost small', iconName: 'join', title: 'Fuse the sheets where they meet, so every junction becomes an edge they share', disabled: sheetRecords().length < 2 })}</div>
+        <p class="cad-note">Edges grow in their sheet's plane until they meet the face, a flat one for now. Join afterwards makes the junction an edge both sheets share.</p></div>`;
+    }
+    function sheetContext() {
+      const ids = [...new Set(selection.ids.map(f => sheetOf(f)?.sheet))];
+      const s = ids.length === 1 ? sheetGroups().find(g => g.sheet === ids[0]) : null;
+      let html = `<div class="cad-ctx-head"><div><strong>${s ? esc(s.label) : `${ids.length} sheets`}</strong><small>${s ? `Sheet ${s.sheet} · ${sheetNote(s)}` : 'Pick one sheet to edit it'}</small></div>${btn('clear-selection', '', { cls: 'icon ghost', iconName: 'x', title: 'Clear selection (Esc)' })}</div>`;
+      if (!s) return html;
+      if (!sheetEdit || sheetEdit.sheet !== s.sheet) sheetEdit = { sheet: s.sheet, thickness: s.thickness, offset: s.offset, name: s.label };
+      const confirm = removingSheet === s.sheet, part = selection.ids.length < s.faces.length;
+      const flat = s.faces.map(f => session.topology.faces.find(x => x.id === f)?.surface).every(x => x?.kind === 'plane');
+      html += `<div class="cad-size-row">${numberField('sheet-thickness', 'Thickness T', sheetEdit.thickness ?? '', 'min="0" placeholder="not set"')}${numberField('sheet-offset', 'Offset ZOFFS', sheetEdit.offset)}</div>
+        <label class="cad-field"><span>Name</span><input data-field="sheet-name" type="text" value="${esc(sheetEdit.name)}"></label>
+        <div class="cad-inline">${btn('sheet-apply', 'Apply', { cls: 'small', iconName: 'check' })}${btn('sheet-remove', confirm ? 'Confirm remove' : part ? `Remove ${selection.ids.length} picked face${selection.ids.length === 1 ? '' : 's'}` : 'Remove sheet', { cls: `ghost small${confirm ? ' danger' : ''}`, title: part ? 'Delete the picked faces of this sheet, such as an overhang a join split off (undo brings them back)' : 'Delete this sheet from the geometry (undo brings it back)' })}</div>
+        ${flat && sheetRecords().length > s.faces.length ? `<div class="cad-inline">${btn('sheet-split', 'Split sheets along its plane', { cls: 'ghost small', title: 'Cut the other sheets this plane crosses, so their mesh follows where this sheet meets them (a brace on a floor)' })}</div>` : ''}
+        <p class="cad-note">ZOFFS is the distance from the sheet to the middle of the wall, along the sheet's normal; shell elements carry it.</p>`;
+      return html;
+    }
+
+    /** Saved meshes of a project (or its single mesh, from before meshes were per body). */
+    function savedMeshes(data) {
+      const ids = list => Array.isArray(list) ? list.filter(Number.isSafeInteger).slice(0, 2000000) : [];
+      if (Array.isArray(data?.meshes)) return data.meshes.filter(m => m && Number.isSafeInteger(m.id) && m.id > 0 && Array.isArray(m.elements)).slice(0, 200)
+        .map(m => ({ id: m.id, kind: typeof m.kind === 'string' ? m.kind.slice(0, 20) : 'mesh', label: typeof m.label === 'string' ? m.label.slice(0, 200) : 'Mesh', volumes: ids(m.volumes), faces: ids(m.faces),
+          elements: ids(m.elements), properties: ids(m.properties), material: Number.isSafeInteger(m.material) ? m.material : undefined, stale: !!m.stale }));
+      if (data?.mesh && Array.isArray(data.mesh.elements)) return [{ id: 1, kind: 'mesh', label: 'Mesh', all: true, volumes: [], faces: [], elements: ids(data.mesh.elements), properties: ids(data.mesh.properties), material: data.mesh.material, stale: !!data.mesh.stale }];
+      return [];
+    }
 
     /* ------------------------------------------------------------ accept -- */
     function accept(data, { fit = true, keepStep = false } = {}) {
@@ -209,9 +352,13 @@
       const data = await api('resume', { cadId });
       const original = data.original; delete data.original;
       const file = new File([fromBase64(original.content)], original.filename);
-      source = file; generated = null; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      if (session) meshesBySession.set(session.cadId, meshes);
+      source = file; meshes = meshesBySession.get(cadId) || []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      display.hiddenSheets = new Set();
       sessionsOpen = false; closing = null;
-      accept(data); hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
+      accept(data);
+      for (const m of meshes) if (!ownedMatches(m)) m.stale = true;
+      hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
       hooks.log(`Resumed CAD ${file.name}`);
       hooks.message(`Resumed ${file.name} at ${data.cursor ? `“${data.history?.[data.cursor]?.label}” (${data.cursor} step${data.cursor === 1 ? '' : 's'})` : 'its import'}.`);
       refreshSessions();
@@ -238,7 +385,9 @@
       hooks.message(`Reading ${file.name}…`);
       const format = ({ stp: 'step', igs: 'iges' }[file.name.split('.').pop().toLowerCase()] || file.name.split('.').pop().toLowerCase());
       const data = await api('import', { filename: file.name, format, content: base64(await file.arrayBuffer()) });
-      source = file; generated = null; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      if (session) meshesBySession.set(session.cadId, meshes);
+      source = file; meshes = []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      display.hiddenSheets = new Set();
       accept(data); hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
       hooks.log(`Imported CAD ${file.name}`);
       if (sessionsOpen) refreshSessions();
@@ -255,11 +404,13 @@
         if (display.color === 'solid') volumeColor.set(v.id, hueColor(i));
         else if (display.color === 'status' && analysis) volumeColor.set(v.id, STATUS_COLORS[volumeStatus(v.id)]);
       });
-      if (!volumeColor.size) return null;
+      const sheets = t.sheets || [];
+      if (!volumeColor.size && !sheets.length) return null;
       for (const face of t.faces || []) {
         const owners = (face.volumes || []).filter(v => !display.hidden.has(v));
         if (owners.length && volumeColor.has(owners[0])) map.set(face.id, volumeColor.get(owners[0]));
       }
+      for (const r of sheets) map.set(r.face, SHEET_COLOR);
       return map;
     }
     function midpoint(edge) { try { return geometry.curve(edge).pointAt(0.5); } catch { return null; } }
@@ -267,7 +418,7 @@
       const vp = viewport(); if (!vp || !session) return;
       vp.setFaceColors(faceColorMap());
       vp.setXray(display.xray);
-      vp.setHiddenVolumes([...display.hidden]);
+      vp.setHiddenVolumes([...display.hidden], hiddenSheetFaces());
       // Edge colors: equation groups while sizing, conflicts in red.
       let edgeColors = null;
       if (analysis && intervals && step !== 'prepare') {
@@ -469,6 +620,9 @@
       onSelectionChanged();
     }
     function onSelectionChanged() {
+      // The surface and extend tools take each pick as it comes.
+      if (tool === 'surface' && selection.kind === 'face' && selection.ids.length) surfacePick(selection.ids);
+      if (tool === 'extend' && selection.ids.length) extendPick();
       if (tool === 'features') {
         if (selection.kind === 'face') for (const f of selection.ids) { const feat = recognized?.byFace.get(f); if (feat) checkedFeatures.add(feat.id); }
       }
@@ -496,7 +650,7 @@
     }
 
     function clearAll() {
-      source = null; session = null; selection = { kind: null, ids: [] }; report = null; generated = null; auditHistory = []; pending = null; clearPreview();
+      source = null; session = null; selection = { kind: null, ids: [] }; report = null; meshes = []; auditHistory = []; pending = null; clearPreview();
       analysis = recognized = geometry = intervals = null; meshPreview = null; sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
       engine()?.clearCadGeometry?.(); updateViewTools();
     }
@@ -519,7 +673,7 @@
       const stepStatus = {
         prepare: discrete() ? chip('STL', 'muted') : s ? (s.blocked ? chip(`${s.blocked} to fix`, 'warn') : chip('All blocks', 'ok')) : '',
         size: discrete() ? '' : conflicts ? chip(`${conflicts} conflict${conflicts === 1 ? '' : 's'}`, 'bad') : intervals?.region.volumes.length ? chip('Solved', 'ok') : chip('—', 'muted'),
-        mesh: generated && !generated.stale ? chip('In model', 'ok') : meshPreview ? chip('Preview', 'info') : ''
+        mesh: freshMeshes().length ? chip(freshMeshes().length > 1 ? `${freshMeshes().length} in model` : 'In model', 'ok') : meshPreview ? chip('Preview', 'info') : ''
       };
       const cursor = historyCursor(), states = session.history || [];
       const undoLabel = cursor > 0 ? states[cursor]?.label : '', redoLabel = cursor + 1 < states.length ? states[cursor + 1]?.label : '';
@@ -558,8 +712,8 @@
       }
       if (step === 'size') return `<div class="cad-foot-row">${btn('step', 'Back', { cls: 'ghost', data: { value: 'prepare' } })}${btn('step', 'Next: Mesh', { cls: 'primary', data: { value: 'mesh' }, iconName: 'arrow' })}</div>`;
       if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh' })}</div>`;
-      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', generated && !generated.stale ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell' })}</div>`;
-      return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', generated && !generated.stale ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
+      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell' })}</div>`;
+      return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', covering({ volumes: mappedTarget() }).length ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
     }
 
     /* ----------------------------------------------------- context (infer) -- */
@@ -570,6 +724,7 @@
         const hint = { auto: 'Click near a point, edge or face: the smallest one under the pointer is picked. Shift adds.', solid: 'Click a solid to see whether it is a mapped block and how to fix it. Shift-pick neighbors to fuse them.', face: 'Click a face: holes, fillets and planes get matching tools.', edge: step === 'size' ? 'Click edges to set their element counts. Shift adds to the selection.' : 'Click edges to cut along them, or one to slice across it.', vertex: 'Click a vertex to slice through it; Shift-pick a second to cut between them.' }[pick];
         return `<div class="cad-hint">${icon('target')}<span>${hint}<br><small>Shift/Ctrl adds · Esc clears · 1–4 switch pick type</small></span></div>`;
       }
+      if (selection.kind === 'face' && selection.ids.every(f => sheetOf(f)) && !['surface', 'extend'].includes(tool)) return sheetContext();
       const info = F() && analysis ? F().infer(session.topology, recognized, analysis, selection) : null;
       if (!info) return '';
       let html = pending && !tool && step === 'prepare' ? pendingCard() : '';
@@ -614,7 +769,8 @@
       let html = readinessCard();
       html += `<section class="cad-card"><div class="cad-card-title">Geometry tools</div><div class="cad-tools">${[
         ['slice', 'Slice', 'slice', 'Split solids with a plane'], ['cut', 'Cut', 'cut', 'Bounded cuts along edges or between vertices'], ['features', 'Features', 'features', 'Holes, fillets, chamfers'], ['passages', 'Passage', 'passage', 'Square through passages'],
-        ['project', 'Project', 'project', 'Partition by face outlines'], ['heal', 'Heal', 'heal', 'Sew and repair']].map(([key, label, iconName, title]) =>
+        ['project', 'Project', 'project', 'Partition by face outlines'], ['heal', 'Heal', 'heal', 'Sew and repair'],
+        ['surface', 'Surface', 'sheet', 'Midsurface or offset surface from picked faces; stays on for the next'], ['extend', 'Extend', 'extend', 'Extend sheet edges to a face, and join sheets']].map(([key, label, iconName, title]) =>
         `<button type="button" class="cad-tool ${tool === key ? 'active' : ''}" data-act="tool" data-value="${key}" title="${title}">${icon(iconName)}<span>${label}</span></button>`).join('')}</div></section>`;
       html += `<section id="cad-tool">${toolCard()}</section>`;
       return html;
@@ -649,7 +805,17 @@
       }).join('');
       const blocked = vols.filter(v => !analysis?.volumes.get(v.id)?.mappable).length;
       const solidTools = `<span class="cad-tree-tools">${seg('tree-filter', [['all', 'All'], ['blocked', `Red ${blocked}`]], treeFilter, 'compact mini')}${display.hidden.size ? btn('show-all', `Show ${display.hidden.size}`, { cls: 'ghost mini', title: 'Show hidden solids (Shift+H)' }) : ''}</span>`;
-      let html = treeGroup('solids', 'Solids', `${vols.length - blocked}/${vols.length} mapped`, `<div class="cad-tree-list">${rows || '<p class="cad-note">No solids need work.</p>'}</div>`, solidTools);
+      let html = vols.length || !sheetRecords().length ? treeGroup('solids', 'Solids', `${vols.length - blocked}/${vols.length} mapped`, `<div class="cad-tree-list">${rows || '<p class="cad-note">No solids need work.</p>'}</div>`, solidTools) : '';
+      const sheets = sheetGroups();
+      if (sheets.length) {
+        const sheetRows = sheets.map(s => {
+          const hidden = display.hiddenSheets.has(s.sheet), picked = selection.kind === 'face' && s.faces.every(f => selection.ids.includes(f));
+          return `<div class="cad-tree-row ${picked ? 'selected' : ''} ${hidden ? 'hidden' : ''}"><button type="button" class="cad-tree-main" data-act="select-sheet" data-id="${s.sheet}" title="Select its faces"><i class="dot sheet"></i><strong>${esc(s.label)}</strong><span>${esc(sheetNote(s))}</span></button>
+            <button type="button" class="cad-eye" data-act="toggle-sheet" data-id="${s.sheet}" aria-pressed="${!hidden}" title="${hidden ? 'Show' : 'Hide'} this sheet">${icon(hidden ? 'hide' : 'eye')}</button></div>`;
+        }).join('');
+        const tools = `<span class="cad-tree-tools">${btn('sheets-join', 'Join', { cls: 'ghost mini', title: 'Fuse the sheets where they meet, so every junction becomes an edge they share', disabled: sheetRecords().length < 2 })}</span>`;
+        html += treeGroup('sheets', 'Sheets', `${sheets.length}`, `<div class="cad-tree-list">${sheetRows}</div>`, tools);
+      }
       const features = recognized?.features || [];
       if (features.length) {
         html += treeGroup('features', 'Features', features.length, `<div class="cad-tree-list">${features.map(f => `<div class="cad-tree-row" data-hover-faces="${f.faces.join(',')}"><button type="button" class="cad-tree-main" data-act="feature-locate" data-id="${f.id}" title="Select its faces"><i class="kind ${f.kind}"></i><strong>${esc(f.label)}</strong><span>${f.faces.length} face${f.faces.length === 1 ? '' : 's'}</span></button></div>`).join('')}</div>`);
@@ -666,6 +832,7 @@
     }
     function readinessCard() {
       if (!analysis) return '';
+      if (!session.topology.volumes.length) return `<section class="cad-card"><div class="cad-card-title">Surfaces only</div><p class="cad-note">This model has no solids: mesh its sheets with Mesh → Shell.</p></section>`;
       const s = analysis.summary, pct = s.volumes ? Math.round(100 * s.mappable / s.volumes) : 0;
       const blocked = [...analysis.volumes.values()].filter(v => !v.mappable);
       let html = `<section class="cad-card cad-ready"><div class="cad-card-title">Mapped-mesh readiness <small>${s.mappable}/${s.volumes} solids</small></div>
@@ -725,7 +892,7 @@
       const why = { done: 'Finished', stopped: 'Stopped', error: `Stopped on an error (${error})`, limit: 'Stopped at its 40-step limit',
         stuck: steps ? 'Found no further cut that helps' : 'Found no cut that makes more solids mappable' }[reason] || 'Stopped';
       if (!end.blocked) expanded.blocked = false; else expanded.blocked = true;
-      if (session.revision !== startRevision && generated) generated.stale = true;
+      if (session.revision !== startRevision) markStale();
       // The changes wait for Keep or Discard; any later change keeps them.
       autoState.revision = session.revision;
       autoState.review = steps ? { steps, counts, reason, why, startCursor } : null;
@@ -763,6 +930,8 @@
       if (tool === 'features') return featuresCard() + (pending ? pendingStatus() : '');
       if (tool === 'passages') return passagesCard() + (pending ? pendingStatus() : '');
       if (tool === 'project') return projectCard() + (pending ? pendingStatus() : '');
+      if (tool === 'surface') return surfaceCard();
+      if (tool === 'extend') return extendCard();
       if (tool === 'heal') return `<div class="cad-card"><div class="cad-card-title">Heal geometry</div><p class="cad-note">Repairs small edges and faces, sews surfaces and rebuilds solids. Material volume must not change.</p>${pendingStatus()}</div>`;
       return '';
     }
@@ -926,7 +1095,7 @@
 
     /* --------------------------------------------------------------- mesh -- */
     function meshBody() {
-      let html = '';
+      let html = `<div id="cad-meshes">${meshesCard()}</div>`;
       if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['shell', 'Shell', 'shell', 'Quad or tri shell elements on faces, at a midsurface or offset'], ['gmsh', 'Other (Gmsh)', 'spark', 'Tet, tri, quad and sweep methods through Gmsh']], meshSettings.method)}</section>`;
       if (meshSettings.method === 'shell' && !discrete()) html += `<div id="cad-shell">${shellBody()}</div>`;
       else if (meshSettings.method === 'mapped' && !discrete()) {
@@ -941,7 +1110,7 @@
         html += `<section id="cad-mesh-report">${meshReportCard()}</section>`;
       } else html += legacyBody();
       if (report) html += `<div class="cad-card ${report.error ? 'bad' : 'good'}"><pre class="cad-report">${esc(report.text)}</pre></div>`;
-      if (generated?.stale) html += `<p class="cad-note warn">${icon('warn')} Geometry, sizing or the model changed since the mesh was added. Add it again to update.</p>`;
+      if (meshes.some(m => m.stale && m.inModel !== false)) html += `<p class="cad-note warn">${icon('warn')} Geometry, sizing or the model changed since a mesh was added. Mesh those bodies again to update it.</p>`;
       return html;
     }
     function meshReportCard() {
@@ -986,7 +1155,9 @@
           <div class="cad-side"><span>Side A <strong>${count(shell.faces)}</strong></span>${btn('shell-side', 'Use picked', { cls: 'ghost mini', data: { value: 'a' }, disabled: !picked.length })}${btn('shell-grow', 'Whole side', { cls: 'ghost mini', disabled: !shell.faces.length, title: 'Add every face the side continues into tangentially' })}${btn('shell-show', 'Show', { cls: 'ghost mini', data: { value: 'a' }, disabled: !shell.faces.length })}</div>
           <div class="cad-side"><span>Side B <strong>${count(shell.facesB)}</strong></span>${btn('shell-side', 'Use picked', { cls: 'ghost mini', data: { value: 'b' }, disabled: !picked.length })}${btn('shell-opposite', 'Opposite of A', { cls: 'ghost mini', disabled: !shell.faces.length, title: 'The nearest parallel or coaxial faces across the sheet' })}${btn('shell-show', 'Show', { cls: 'ghost mini', data: { value: 'b' }, disabled: !shell.facesB.length })}</div>`;
       } else {
-        html += `<div class="cad-row"><span class="cad-row-label">Faces</span>${seg('shell-scope', [['all', `All ${all}`], ['selected', `Picked ${picked.length}`]], shell.scope, 'compact')}</div>`;
+        const sheetFaces = sheetRecords().length;
+        html += `<div class="cad-row"><span class="cad-row-label">Faces</span>${seg('shell-scope', [['all', `All ${all}`], ...(sheetFaces ? [['sheets', `Sheets ${sheetFaces}`]] : []), ['selected', `Picked ${picked.length}`]], shell.scope, 'compact')}</div>`;
+        if (sheetFaces) html += `<p class="cad-note">Sheets use their own thickness and offset (ZOFFS); T below is for other faces and sheets without one.</p>`;
         if (shell.placement === 'offset') html += `<div class="cad-size-row">${numberField('shell-offset', 'Offset (+ out)', shell.offset)}${btn('shell-half', '−T/2', { cls: 'ghost mini', title: 'Offset inward by half the thickness: from an outer face to the midsurface' })}</div>`;
         html += numberField('shell-thickness', 'Thickness T', shell.thickness, 'min="0"');
       }
@@ -1000,8 +1171,12 @@
     function shellFaces() {
       if (shell.placement === 'midsurface') return shell.faces.slice();
       if (shell.scope === 'selected') return selection.kind === 'face' ? selection.ids.slice() : [];
+      if (shell.scope === 'sheets') return sheetRecords().map(r => r.face);
       return [];
     }
+    /** The faces a shell mesh would cover now, and the solids a mapped mesh would. */
+    function shellTarget() { const faces = shellFaces(); return faces.length ? faces : (session?.topology.faces || []).map(f => f.id); }
+    function mappedTarget() { return meshVolumes() || [...(analysis?.volumes.values() || [])].filter(v => v.mappable).map(v => v.id); }
     async function shellMesh() {
       const size = Number(shell.size) || Number(sizing.size) || defaultSize();
       if (!(size > 0)) throw Error('Enter a positive element size.');
@@ -1012,6 +1187,7 @@
         payload.faceIds = faces; payload.facesB = shell.facesB.slice();
       } else {
         if (shell.scope === 'selected' && !faces.length) throw Error('Pick the faces to mesh, or mesh all faces.');
+        if (shell.scope === 'sheets' && !faces.length) throw Error('There are no sheets to mesh: make them with the Surface tool in Prepare.');
         if (faces.length) payload.faceIds = faces;
         if (shell.placement === 'offset') { payload.offset = Number(shell.offset); if (!Number.isFinite(payload.offset)) throw Error('Enter a finite offset.'); }
       }
@@ -1025,13 +1201,14 @@
       const q = result.quality, placed = q.placement || {};
       const thickness = placed.placement === 'midsurface' ? placed.thickness : Number(shell.thickness);
       if (!(thickness > 0)) throw Error('Enter a positive shell thickness.');
-      committingMesh = true;
-      try { generated = await hooks.appendMesh(result, source.name, { topology: shell.element, order: 1, previousMesh: generated, ownerTag: session.cadId, thickness }); }
-      finally { committingMesh = false; }
+      const meshed = q.faces.filter(f => f.quads).map(f => f.face);
+      const label = `${shell.element === 'quad' ? 'Quad' : 'Tri'} shell · ${meshed.length} face${meshed.length === 1 ? '' : 's'}${placed.placement === 'midsurface' ? ' · midsurface' : placed.placement === 'offset' ? ' · offset' : ''}`;
+      await commitMesh({ kind: 'shell', faces: meshed }, result, { topology: shell.element, order: 1, thickness, thicknessByProperty: result.thicknessByProperty || null }, label);
       const failed = q.faces.filter(f => !f.quads);
       const lines = [`${q.nodes.toLocaleString()} nodes · ${q.elements.toLocaleString()} ${shell.element === 'quad' ? 'CQUAD4' : 'CTRIA3'} · ${q.faces.length - failed.length} of ${q.faces.length} faces`,
-        `Min scaled Jacobian ${q.minScaledJacobian.toFixed(3)} · mean ${q.meanScaledJacobian.toFixed(3)} · ${q.freeEdges.toLocaleString()} free edges${q.nonManifoldEdges ? ` · ${q.nonManifoldEdges} non-manifold` : ''}`,
-        placed.placement === 'midsurface' ? `Midsurface · PSHELL T ${fmt(thickness, 4)} (measured ${fmt(placed.minThickness, 4)} to ${fmt(placed.maxThickness, 4)})` : placed.placement === 'offset' ? `Offset ${fmt(placed.offset, 4)} · PSHELL T ${fmt(thickness, 4)}` : `On the faces · PSHELL T ${fmt(thickness, 4)}`];
+        `Min scaled Jacobian ${q.minScaledJacobian.toFixed(3)} · mean ${q.meanScaledJacobian.toFixed(3)} · ${q.freeEdges.toLocaleString()} free edges${q.nonManifoldEdges ? ` · ${q.nonManifoldEdges} ${meshed.some(f => sheetOf(f)) ? 'junction edges (three or more faces meet)' : 'non-manifold'}` : ''}`,
+        placed.placement === 'midsurface' ? `Midsurface · PSHELL T ${fmt(thickness, 4)} (measured ${fmt(placed.minThickness, 4)} to ${fmt(placed.maxThickness, 4)})` : placed.placement === 'offset' ? `Offset ${fmt(placed.offset, 4)} · PSHELL T ${fmt(thickness, 4)}`
+          : Object.keys(result.thicknessByProperty || {}).length ? `Sheets · PSHELL T ${[...new Set(Object.values(result.thicknessByProperty))].map(t => fmt(t, 4)).join(', ')}${meshed.some(f => !sheetOf(f) || !sheetOf(f).thickness) ? ` · T ${fmt(thickness, 4)} for the other faces` : ''}` : `On the faces · PSHELL T ${fmt(thickness, 4)}`];
       if (placed.placement === 'midsurface' && placed.maxThickness > placed.minThickness * 1.02) lines.push(`Warning: the sheet thickness varies by ${fmt(100 * (placed.maxThickness / placed.minThickness - 1), 2)}%; the property uses the median.`);
       for (const f of failed.slice(0, 6)) lines.push(`Face ${f.face} not meshed: ${f.issues[0] || 'unknown reason'}`);
       if (q.oddEdges?.length) lines.push(`Odd counts on edges ${q.oddEdges.slice(0, 8).join(', ')} lower quad quality on their faces.`);
@@ -1127,7 +1304,7 @@
       const before = analysis?.summary;
       const data = await api('prepare', { ...token(), operation });
       pending = null; clearPreview();
-      if (generated) generated.stale = true;
+      markStale();
       accept(data, { fit: false, keepStep: true });
       // The change is done: nothing from it stays armed for the next pick.
       closeTool();
@@ -1160,6 +1337,8 @@
         setPick('face');
         pending = { operation: { kind: 'project', axis: 'z', faceIds: selection.kind === 'face' ? selection.ids.slice() : [] }, label: 'Partition by projected faces' };
       } else if (tool === 'heal') pending = { operation: { kind: 'heal' }, label: 'Heal geometry' };
+      else if (tool === 'surface') { surfaceDraft.picked = []; setPick('face'); }
+      else if (tool === 'extend') { extendDraft.edges = []; setPick('edge'); }
       hooks.render();
       updatePendingOverlay();
       if (pending) schedulePreview(tool === 'heal' ? 0 : 300);
@@ -1229,7 +1408,7 @@
     /* ------------------------------------------------------------- sizing -- */
     function resolve({ rerender = true } = {}) {
       solve();
-      if (generated && !generated.stale) generated.stale = true;
+      markStale();
       updateDisplay();
       if (rerender) {
         renderPart('cad-edge-editor', edgeEditor); renderPart('cad-equations', equationsCard); renderPart('cad-context', contextCard);
@@ -1313,10 +1492,9 @@
       if (!meshPreview) throw Error(meshError || 'The mapped mesh could not be generated.');
       const result = meshPreview.result, q = result.quality;
       if (q.inverted) throw Error(`${q.inverted} elements are inverted. Change edge counts or slice the solids before adding the mesh.`);
-      committingMesh = true;
-      try {
-        generated = await hooks.appendMesh({ mesh: { nodes: result.nodes, elements: result.elements.map(({ volume, ...e }) => e) }, log: '' }, source.name, { topology: 'hex', order: meshSettings.order, previousMesh: generated, ownerTag: session.cadId });
-      } finally { committingMesh = false; }
+      const volumes = [...new Set(result.elements.map(e => e.volume))].sort((a, b) => a - b);
+      await commitMesh({ kind: 'hex', volumes }, { mesh: { nodes: result.nodes, elements: result.elements.map(({ volume, ...e }) => e) }, log: '' }, { topology: 'hex', order: meshSettings.order },
+        `Mapped ${meshSettings.order === 2 ? 'HEX20' : 'HEX8'} · ${volumes.length} solid${volumes.length === 1 ? '' : 's'}`);
       report = { text: `${result.nodes.length.toLocaleString()} nodes · ${result.elements.length.toLocaleString()} ${meshSettings.order === 2 ? 'HEX20' : 'HEX8'} elements\n${q.perVolume.length} mapped block${q.perVolume.length === 1 ? '' : 's'} · min scaled Jacobian ${q.minScaledJacobian.toFixed(4)} · max aspect ${fmt(q.maxAspect, 3)}\nNative transfinite mapping; shared CAD edges and faces give conforming interfaces.` };
       meshPreview = null; viewport()?.clearOverlays('mesh'); setBaseVisible(true);
       engine().setCadVisible(false); engine().setCadSelectionMode('none');
@@ -1341,9 +1519,9 @@
       }
       hooks.message('Generating and checking the Gmsh mesh…');
       const result = await api('mesh', payload);
-      committingMesh = true;
-      try { generated = await hooks.appendMesh(result, source.name, { ...payload, previousMesh: generated, ownerTag: session.cadId }); }
-      finally { committingMesh = false; }
+      const surface = payload.dimension === 2, t = session.topology;
+      await commitMesh({ kind: 'gmsh', ...(surface ? { faces: t.faces.map(f => f.id) } : { volumes: t.volumes.map(v => v.id) }) }, result, payload,
+        `Gmsh ${({ tet: 'tet', tri: 'tri', quad: 'quad', sweep: 'swept hex', layered: 'layered hex' })[method] || method} · ${surface ? 'all faces' : 'all solids'}`);
       const q = result.quality || result.stats?.quality || {};
       report = { text: `${result.mesh.nodes.length.toLocaleString()} nodes · ${result.mesh.elements.length.toLocaleString()} elements${q.connectedComponents != null ? '\nConnected regions: ' + q.connectedComponents : q.components != null ? '\nConnected regions: ' + q.components : ''}${q.minScaledJacobian != null ? '\nMinimum scaled Jacobian: ' + Number(q.minScaledJacobian).toPrecision(4) : ''}${Array.isArray(q.achievedEdgeDivisions) && q.achievedEdgeDivisions.length ? '\nEdge divisions (requested → actual): ' + q.achievedEdgeDivisions.slice(0, 8).map(item => `${item.id}: ${item.requested} → ${item.achieved}`).join(', ') : ''}` };
       engine().setCadVisible(false); engine().setCadSelectionMode('none'); hooks.render();
@@ -1498,6 +1676,40 @@
             hooks.render(); hooks.message(`${holes.length} pad${holes.length === 1 ? '' : 's'} set; ${shell.pads.length} in all.`); break;
           }
           case 'shell-pad-remove': shell.pads.splice(Number(value), 1); hooks.render(); break;
+          case 'surface-mode': surfaceDraft.mode = value; surfaceDraft.picked = []; renderPart('cad-tool', toolCard); break;
+          case 'surface-place': surfaceDraft.place = value; renderPart('cad-tool', toolCard); break;
+          case 'extend-target': setPick('face'); renderPart('cad-tool', toolCard); break;
+          case 'sheets-join': hooks.run(() => applySheetOperation({ kind: 'join' }, `Joined ${sheetGroups().length} sheets`)); break;
+          case 'select-sheet': { const s = sheetGroups().find(g => g.sheet === Number(el.dataset.id)); if (s) { setPick('face'); setSelection('face', s.faces); } break; }
+          case 'toggle-sheet': { const id = Number(el.dataset.id); display.hiddenSheets.has(id) ? display.hiddenSheets.delete(id) : display.hiddenSheets.add(id); updateDisplay(); renderPart('cad-tree', treeHtml); break; }
+          case 'sheet-apply': {
+            const e = sheetEdit; if (!e) break;
+            const operation = { kind: 'sheet', sheet: e.sheet, thickness: Number(e.thickness) > 0 ? Number(e.thickness) : null, offset: Number(e.offset) || 0, ...(e.name?.trim() ? { name: e.name.trim() } : {}) };
+            hooks.run(() => applySheetOperation(operation, `Edited sheet ${e.sheet}`)); break;
+          }
+          case 'sheet-split': {
+            const s = sheetGroups().find(g => g.sheet === sheetEdit?.sheet); if (!s) break;
+            const plane = session.topology.faces.find(x => x.id === s.faces[0])?.surface; if (plane?.kind !== 'plane') break;
+            const others = sheetRecords().filter(r => r.sheet !== s.sheet).map(r => r.face);
+            hooks.run(() => applySheetOperation({ kind: 'split-sheets', plane: { origin: plane.origin, normal: plane.normal }, faces: others }, `Split sheets along the plane of ${s.label}`)); break;
+          }
+          case 'sheet-remove': {
+            const id = sheetEdit?.sheet; if (id == null) break;
+            if (removingSheet !== id) { removingSheet = id; renderPart('cad-context', contextCard); break; }
+            const all = sheetGroups().find(g => g.sheet === id)?.faces || [], picked = selection.ids.filter(f => all.includes(f));
+            removingSheet = null; sheetEdit = null;
+            if (picked.length && picked.length < all.length) hooks.run(() => applySheetOperation({ kind: 'sheet', sheet: id, remove: true, faces: picked }, `Removed ${picked.length} face${picked.length === 1 ? '' : 's'} of sheet ${id}`));
+            else hooks.run(() => applySheetOperation({ kind: 'sheet', sheet: id, remove: true }, `Removed sheet ${id}`));
+            break;
+          }
+          case 'mesh-remove': {
+            // A second click confirms: the mesh leaves the model (undo brings it back).
+            const id = Number(value), m = meshes.find(x => x.id === id);
+            if (m && m.inModel !== false && removing !== id) { removing = id; renderPart('cad-meshes', meshesCard); break; }
+            removing = null;
+            hooks.run(async () => { await removeMesh(id); hooks.render(); hooks.message(m?.inModel === false ? 'Dropped the mesh from the list.' : 'Removed the mesh from the model.'); });
+            break;
+          }
           case 'shell-pad-clear': shell.pads = []; hooks.render(); break;
           case 'shell-pad-show': setPick('face'); setSelection('face', [...new Set(shell.pads.flatMap(p => p.faces))]); hooks.render(); break;
           case 'legacy-axis': legacy.sweepAxis = value; hooks.render(); break;
@@ -1506,7 +1718,7 @@
         }
       } catch (error) { hooks.message(error.message || String(error), true); }
     }
-    function invalidateMesh() { meshPreview = null; if (generated) generated.stale = true; viewport()?.clearOverlays('mesh'); setBaseVisible(true); }
+    function invalidateMesh() { meshPreview = null; markStale(); viewport()?.clearOverlays('mesh'); setBaseVisible(true); }
     function afterFeatureChange() { renderPart('cad-tool', toolCard); updatePendingOverlay(); refreshFooter(); if (pending) schedulePreview(); }
     function refreshSlice(rerender) {
       if (rerender) renderPart('cad-tool', toolCard);
@@ -1576,6 +1788,11 @@
         if (field === 'shell-offset') { shell.offset = Number(value); return; }
         if (field === 'shell-thickness') { shell.thickness = Number(value); return; }
         if (field === 'shell-pad-size') { shell.padSize = Number(value) > 0 ? Number(value) : null; return; }
+        if (field === 'surface-offset') { surfaceDraft.offset = Number(value) || 0; return; }
+        if (field === 'surface-thickness') { surfaceDraft.thickness = Number(value) > 0 ? Number(value) : null; return; }
+        if (field === 'sheet-thickness') { if (sheetEdit) sheetEdit.thickness = Number(value) > 0 ? Number(value) : null; return; }
+        if (field === 'sheet-offset') { if (sheetEdit) sheetEdit.offset = Number(value) || 0; return; }
+        if (field === 'sheet-name') { if (sheetEdit) sheetEdit.name = String(value); return; }
         if (field === 'shell-pad-side') { const n = Math.round(Number(value)); shell.padSide = n >= 2 ? Math.min(64, n) : null; return; }
         if (field === 'legacy-method' && kind === 'change') { legacy.method = value; hooks.render(); return; }
         if (field === 'legacy-size') { legacy.size = Number(value); return; }
@@ -1745,26 +1962,23 @@
       onSelectionChanged();
     });
     window.addEventListener('webmesh:change', event => {
-      if (!session || !generated || committingMesh) return;
+      if (!session || !meshes.length || committingMesh) return;
       const reasons = event.detail?.reasons || [event.detail?.reason];
       if (!reasons.some(reason => ['load', 'undo', 'redo', 'history', 'model'].includes(reason))) return;
-      if (generated) generated.stale = true; report = null;
-      if (!engine().getMeshOwner(session.cadId).elements.length) { engine().setCadVisible(true); engine().setCadSelectionMode(active ? pick : 'none'); }
+      // Edits elsewhere in the model leave a mesh as it is; undoing it, or editing it, makes it out of date.
+      for (const m of meshes) if (!ownedMatches(m)) { m.stale = true; report = null; }
+      if (!meshes.some(m => m.inModel)) { engine().setCadVisible(true); engine().setCadSelectionMode(active ? pick : 'none'); }
       if (active) hooks.render();
     });
 
     /* ------------------------------------------------------- persistence -- */
-    function matchesGenerated(owned) {
-      const expected = new Set((generated?.elements || []).map(Number));
-      return expected.size > 0 && expected.size === owned.elements.length && owned.elements.every(id => expected.has(Number(id)));
-    }
     return {
       render, bind, importFile, updateAvailability, hasGeometry: () => !!session, getFile: () => source,
       activate(value) {
         active = value;
         if (value) refreshSessions();
         document.getElementById('app')?.classList.toggle('cad-mode', !!value);
-        if (value && session) { if (step !== 'mesh' || !generated || generated.stale) engine()?.setCadVisible(true); updateDisplay(); }
+        if (value && session) { if (step !== 'mesh' || !freshMeshes().length) engine()?.setCadVisible(true); updateDisplay(); }
         engine()?.setCadSelectionMode?.(value && session ? pick : 'none');
         if (!value) {
           // Workspace overlays belong to this tab; the next activation rebuilds them.
@@ -1774,17 +1988,19 @@
         updateViewTools();
       },
       clear() { clearAll(); },
+      /** [owner tag, element IDs] of each mesh a project saved, for the restored CAD session. */
+      savedOwners(staged) { return staged ? savedMeshes(staged.data).map(m => [`${staged.imported.cadId}#${m.id}`, m.elements]) : []; },
       async serialize() {
         if (!source) return null;
-        const owned = generated ? engine().getMeshOwner(session.cadId) : null;
-        if (owned && !matchesGenerated(owned)) { if (generated) generated.stale = true; report = null; }
+        for (const m of meshes) if (!ownedMatches(m) && !m.stale) { m.stale = true; report = null; }
         const settings = {
           version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
           mesh: { ...meshSettings }, legacy: JSON.parse(JSON.stringify(legacy)), shell: JSON.parse(JSON.stringify(shell)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups }
         };
         const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report };
         if (session) { original.prepared = await api('export', token()); original.prepared.history = [...auditHistory, ...(original.prepared.history || [])]; }
-        if (owned?.elements.length) original.mesh = { ...generated, elements: owned.elements, properties: owned.properties };
+        const saved = meshes.filter(m => m.inModel !== false).map(m => { const owned = engine().getMeshOwner(meshOwner(m)); return { ...m, elements: owned.elements, properties: owned.properties }; });
+        if (saved.length) original.meshes = saved;
         return original;
       },
       async stageRestore(data) {
@@ -1794,7 +2010,7 @@
         if (Array.isArray(edges) && edges.length > MAX_CONTROLS) throw Error(`Saved sizing exceeds ${MAX_CONTROLS} edge controls. Reduce the saved control list before restoring this project.`);
         const file = new File([fromBase64(data.content)], data.filename), prepared = data.prepared?.content ? data.prepared : null;
         const format = prepared?.format || ({ stp: 'step', igs: 'iges' }[file.name.split('.').pop().toLowerCase()] || file.name.split('.').pop().toLowerCase());
-        const imported = await api('import', { filename: prepared?.filename || file.name, format, content: prepared?.content || data.content });
+        const imported = await api('import', { filename: prepared?.filename || file.name, format, content: prepared?.content || data.content, ...(Array.isArray(prepared?.sheets) ? { sheets: prepared.sheets } : {}) });
         return { data, file, imported };
       },
       commitRestore(staged) {
@@ -1809,7 +2025,7 @@
           if (s.shell && typeof s.shell === 'object') {
             const v = s.shell, ids = list => Array.isArray(list) ? list.filter(Number.isSafeInteger).slice(0, 10000) : [];
             shell = { ...shell, element: v.element === 'tri' ? 'tri' : 'quad', mesher: ['quadtree', 'paved'].includes(v.mesher) ? v.mesher : 'recombined',
-              placement: ['surface', 'midsurface', 'offset'].includes(v.placement) ? v.placement : 'surface', scope: v.scope === 'selected' ? 'selected' : 'all',
+              placement: ['surface', 'midsurface', 'offset'].includes(v.placement) ? v.placement : 'surface', scope: ['selected', 'sheets'].includes(v.scope) ? v.scope : 'all',
               faces: ids(v.faces), facesB: ids(v.facesB), size: Number(v.size) > 0 ? Number(v.size) : null, perCircle: Number.isInteger(v.perCircle) ? Math.max(4, Math.min(128, v.perCircle)) : 12,
               offset: Number.isFinite(v.offset) ? v.offset : 0, thickness: Number(v.thickness) > 0 ? Number(v.thickness) : 1, pidPerFace: !!v.pidPerFace,
               pads: Array.isArray(v.pads) ? v.pads.filter(p => p && ids(p.faces).length).slice(0, 1000).map(p => ({ faces: ids(p.faces), diameter: Number(p.diameter) > 0 ? Number(p.diameter) : 0,
@@ -1840,13 +2056,12 @@
           if (Object.keys(entry).length) sizing.edges.set(control.id, entry);
         }
         solve(); updateDisplay();
-        if (data.mesh && Array.isArray(data.mesh.elements)) generated = data.mesh;
+        meshes = savedMeshes(data); meshCounter = Math.max(0, ...meshes.map(m => m.id));
         if (data.report && typeof data.report.text === 'string') report = { text: data.report.text.slice(0, 6000), error: !!data.report.error };
-        if (invalid) { if (generated) generated.stale = true; report = null; hooks.message('Some saved edge controls do not match this CAD revision. Review sizing and mesh again.', true); }
-        const owned = generated ? engine().getMeshOwner(session.cadId) : null, complete = owned && matchesGenerated(owned);
-        if (generated && !complete) generated.stale = true;
-        if (report && !report.error && (!complete || generated.stale)) report = null;
-        if (generated) engine().setCadVisible(!complete);
+        if (invalid) { markStale(); report = null; hooks.message('Some saved edge controls do not match this CAD revision. Review sizing and mesh again.', true); }
+        for (const m of meshes) if (!ownedMatches(m)) m.stale = true;
+        if (report && !report.error && (!freshMeshes().length || meshes.some(m => m.stale))) report = null;
+        if (meshes.length) engine().setCadVisible(!freshMeshes().length);
       },
       getState() {
         return { cadId: session?.cadId, revision: session?.revision, filename: source?.name, step, pick, tool, selection: { ...selection, ids: selection.ids.slice() }, topology: session?.topology, report,

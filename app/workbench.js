@@ -117,7 +117,7 @@
     try {await fn(revision);refresh(true);}catch(err){message(err.message||String(err),true);const report=$('wb-report');if(report){report.textContent=err.message||String(err);report.className='wb-report bad';}}
     finally{setBusy(false);refresh(true);}
   }
-  const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,isBusy:()=>busy});
+  const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
   function setTab(tab) {
@@ -240,7 +240,7 @@
       const el=$('wb-bridge-info');if(el)el.innerHTML='Start the CAD bridge with <code>python3 server.py</code>, then open <code>http://127.0.0.1:8765</code>. Scratch modeling works in the browser.';
     }
   }
-  async function appendCadMesh(result,filename,{topology,order,previousMesh,ownerTag,thickness=1}) {
+  async function appendCadMesh(result,filename,{topology,order,previousMesh,ownerTag,thickness=1,replaceOwners=[],thicknessByProperty=null}) {
     const owned=engine().getMeshOwner(ownerTag);
     previousMesh=owned.elements.length?{...previousMesh,properties:owned.properties}:null;
     const ids=engine().getNextIds(),nodeMap=new Map(),nodeIds=result.mesh.nodes.map((node,i)=>{nodeMap.set(node.id,ids.node+i);return {...node,id:ids.node+i};});
@@ -249,7 +249,9 @@
     const regions=new Map();let nextProperty=ids.property;for(const el of result.mesh.elements)if(!regions.has(el.pid))regions.set(el.pid,reusable[regions.size]??nextProperty++);
     const mesh={name:filename,nodes:nodeIds,elements:result.mesh.elements.map((el,i)=>({...el,id:ids.element+i,pid:regions.get(el.pid),nodes:el.nodes.map(id=>nodeMap.get(id))}))};
     const material=definitions.materials.some(m=>m.id===previousMesh?.material)?previousMesh.material:ids.material;
-    await engine().appendMesh(mesh,{material:{id:material,E:210000,nu:0.3,rho:7.85e-9},thickness,ownerTag,replaceOwner:true,...(regionType==='PSHELL'?{shellThickness:thickness}:{})});
+    // Sheets of several thicknesses: the mesher's property groups, renumbered into the model.
+    const byProperty=thicknessByProperty?Object.fromEntries(Object.entries(thicknessByProperty).filter(([pid])=>regions.has(Number(pid))).map(([pid,t])=>[regions.get(Number(pid)),t])):null;
+    await engine().appendMesh(mesh,{material:{id:material,E:210000,nu:0.3,rho:7.85e-9},thickness,ownerTag,replaceOwner:true,replaceOwners,...(regionType==='PSHELL'?{shellThickness:thickness}:{}),...(byProperty?{thicknessByProperty:byProperty}:{})});
     engine().fitView?.();logOperation(`Meshed ${filename}`);message(`CAD mesh added: ${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} elements.`);
     const report=$('wb-report');if(report){report.className='wb-report good';report.textContent=`${filename}\n${mesh.nodes.length.toLocaleString()} nodes · ${mesh.elements.length.toLocaleString()} ${topology} elements\nOrder ${order}${result.log?'\n\n'+result.log.slice(-1600):''}`;}
     return {elements:mesh.elements.map(el=>el.id),properties:[...regions.values()],material};
@@ -343,7 +345,7 @@
     const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||data.version!==1||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
     const cadRestore=await cadWorkspace.stageRestore(data.cad);
     await engine().loadDeck(data.deck,data.name||file.name);nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
-    if(cadRestore&&Array.isArray(data.cad?.mesh?.elements))await engine().bindMeshOwner(cadRestore.imported.cadId,data.cad.mesh.elements);
+    for(const [tag,elements] of cadWorkspace.savedOwners(cadRestore))await engine().bindMeshOwner(tag,elements);
     cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
     operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';
   });

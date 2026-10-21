@@ -176,7 +176,11 @@ class CadSessions:
         source.write_bytes(raw)
         try:
             snapshot = folder / ("state-0.msh" if kind == "stl" else "state-0.brep")
-            result = self.runner({"action": "import"}, source, snapshot)
+            # A restored project names its sheets; a new file's free faces are found by the kernel.
+            request = {"action": "import"}
+            if isinstance(data.get("sheets"), list):
+                request["sheets"] = data["sheets"]
+            result = self.runner(request, source, snapshot)
             json_path = folder / "state-0.json.gz"
             json_path.write_bytes(pack(result))
         except Exception:
@@ -197,7 +201,7 @@ class CadSessions:
             now = time.time()
             self.records[key] = {"filename": filename, "revision": 0, "cursor": 0, "lastUsed": now, "created": now,
                                  "discrete": kind == "stl", "source": source,
-                                 "states": [{"path": snapshot, "json": json_path,
+                                 "states": [{"path": snapshot, "json": json_path, "sheets": result["topology"].get("sheets", []) if isinstance(result.get("topology"), dict) else [],
                                              "revision": 0, "operation": {"kind": "import"}, "label": "Imported geometry"}]}
             return self.payload(key, self.records[key])
 
@@ -263,7 +267,7 @@ class CadSessions:
             result = unpack(entry["json"])
         return result if full else lite_view(result)
 
-    def run_preview(self, key, record, base, operation, operation_key, source, lite):
+    def run_preview(self, key, record, base, operation, operation_key, source, lite, sheets=()):
         output = self.root / key / f"staged-{uuid.uuid4().hex[:8]}.brep"
         entry = {"base": base, "key": operation_key, "path": output, "json": output.with_suffix(".json.gz"),
                  "ready": threading.Event(), "failed": None, "lite": None, "cancel": None, "discarded": False}
@@ -281,10 +285,11 @@ class CadSessions:
             with self.lock:
                 record.get("workers", {}).pop(token, None)
 
-        request = {"action": "prepare", "operation": operation}
+        request = {"action": "prepare", "operation": operation, "sheets": list(sheets)}
         if not lite:
             try:
                 result = self.runner(request, source, output, started=started)
+                entry["sheets"] = result["topology"].get("sheets", [])
                 entry["json"].write_bytes(pack(result))
             except Exception as error:
                 drop_snapshot(output)
@@ -314,6 +319,7 @@ class CadSessions:
         def work():
             try:
                 result = self.runner(request, source, output, early=early, started=started)
+                entry["sheets"] = result["topology"].get("sheets", [])
                 blob = pack(result)
                 with self.lock:
                     if not entry["discarded"]:
@@ -364,8 +370,9 @@ class CadSessions:
                 base = record["revision"]
                 entry = self.staged_entry(record, operation_key)
                 source = record["states"][record["cursor"]]["path"]
+                sheets = record["states"][record["cursor"]].get("sheets", [])
             if entry is None:
-                entry = self.run_preview(key, record, base, operation, operation_key, source, lite)
+                entry = self.run_preview(key, record, base, operation, operation_key, source, lite, sheets)
             result = self.staged_result(entry, full=not lite)
             if result is not None:
                 result.update(cadId=key, revision=base, staged=True)
@@ -393,12 +400,13 @@ class CadSessions:
             folder = self.root / key
             if entry is not None and not entry["discarded"] and not entry["failed"] and self.staged_entry(record, operation_key) is entry:
                 record["staged"].pop(operation_key)
-                return self.commit(key, record, operation, entry["path"], entry["json"])
+                return self.commit(key, record, operation, entry["path"], entry["json"], entry.get("sheets", []))
             source = record["states"][record["cursor"]]["path"]
+            sheets = record["states"][record["cursor"]].get("sheets", [])
         output = folder / f"prepare-{uuid.uuid4().hex[:8]}.brep"
         json_path = output.with_suffix(".json.gz")
         try:
-            result = self.runner({"action": "prepare", "operation": operation}, source, output)
+            result = self.runner({"action": "prepare", "operation": operation, "sheets": sheets}, source, output)
             json_path.write_bytes(pack(result))
         except Exception:
             drop_snapshot(output)
@@ -410,9 +418,9 @@ class CadSessions:
                 drop_snapshot(output)
                 json_path.unlink(missing_ok=True)
                 raise moved
-            return self.commit(key, record, operation, output, json_path)
+            return self.commit(key, record, operation, output, json_path, result["topology"].get("sheets", []))
 
-    def commit(self, key, record, operation, brep, result_json):
+    def commit(self, key, record, operation, brep, result_json, sheets=()):
         """Make a prepared result (BREP and result JSON) the next revision. Lock held."""
         revision = record["revision"] + 1
         folder = self.root / key
@@ -448,8 +456,11 @@ class CadSessions:
                   "fuse": operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip()
                   else f"Fused solids {operation.get('volumeIds', [])}",
                   "passage": "Cut a reviewed rectangular through-passage",
+                  **{sheet_kind: operation.get("label")[:160] if isinstance(operation.get("label"), str) and operation.get("label").strip() else default
+                     for sheet_kind, default in (("surface", "Made a surface"), ("extend", "Extended sheet edges"), ("join", "Joined sheets"),
+                                                ("split-sheets", "Split sheets along a plane"), ("sheet", "Edited a sheet"))},
                   "passages": f"Cut {passage_count} reviewed rectangular through-passages"}
-        record["states"].append({"path": output, "json": json_path, "revision": revision,
+        record["states"].append({"path": output, "json": json_path, "revision": revision, "sheets": list(sheets),
                                  "operation": operation, "label": labels.get(kind, "Prepared geometry")})
         record["cursor"] += 1
         record["revision"] = revision
@@ -493,7 +504,9 @@ class CadSessions:
             return {"filename": record["filename"] if discrete else Path(record["filename"]).stem + "-prepared.brep",
                     "format": "stl" if discrete else "brep",
                     "content": base64.b64encode((record["source"] if discrete else state["path"]).read_bytes()).decode(),
-                    "history": self.payload(key, record)["history"][:record["cursor"] + 1]}
+                    "history": self.payload(key, record)["history"][:record["cursor"] + 1],
+                    # A project reimports the prepared snapshot: it names the sheets in it.
+                    "sheets": state.get("sheets", [])}
 
     def mesh(self, data):
         with self.lock:
@@ -541,5 +554,7 @@ class CadSessions:
         """Shell mesh of the current revision's faces; the session does not change."""
         with self.lock:
             _, record = self.lookup(data)
-            source = record["states"][record["cursor"]]["path"]
-        return self.runner({**{k: v for k, v in data.items() if k not in {"cadId", "revision"}}, "action": "shell"}, source, None)
+            state = record["states"][record["cursor"]]
+        # The session's own sheet records (thickness, offset) set sheet properties.
+        return self.runner({**{k: v for k, v in data.items() if k not in {"cadId", "revision", "sheets"}}, "action": "shell",
+                            "sheets": state.get("sheets", [])}, state["path"], None)

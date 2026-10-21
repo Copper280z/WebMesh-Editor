@@ -651,6 +651,24 @@
       } else if (descriptor.kind === 'sphere') {
         const c = descriptor.center, r = descriptor.radius;
         project = p => { const d = sub(p, c), l = norm(d); return l > 0 ? add(c, scale(d, r / l)) : p; };
+      } else if (descriptor.kind === 'cone') {
+        // Onto the generator through the point's side of the axis.
+        const o = descriptor.apex, axis = unit(descriptor.axis), sin = Math.sin(descriptor.angle), cos = Math.cos(descriptor.angle);
+        project = p => {
+          const offset = sub(p, o), along = dot(offset, axis), radial = sub(offset, scale(axis, along)), length = norm(radial);
+          if (!(length > 0)) return p;
+          const generator = add(scale(axis, cos), scale(radial, sin / length));
+          return add(o, scale(generator, Math.max(0, dot(offset, generator))));
+        };
+      } else if (descriptor.kind === 'torus') {
+        // Onto the tube's circle in the point's half-plane through the axis.
+        const c = descriptor.center, axis = unit(descriptor.axis), R = descriptor.major, r = descriptor.minor;
+        project = p => {
+          const offset = sub(p, c), radial = sub(offset, scale(axis, dot(offset, axis))), length = norm(radial);
+          if (!(length > 0)) return p;
+          const core = add(c, scale(radial, R / length)), d = sub(p, core), l = norm(d);
+          return l > 0 ? add(core, scale(d, r / l)) : p;
+        };
       } else {
         const tri = faceTriangles(faceId);
         project = p => tri.length ? closestOnTriangles(tri, p) : p;

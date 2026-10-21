@@ -369,14 +369,80 @@ def _surface(geometry, face, kind):
                 distances = [float(np.linalg.norm(np.cross(p - origin, axis))) for p in points]
                 if max(abs(d - radius) for d in distances) < tolerance * 10:
                     return {"kind": "cylinder", "origin": origin.tolist(), "axis": axis.tolist(), "radius": radius}
+            cone = _cone(model, face, grid, points, tolerance)
+            if cone:
+                return cone
         elif abs(abs(small) - abs(large)) * radius < 1e-6:
             for sign in (1, -1):
                 center = point - sign * radius * normal
                 if max(abs(float(np.linalg.norm(p - center)) - radius) for p in points) < tolerance * 10:
                     return {"kind": "sphere", "center": center.tolist(), "radius": radius}
+        torus = _torus(model, face, grid, points, tolerance)
+        if torus:
+            return torus
     except Exception:
         pass
     return {"kind": "mesh"}
+
+
+def _frame(model, face, grid):
+    """Unit normals and both principal curvatures at the sample points."""
+    uvs = [x for uv in grid for x in uv]
+    normals = np.array(model.getNormal(face, uvs), dtype=float).reshape(-1, 3)
+    normals /= np.linalg.norm(normals, axis=1)[:, None]
+    k_max, k_min, _, _ = model.getPrincipalCurvatures(face, uvs)
+    return normals, np.asarray(k_max, dtype=float), np.asarray(k_min, dtype=float)
+
+
+def _cone(model, face, grid, points, tolerance):
+    """A cone: straight generators, and normals at a fixed angle to the axis that all meet it.
+
+    Returns its apex, the axis pointing from the apex into the cone, and the
+    half-angle between axis and generators; or None.
+    """
+    p = np.array(points)
+    normals, k_max, k_min = _frame(model, face, grid)
+    bent = np.where(np.abs(k_max) >= np.abs(k_min), k_max, k_min)
+    flat = np.where(np.abs(k_max) >= np.abs(k_min), k_min, k_max)
+    if np.any(np.abs(bent) <= 0) or np.max(np.abs(flat) / np.abs(bent)) > 1e-5:
+        return None
+    centred = normals - normals.mean(axis=0)
+    axis = np.linalg.eigh(centred.T @ centred)[1][:, 0]
+    c = float(np.mean(normals @ axis))
+    if abs(c) < 1e-6 or float(np.max(np.abs(normals @ axis - c))) > 1e-6:
+        return None  # a cylinder (normals across the axis), or not a cone
+    tan_half = abs(c) / math.sqrt(1 - c * c)
+    for sign in (1, -1):
+        # The normal line meets the axis at 1 / curvature from the surface.
+        feet = p - sign * normals / np.abs(bent)[:, None]
+        origin = feet.mean(axis=0)
+        off = (feet - origin) - np.outer((feet - origin) @ axis, axis)
+        if float(np.max(np.linalg.norm(off, axis=1))) > tolerance * 10:
+            continue
+        along = (p - origin) @ axis
+        radius = np.linalg.norm((p - origin) - np.outer(along, axis), axis=1)
+        for sense in (1, -1):
+            start = float(np.mean(along - sense * radius / tan_half))
+            if float(np.max(np.abs(radius - sense * (along - start) * tan_half))) < tolerance * 10:
+                return {"kind": "cone", "apex": (origin + axis * start).tolist(), "axis": (axis * sense).tolist(),
+                        "angle": math.atan(tan_half)}
+    return None
+
+
+def _torus(model, face, grid, points, tolerance):
+    """A torus: one curvature the same everywhere (the tube), its circles' centres on one circle."""
+    p = np.array(points)
+    normals, k_max, k_min = _frame(model, face, grid)
+    for k in (k_max, k_min):
+        mean = float(np.mean(np.abs(k)))
+        if mean <= 0 or float(np.max(np.abs(np.abs(k) - mean))) > mean * 1e-5:
+            continue
+        minor = 1 / mean
+        for sign in (1, -1):
+            circle = _circle(p - sign * minor * normals)
+            if circle and circle["radius"] > minor * 1e-6:
+                return {"kind": "torus", "center": circle["center"], "axis": circle["axis"], "major": circle["radius"], "minor": minor}
+    return None
 
 
 def _material_outside(geometry, volume, surface, point, step):

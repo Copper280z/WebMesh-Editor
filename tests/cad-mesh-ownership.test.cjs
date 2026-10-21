@@ -36,3 +36,13 @@ test('changing CAD mesh dimension allocates a compatible property even with a li
   const f=fixture({owned:{elements:[50],properties:[6]},properties:[{id:6,type:'PSOLID'}],materials:[{id:4,type:'MAT1'}]});
   await f.append();assert.equal(f.calls[0].mesh.elements[0].pid,9);
 });
+
+test('sheet thicknesses follow their property groups into the model, and replaced owners are passed on',async()=>{
+  const f=fixture({owned:{elements:[],properties:[]},properties:[],materials:[]});
+  f.result.mesh.elements.push({id:2,type:'CTRIA3',pid:12,nodes:[10,30,20]});
+  await f.append(f.result,{thicknessByProperty:{11:3,12:4},replaceOwners:['cad-source#9']});
+  const {mesh,options}=f.calls[0];
+  assert.deepEqual(mesh.elements.map(el=>el.pid),[9,10]);
+  assert.deepEqual(options.thicknessByProperty,{9:3,10:4});
+  assert.deepEqual(options.replaceOwners,['cad-source#9']);
+});

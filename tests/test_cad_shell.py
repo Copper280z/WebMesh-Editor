@@ -63,6 +63,12 @@ class ShellMeshTests(unittest.TestCase):
         import cad_kernel
         volume = cad_kernel.execute({"action": "import", "input": str(ROOT / "examples/block.step"), "output": str(Path(self._tmp()) / "b.brep")})["topology"]["volume"]
         self.assertAlmostEqual(enclosed_volume(result), volume, delta=volume * 1e-6)
+        # Every element faces out, also on the faces through the origin, which add nothing to the volume.
+        xyz = {n["id"]: np.array([n["x"], n["y"], n["z"]]) for n in result["mesh"]["nodes"]}
+        center = points(result).mean(axis=0)
+        for element in result["mesh"]["elements"]:
+            p = [xyz[n] for n in element["nodes"]]
+            self.assertGreater(float(np.dot(np.cross(p[2] - p[0], p[3] - p[1]), np.mean(p, axis=0) - center)), 0, element)
 
     def _tmp(self):
         import tempfile

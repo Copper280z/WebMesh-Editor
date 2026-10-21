@@ -15,7 +15,7 @@ function fixture() {
   const noop = () => {};
   const context = vm.createContext({
     window: {}, workbenchState: noop, workbenchNextIds: noop, workbenchGetMesh: noop,
-    workbenchBindMeshOwner: noop, workbenchGetMeshOwner: noop,
+    workbenchBindMeshOwner: noop, workbenchGetMeshOwner: noop, workbenchRemoveMeshOwner: noop,
     workbenchAppendMesh: noop, workbenchPreviewMesh: noop, fitView: noop,
     workbenchSetView: noop, workbenchSetTheme: noop,
     schemaCreateReady: Promise.resolve(), schemaEditReady: Promise.resolve(),

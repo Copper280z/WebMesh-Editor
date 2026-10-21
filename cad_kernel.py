@@ -424,6 +424,9 @@ def open_cut(gmsh, face, step):
     model = gmsh.model
     if len(model.getAdjacencies(2, face)[0]) or model.getType(2, face) != "Plane":
         return None
+    import cad_sheets
+    if cad_sheets.is_sheet(gmsh, face):
+        return None  # a midsurface also lies inside a solid, but it is a sheet, not a cut
     try:
         sample = _face_sample(gmsh, face)
         if sample is None:
@@ -473,9 +476,10 @@ def _probe(gmsh):
 
 
 def remove_loose(gmsh, keep=()):
-    """Remove faces, edges and points that bound no solid, except the faces in keep."""
+    """Remove faces, edges and points that bound no solid, except the faces in keep and sheets."""
+    import cad_sheets
     model, occ = gmsh.model, gmsh.model.occ
-    keep = set(keep)
+    keep = set(keep) | {int(tag) for _, tag in model.getEntities(2) if cad_sheets.is_sheet(gmsh, int(tag))}
     # Faces first, then the edges and points nothing uses any more: a recursive
     # removal skips a face whose edges another removed face shares.
     for dimension in (2, 1, 0):
@@ -705,7 +709,8 @@ def slice_solids(gmsh, operation, volumes):
         if short:
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
         raise ValueError("The slice did not divide a solid. Move it through the material of the chosen solids.")
-    if any(not len(model.getAdjacencies(2, tag)[0]) and tag not in kept for _, tag in model.getEntities(2)):
+    import cad_sheets
+    if any(not len(model.getAdjacencies(2, tag)[0]) and tag not in kept and not cad_sheets.is_sheet(gmsh, int(tag)) for _, tag in model.getEntities(2)):
         # OpenCASCADE keeps a cut that stops inside the material as an internal face.
         if short:
             raise ValueError("A cut ends inside the material and leaves a slit. Extend it to the boundary or add cuts so every region is closed.")
@@ -737,9 +742,24 @@ def fuse_solids(gmsh, operation, volumes):
         raise ValueError("Fusing changed other solids. The previous geometry was retained.")
 
 
-def prepare(gmsh, operation):
+def prepare(gmsh, operation, sheets=None):
+    """Apply one preparation operation. `sheets` (records, see cad_sheets) are
+    changed in place: a sheet operation edits them; a solid operation keeps them."""
+    import cad_sheets
     model, occ = gmsh.model, gmsh.model.occ
     kind = operation.get("kind")
+    sheets = [] if sheets is None else sheets
+    if kind in cad_sheets.OPERATIONS:
+        cad_sheets.apply(gmsh, operation, sheets)
+        return
+    captured = cad_sheets.capture(gmsh, sheets)
+    cad_sheets.protect(gmsh, sheets)
+    _prepare_solids(gmsh, operation, kind)
+    sheets[:] = cad_sheets.rematch(gmsh, captured)
+
+
+def _prepare_solids(gmsh, operation, kind):
+    model, occ = gmsh.model, gmsh.model.occ
     volumes = model.getEntities(3)
     if not volumes:
         raise ValueError("CAD preparation requires closed solid volumes.")
@@ -872,7 +892,7 @@ def prepare(gmsh, operation):
     elif kind == "fuse":
         fuse_solids(gmsh, operation, volumes)
     else:
-        raise ValueError("Unknown preparation operation. Choose slice, fuse, split, project, passages, defeature, or heal.")
+        raise ValueError("Unknown preparation operation. Choose slice, fuse, split, project, passages, defeature, heal, or a sheet operation (surface, extend, join, sheet).")
     if not model.getEntities(3) or any(safe_mass(gmsh, 3, t) <= 0 for _, t in model.getEntities(3)):
         raise ValueError("The operation did not produce valid positive-volume CAD solids.")
     if kind in {"split", "project", "slice", "fuse"}:
@@ -928,6 +948,18 @@ def write_cache(path, cache):
         Path(path).unlink(missing_ok=True)
 
 
+def load(gmsh, path):
+    """Import CAD with its free faces (sheets) as well as its solids; stray curves and points go."""
+    occ = gmsh.model.occ
+    occ.importShapes(str(path), highestDimOnly=False)
+    occ.synchronize()
+    for dimension in (1, 0):
+        loose = [entity for entity in gmsh.model.getEntities(dimension) if not len(gmsh.model.getAdjacencies(*entity)[0])]
+        if loose:
+            occ.remove(loose)
+            occ.synchronize()
+
+
 def execute(request):
     gmsh = gmsh_module()
     gmsh.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
@@ -939,13 +971,21 @@ def execute(request):
         if discrete:
             gmsh.merge(request["input"])
         else:
-            gmsh.model.occ.importShapes(request["input"])
-            gmsh.model.occ.synchronize()
+            load(gmsh, request["input"])
         action = request["action"]
+        import cad_sheets
+        sheets = None if discrete else cad_sheets.clean(gmsh, request.get("sheets"))
+        if sheets is None and not discrete:
+            # A file's own free faces are its sheets (a surface model); open cuts are not.
+            sheets = cad_sheets.discovered(gmsh, open_cut, _probe(gmsh)) if action == "import" else []
+        if not discrete:
+            # Free faces other than sheets (what an operation left over) do not carry over.
+            cad_sheets.protect(gmsh, sheets)
+            remove_loose(gmsh)
         if action == "prepare":
             if discrete:
                 raise ValueError("STL is a discrete surface mesh. Split and defeature require editable STEP, IGES, or BREP geometry.")
-            prepare(gmsh, request["operation"])
+            prepare(gmsh, request["operation"], sheets)
         if action == "mesh":
             if discrete:
                 if request.get("topology") == "hex":
@@ -965,11 +1005,12 @@ def execute(request):
             if discrete:
                 raise ValueError("STL has no CAD faces to shell mesh. Import the source STEP/BREP instead.")
             from cad_shell import shell_mesh
-            result = shell_mesh(gmsh, request)
+            result = shell_mesh(gmsh, {**request, "sheets": sheets})
         else:
             if discrete:
                 gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
                 gmsh.option.setNumber("Mesh.Binary", 0)
+            captured = [] if discrete else cad_sheets.capture(gmsh, sheets)
             gmsh.write(request["output"])
             # BREP serialization assigns fresh entity tags on import. Preview the
             # exact canonical snapshot that the next worker will load.
@@ -977,10 +1018,14 @@ def execute(request):
             if discrete:
                 gmsh.merge(request["output"])
             else:
-                gmsh.model.occ.importShapes(request["output"])
-                gmsh.model.occ.synchronize()
+                load(gmsh, request["output"])
+            sheets = [] if discrete else cad_sheets.rematch(gmsh, captured)
+            cad_sheets.protect(gmsh, sheets)
+            if not discrete:
+                remove_loose(gmsh)
             data = topology(gmsh)
             data["discrete"] = discrete
+            data["sheets"] = sheets
             cache = keys = out = None
             if not discrete:
                 from cad_mapping import augment

@@ -230,3 +230,17 @@ test('a solid holding a kept open cut is an open ring that needs another cut', (
   assert.equal(v.reasons[0].code, 'open-ring');
   assert.deepEqual(v.reasons[0].faces, [999]);
 });
+
+test('nodes project exactly onto cones and tori', () => {
+  // The box fixture with two of its faces described as a cone and a torus.
+  const data = fixture('box'), faces = data.topology.faces;
+  faces[0].surface = { kind: 'cone', apex: [0, 0, 10], axis: [0, 0, -1], angle: Math.atan(0.5) };
+  faces[1].surface = { kind: 'torus', center: [0, 0, 0], axis: [0, 0, 1], major: 8, minor: 2 };
+  const geometry = H.createGeometry(data.topology, data.preview);
+  const cone = geometry.surface(faces[0].id).project([3, 4, 2]);
+  // On the cone: distance from the axis is (10 - z) * tan(angle).
+  assert.ok(Math.abs(Math.hypot(cone[0], cone[1]) - (10 - cone[2]) * 0.5) < 1e-9, String(cone));
+  assert.ok(Math.abs(Math.atan2(cone[1], cone[0]) - Math.atan2(4, 3)) < 1e-12, 'it stays on the same side of the axis');
+  const torus = geometry.surface(faces[1].id).project([11, 0, 1]);
+  assert.ok(Math.abs(Math.hypot(Math.hypot(torus[0], torus[1]) - 8, torus[2]) - 2) < 1e-9, String(torus));
+});

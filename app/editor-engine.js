@@ -28467,9 +28467,17 @@ ${formatRanges(v.ranges, 500)}`;
     for (const e of elements) e.webmeshOwner = ownerTag;
     return workbenchGetMeshOwner(ownerTag);
   }
+  /** Remove the elements of one CAD mesh (and nodes nothing else uses) in one undo step. */
+  async function workbenchRemoveMeshOwner(rawOwnerTag, label) {
+    const ownerTag = workbenchOwnerTag(rawOwnerTag);
+    if (!workbenchGetMeshOwner(ownerTag).elements.length) return workbenchGetMeshOwner(ownerTag);
+    await workbenchAppendMesh({ nodes: [], elements: [] }, { ownerTag, replaceOwner: true, allowEmpty: true, label: label || "Remove CAD mesh" });
+    return workbenchGetMeshOwner(ownerTag);
+  }
   async function workbenchAppendMesh(mesh, options = {}) {
     if (!mesh || !Array.isArray(mesh.nodes) || !Array.isArray(mesh.elements)) throw new Error("A mesh needs nodes and elements arrays.");
-    if (!mesh.elements.length) throw new Error("Generate a nonempty mesh first.");
+    // An empty mesh only removes an owner's elements (workbenchRemoveMeshOwner).
+    if (!mesh.elements.length && !(options.allowEmpty && options.replaceOwner)) throw new Error("Generate a nonempty mesh first.");
     await ensureRichEditableSemanticElementAuthority("workbench-append");
     const validId = (raw, label) => {
       const value = Number(raw);
@@ -28479,6 +28487,9 @@ ${formatRanges(v.ranges, 500)}`;
     const finite = (raw, label) => { const value = Number(raw); if (!Number.isFinite(value)) throw new Error(`${label} must be finite.`); return value; };
     const ownerTag = options.ownerTag == null ? null : workbenchOwnerTag(options.ownerTag);
     if (options.replaceOwner && !ownerTag) throw new Error("Replacing a mesh owner requires ownerTag.");
+    // Other meshes of the same CAD source that this one supersedes, replaced in the same undo step.
+    if (options.replaceOwners != null && !Array.isArray(options.replaceOwners)) throw new Error("replaceOwners must be an array of owner tags.");
+    const alsoReplaced = new Set((options.replaceOwners || []).map(workbenchOwnerTag));
     if (options.replaceElements != null && !Array.isArray(options.replaceElements)) throw new Error("replaceElements must be an array of element IDs.");
     const requestedReplacements = new Set((options.replaceElements || []).map(value => validId(value, "Replacement element ID")));
     const previousElements = collectAuthoritativeElementRefs();
@@ -28488,7 +28499,7 @@ ${formatRanges(v.ranges, 500)}`;
       if (ownerTag && requested && e.webmeshOwner && e.webmeshOwner !== ownerTag) throw new Error(`Element ${eid} belongs to another CAD source and cannot be replaced.`);
       // An undo can free IDs that are later reused by unrelated geometry. A
       // stale CAD generation list must never adopt or delete those elements.
-      if (ownerTag ? e.webmeshOwner === ownerTag && (options.replaceOwner || requested) : requested) replacements.add(eid);
+      if (ownerTag ? e.webmeshOwner === ownerTag && (options.replaceOwner || requested) || alsoReplaced.has(e.webmeshOwner) : requested) replacements.add(eid);
     }
     const removedElements = previousElements.filter(e => replacements.has(Number(e.eid)));
     for (const loads of Object.values(model.loads)) for (const load of loads || []) {
@@ -28552,7 +28563,9 @@ ${formatRanges(v.ranges, 500)}`;
         if (!Math.hypot(...line) || Math.hypot(...cross) <= Math.hypot(...line) * Math.hypot(...x) * 1e-12) throw new Error("CBUSH orientation must be a nonzero vector not parallel to the bolt axis.");
         return { eid, pid, type, n: nodes, orient: { kind: "x", x }, cid: null, s: 0.5, ocid: -1, ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
       }
-      return { eid, pid, type, n: nodes, ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
+      // A shell offset from its grid plane (an offset midsurface) keeps it.
+      const zoffs = (type === "CQUAD4" || type === "CTRIA3") && row.zoffs != null && Number(row.zoffs) !== 0 ? finite(row.zoffs, "Element offset") : null;
+      return { eid, pid, type, n: nodes, ...(zoffs != null ? { zoffs } : {}), ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
     });
     const rigidDependent = new Map();
     const reserveDependent = (nid, cm, label) => {
@@ -28581,6 +28594,9 @@ ${formatRanges(v.ranges, 500)}`;
     // A regenerated shell mesh reuses its PSHELLs; shellThickness updates their T.
     const shellThickness = options.shellThickness == null ? null : finite(options.shellThickness, "Shell thickness");
     if (shellThickness != null && !(shellThickness > 0)) throw new Error("Shell thickness must be positive.");
+    // Sheets of several thicknesses: one PSHELL thickness per property ID.
+    const thicknessOf = new Map(Object.entries(options.thicknessByProperty || {}).map(([pid, t]) => [validId(pid, "Property ID"), finite(t, "Shell thickness")]));
+    for (const t of thicknessOf.values()) if (!(t > 0)) throw new Error("Shell thickness must be positive.");
     let material = null;
     if (missingProperties.length) {
       const input = options.material || {};
@@ -28594,7 +28610,7 @@ ${formatRanges(v.ranges, 500)}`;
       if (!(thickness > 0)) throw new Error("Shell thickness must be positive.");
       const area = finite(options.area ?? 1, "Rod area");
       if (!(area > 0)) throw new Error("Rod area must be positive.");
-      for (const entry of missingProperties) entry.push(entry[1] === "PSHELL" ? { type: "PSHELL", pid: entry[0], mid1: mid, mid2: mid, t: thickness } : entry[1] === "PROD" ? { type: "PROD", pid: entry[0], mid, A: area } : { type: "PSOLID", pid: entry[0], mid });
+      for (const entry of missingProperties) entry.push(entry[1] === "PSHELL" ? { type: "PSHELL", pid: entry[0], mid1: mid, mid2: mid, t: thicknessOf.get(entry[0]) ?? thickness } : entry[1] === "PROD" ? { type: "PROD", pid: entry[0], mid, A: area } : { type: "PSOLID", pid: entry[0], mid });
     }
     const orphanNodes = new Set(removedElements.flatMap(e => collectSemanticElementNodeIds(e)));
     const protect = values => { for (const value of values) orphanNodes.delete(Number(value)); };
@@ -28645,9 +28661,9 @@ ${formatRanges(v.ranges, 500)}`;
       if (material) model.materials.set(material.mid, material);
       for (const [id, , prop] of missingProperties) model.properties.set(id, prop);
       for (const [id, prop] of providedProperties) if (!model.properties.has(id)) model.properties.set(id, prop);
-      if (shellThickness != null) for (const [id, type] of propertyTypes) {
-        const prop = model.properties.get(id);
-        if (type === "PSHELL" && prop && prop.type === "PSHELL" && Number(prop.t) !== shellThickness) model.properties.set(id, { ...prop, t: shellThickness });
+      for (const [id, type] of propertyTypes) {
+        const prop = model.properties.get(id), t = thicknessOf.get(id) ?? shellThickness;
+        if (t != null && type === "PSHELL" && prop && prop.type === "PSHELL" && Number(prop.t) !== t) model.properties.set(id, { ...prop, t });
       }
       rebuildNodeIndexFromModel();
       invalidateElementLookup();
@@ -28656,8 +28672,8 @@ ${formatRanges(v.ranges, 500)}`;
       syncWorkerFromEditorModel();
       refreshCounts();
       populateModelTree();
-      statusMsg(`${removedElements.length ? `Replaced ${removedElements.length} elements; added` : "Added"} ${newNodes.size} nodes and ${records.length} elements.`);
-    }, { kind: removedElements.length ? "replace-mesh" : "generate-mesh", family: "mixed", summary: options.label || (removedElements.length ? "Replace CAD mesh" : "Generate mesh") });
+      statusMsg(!records.length ? `Removed ${removedElements.length} elements.` : `${removedElements.length ? `Replaced ${removedElements.length} elements; added` : "Added"} ${newNodes.size} nodes and ${records.length} elements.`);
+    }, { kind: !records.length ? "remove-mesh" : removedElements.length ? "replace-mesh" : "generate-mesh", family: "mixed", summary: options.label || (!records.length ? "Remove CAD mesh" : removedElements.length ? "Replace CAD mesh" : "Generate mesh") });
     workbenchPreviewMesh(null);
     fitView();
     return { ...workbenchState(), operation: { addedNodes: Array.from(newNodes.keys()), addedElements: records.map(e => e.eid), replacedElements: removedElements.map(e => e.eid), removedNodes: Array.from(orphanNodes), ownerTag } };
@@ -28725,7 +28741,7 @@ ${formatRanges(v.ranges, 500)}`;
   }
   window.WebMeshAPI = Object.freeze({
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
-    bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner,
+    bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner, removeMeshOwner: workbenchRemoveMeshOwner,
     appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, fitView,
     setView: workbenchSetView, setTheme: workbenchSetTheme,
     setCadGeometry: (preview, options = {}) => {
