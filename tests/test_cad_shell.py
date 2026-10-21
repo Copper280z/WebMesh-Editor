@@ -5,14 +5,16 @@ import unittest
 
 import numpy as np
 
+import cad_gmsh_plugin
+import cad_kernel
 import quadmesh_bridge
 import server
 
 ROOT = Path(__file__).resolve().parents[1]
 SHELLS = ROOT / "examples" / "shells"
-KERNEL = server.importlib.util.find_spec("gmsh") is not None or any(
-    (Path(folder) / "gmsh.py").is_file() for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
+KERNEL = cad_kernel.available()
 QUADMESH = quadmesh_bridge.status()["available"]
+plugin = unittest.skipUnless(cad_gmsh_plugin.module_available(), "the Gmsh plugin is not installed")
 
 
 def shell(path, **request):
@@ -51,7 +53,7 @@ def enclosed_volume(result):
     return total
 
 
-@unittest.skipUnless(KERNEL and QUADMESH, "Gmsh/OpenCASCADE kernel or the quadmesh library is not available")
+@unittest.skipUnless(KERNEL and QUADMESH, "the CAD geometry kernel or the quadmesh library is not available")
 class ShellMeshTests(unittest.TestCase):
     def test_every_face_of_a_solid_gives_a_closed_conforming_quad_shell_facing_out(self):
         result = shell(ROOT / "examples/block.step", size=10)
@@ -113,6 +115,7 @@ class ShellMeshTests(unittest.TestCase):
         self.assertAlmostEqual(result["quality"]["placement"]["thickness"], 3.0, places=6)
         self.assertGreater(result["quality"]["minScaledJacobian"], 0.5)
 
+    @plugin
     def test_triangles_come_from_gmsh_on_the_chosen_faces_only(self):
         result = shell(ROOT / "examples/plate-hole.step", element="tri", size=5, faceIds=[3])
         elements = result["mesh"]["elements"]

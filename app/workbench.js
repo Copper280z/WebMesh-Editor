@@ -233,9 +233,11 @@
     if(location.protocol==='file:')return;
     try {
       const response=await fetch('/api/health');if(!response.ok)throw Error('unavailable');const health=await response.json();
-      const available=!!(health.gmsh?.available??health.gmshAvailable??health.available??health.gmsh);
-      $('wb-engine-dot').classList.toggle('connected',available);$('wb-engine-status').textContent=available?'Gmsh connected':'Browser engine';
-      const el=$('wb-bridge-info');if(el)el.textContent=available?`Local Gmsh engine connected. CAD files stay on this machine.`:'Gmsh was not found. Install Gmsh and restart python3 server.py. Scratch modeling works in the browser.';
+      // The CAD service (OpenCASCADE) is the engine; Gmsh is an optional plugin on top of it.
+      const cad=!!health.cad?.available,gmsh=!!(health.plugins?.gmsh?.available??health.gmsh?.available??health.gmshAvailable);
+      const available=cad||gmsh;
+      $('wb-engine-dot').classList.toggle('connected',available);$('wb-engine-status').textContent=cad?'CAD connected':gmsh?'Gmsh connected':'Browser engine';
+      const el=$('wb-bridge-info');if(el)el.textContent=cad?`Local CAD service connected (OpenCASCADE${gmsh?', Gmsh plugin available':'; the Gmsh plugin is not installed, so tets, triangle shells and sweeps are off'}). CAD files stay on this machine.`:gmsh?'Local Gmsh engine connected. CAD files stay on this machine.':'The CAD service has no OpenCASCADE kernel. Install it (python3 -m pip install cadquery-ocp) and restart python3 server.py. Scratch modeling works in the browser.';
     }catch{
       const el=$('wb-bridge-info');if(el)el.innerHTML='Start the CAD bridge with <code>python3 server.py</code>, then open <code>http://127.0.0.1:8765</code>. Scratch modeling works in the browser.';
     }

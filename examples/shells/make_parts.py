@@ -12,7 +12,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1]))
 import cad_kernel  # noqa: E402
 
-gmsh = cad_kernel.gmsh_module()
+gmsh = cad_kernel.geometry_module()
 
 
 def write(name, build):

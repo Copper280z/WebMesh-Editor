@@ -1,5 +1,8 @@
 """Conforming explicit extrusion of mixed mapped/unstructured all-quad seeds.
 
+Part of the Gmsh plugin (cad_gmsh_plugin); it meshes with Gmsh and is only used
+with Gmsh's own module.
+
 Gmsh's quasi-structured quadrilateral mesher can change an extruded face's node
 layout after OCC extrusion constraints are recorded. Meshing planar seeds first
 and sharing explicit layer node maps avoids those stale extrusion references.

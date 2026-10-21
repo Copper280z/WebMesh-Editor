@@ -1,24 +1,49 @@
 """Guard oversized allocations and misleading CAD preparation results."""
 import base64
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
+import cad_gmsh_plugin
 import server
-from cad_kernel import gmsh_module, mesh_quality, prepare, topology
+from cad_kernel import available, geometry_module, prepare
 from cad_sessions import CadError, CadSessions
-from cad_sweep import generate
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL = (Path('/opt/homebrew/opt/gmsh/lib/gmsh.py').exists()
-          or Path('/usr/local/opt/gmsh/lib/gmsh.py').exists()
-          or server.importlib.util.find_spec('gmsh') is not None)
+KERNEL = available()
+PLUGIN = cad_gmsh_plugin.module_available()
+
+# Gmsh and OpenCASCADE's Python binding must not share a process, so the plugin's guard
+# runs where only Gmsh is loaded.
+GRID_GUARD = """
+import sys
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+import cad_gmsh_plugin, cad_kernel
+from cad_sweep import generate
+gmsh = cad_gmsh_plugin.load()
+gmsh.initialize(readConfigFiles=False, interruptible=False)
+gmsh.option.setNumber('General.Terminal', 0)
+gmsh.model.occ.importShapes(sys.argv[2])
+gmsh.model.occ.synchronize()
+for order, divisions in ((1, 80), (2, 50)):
+    with patch.object(gmsh.model.mesh, 'generate', side_effect=AssertionError('Mesher must not allocate this grid')):
+        try:
+            generate(gmsh, {'topology': 'hex', 'method': 'mapped', 'divisions': divisions, 'order': order, 'size': 1}, cad_kernel.topology, cad_gmsh_plugin.mesh_quality)
+        except ValueError as error:
+            assert 'exceeding the 500,000 limit before generation' in str(error), str(error)
+        else:
+            raise SystemExit('the oversized grid was accepted')
+print('guarded')
+"""
 
 
-@unittest.skipUnless(KERNEL, 'Gmsh/OpenCASCADE is unavailable')
+@unittest.skipUnless(KERNEL, 'The CAD geometry kernel is unavailable')
 class CadGuardTests(unittest.TestCase):
     def setUp(self):
-        self.gmsh = gmsh_module()
+        self.gmsh = geometry_module()
         self.gmsh.initialize(readConfigFiles=False, interruptible=False)
         self.gmsh.option.setNumber('General.Terminal', 0)
         self.gmsh.model.occ.importShapes(str(ROOT / 'examples/block.step'))
@@ -26,13 +51,6 @@ class CadGuardTests(unittest.TestCase):
 
     def tearDown(self):
         self.gmsh.finalize()
-
-    def test_oversized_mapped_grids_reject_before_mesher_allocation(self):
-        for order, divisions in ((1, 80), (2, 50)):
-            with self.subTest(order=order), patch.object(self.gmsh.model.mesh, 'generate', side_effect=AssertionError('Mesher must not allocate this grid')):
-                with self.assertRaisesRegex(ValueError, 'exceeding the 500,000 limit before generation'):
-                    generate(self.gmsh, {'topology':'hex', 'method':'mapped', 'divisions':divisions,
-                                         'order':order, 'size':1}, topology, mesh_quality)
 
     def test_clean_solid_healing_rejects_a_representation_reorder_as_noop(self):
         with self.assertRaisesRegex(ValueError, 'no geometry, topology, or tolerance repairs'):
@@ -46,7 +64,16 @@ class CadGuardTests(unittest.TestCase):
                 prepare(self.gmsh, {'kind':'heal'})
 
 
-@unittest.skipUnless(KERNEL, 'Gmsh/OpenCASCADE is unavailable')
+@unittest.skipUnless(KERNEL and PLUGIN, 'The Gmsh plugin is unavailable')
+class GmshGuardTests(unittest.TestCase):
+    def test_oversized_mapped_grids_reject_before_mesher_allocation(self):
+        done = subprocess.run([sys.executable, '-c', GRID_GUARD, str(ROOT), str(ROOT / 'examples/block.step')],
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('guarded', done.stdout)
+
+
+@unittest.skipUnless(KERNEL, 'The CAD geometry kernel is unavailable')
 class CadHealingTransactionTests(unittest.TestCase):
     def test_noop_heal_keeps_revision_and_prior_snapshot(self):
         sessions=CadSessions(server.run_cad_worker)

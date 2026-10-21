@@ -9,22 +9,21 @@ import unittest
 
 import numpy as np
 
+import cad_kernel
 import quadmesh_bridge
-import server
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL = server.importlib.util.find_spec("gmsh") is not None or any(
-    (Path(folder) / "gmsh.py").is_file() for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
+KERNEL = cad_kernel.available()
 
 
-@unittest.skipUnless(KERNEL, "Gmsh/OpenCASCADE kernel is not available")
+@unittest.skipUnless(KERNEL, "the CAD geometry kernel is not available")
 class SheetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import cad_kernel
         cls.kernel = cad_kernel
         cls.folder = Path(tempfile.mkdtemp())
-        gmsh = cad_kernel.gmsh_module()
+        gmsh = cad_kernel.geometry_module()
         gmsh.initialize()
         gmsh.option.setNumber("General.Terminal", 0)
         # A 4 mm floor 100 x 60 with a 4 mm wall 40 high standing on it, as one solid.
@@ -224,7 +223,7 @@ class SheetTests(unittest.TestCase):
 
     def test_cones_and_tori_are_recognized_also_when_stored_as_b_splines(self):
         import cad_sheets
-        gmsh = self.kernel.gmsh_module()
+        gmsh = self.kernel.geometry_module()
         gmsh.initialize()
         gmsh.option.setNumber("General.Terminal", 0)
         try:

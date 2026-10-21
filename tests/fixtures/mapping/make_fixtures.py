@@ -16,7 +16,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 import cad_kernel  # noqa: E402
 
-gmsh = cad_kernel.gmsh_module()
+gmsh = cad_kernel.geometry_module()
 
 
 def remove_loose(occ):

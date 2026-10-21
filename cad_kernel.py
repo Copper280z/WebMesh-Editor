@@ -37,7 +37,6 @@ def geometry_module():
     return cad_gmsh_plugin.load()
 
 
-gmsh_module = geometry_module  # the name older callers and tests use
 
 
 def available():
@@ -948,28 +947,6 @@ def _prepare_solids(gmsh, operation, kind):
                          "Cut through the re-entrant corner along one of its faces instead, or add a cut that separates the two regions.")
 
 
-def mesh_quality(gmsh, dimension):
-    import numpy as np
-    types, element_tags, _ = gmsh.model.mesh.getElements(dimension)
-    tags = np.concatenate(element_tags) if len(element_tags) else np.array([], dtype=np.uint64)
-    if not len(tags):
-        raise ValueError("No requested mesh elements were generated.")
-    determinants = gmsh.model.mesh.getElementQualities(tags, "minDetJac")
-    scaled = gmsh.model.mesh.getElementQualities(tags, "minSJ")
-    minimum = float(np.min(determinants))
-    if not np.all(np.isfinite(determinants)) or minimum <= 0:
-        raise ValueError(f"Mesh has nonpositive Jacobians (minimum {minimum:g}). Refine or repartition the CAD.")
-    return {"minDetJac": minimum, "minScaledJacobian": float(np.min(scaled)),
-            "elementTypes": list(map(int, types)), "checkedElements": len(tags)}
-
-
-def mesh(gmsh, request):
-    # Sweep implementation is intentionally separate from preparation: source CAD
-    # equivalence is checked before generating any extrusion-based mesh.
-    from cad_sweep import generate
-    return generate(gmsh, request, topology, mesh_quality)
-
-
 def read_cache(path):
     """Per-entity results of the previous revision; a missing or bad cache is just a miss."""
     if not path:
@@ -1001,81 +978,83 @@ def load(gmsh, path):
             occ.synchronize()
 
 
+def run_plugin(request):
+    """Run a request only Gmsh can do (see cad_gmsh_plugin.handles).
+
+    The plugin needs a process that has not loaded OpenCASCADE through OCP: two
+    builds of it must not share one. When this process has, the task is handed
+    to a fresh interpreter and its result and mesh file are brought back.
+    """
+    import cad_gmsh_plugin
+    if "OCP" not in sys.modules:
+        return cad_gmsh_plugin.execute(request)
+    import shutil
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="webmesh-plugin-") as temporary:
+        folder = Path(temporary)
+        (folder / "request.json").write_text(json.dumps(request, allow_nan=False))
+        finished = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(folder / "request.json")], cwd=folder,
+                                  capture_output=True, text=True, check=False)
+        try:
+            result = json.loads((folder / "worker-result.json").read_text())
+        except (OSError, ValueError):
+            raise ValueError("The Gmsh plugin could not complete this task. " + (finished.stderr or finished.stdout)[-400:]) from None
+        if result.get("error"):
+            raise ValueError(result["error"])
+        if (folder / "mesh.msh").is_file():
+            shutil.copyfile(folder / "mesh.msh", "mesh.msh")
+        return result
+
+
 def execute(request):
+    import cad_gmsh_plugin
+    if cad_gmsh_plugin.handles(request):
+        if request.get("action") == "shell":
+            import cad_shell
+            cad_shell.check_request(request)  # refuse a bad request before it needs Gmsh
+        return run_plugin(request)
     gmsh = geometry_module()
     gmsh.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
     gmsh.option.setNumber("General.Terminal", 0)
     gmsh.option.setNumber("General.NumThreads", 1)
     gmsh.logger.start()
     try:
-        discrete = Path(request["input"]).suffix.lower() in {".stl", ".msh"}
-        if native(gmsh) and (discrete or request.get("action") == "mesh" or (request.get("action") == "shell" and request.get("element") == "tri")):
-            raise ValueError("This needs the Gmsh plugin, which is not installed.")
-        if discrete:
-            gmsh.merge(request["input"])
-        else:
-            load(gmsh, request["input"])
+        load(gmsh, request["input"])
         action = request["action"]
         import cad_sheets
-        sheets = None if discrete else cad_sheets.clean(gmsh, request.get("sheets"))
-        if sheets is None and not discrete:
+        sheets = cad_sheets.clean(gmsh, request.get("sheets"))
+        if sheets is None:
             # A file's own free faces are its sheets (a surface model); open cuts are not.
             sheets = cad_sheets.discovered(gmsh, open_cut, _probe(gmsh)) if action == "import" else []
-        if not discrete:
-            # Free faces other than sheets (what an operation left over) do not carry over.
-            cad_sheets.protect(gmsh, sheets)
-            remove_loose(gmsh)
+        # Free faces other than sheets (what an operation left over) do not carry over.
+        cad_sheets.protect(gmsh, sheets)
+        remove_loose(gmsh)
         if action == "prepare":
-            if discrete:
-                raise ValueError("STL is a discrete surface mesh. Split and defeature require editable STEP, IGES, or BREP geometry.")
             prepare(gmsh, request["operation"], sheets)
-        if action == "mesh":
-            if discrete:
-                if request.get("topology") == "hex":
-                    raise ValueError("STL has no editable CAD topology for mapped or swept hexes. Import the source STEP/BREP instead.")
-                # STL defines a piecewise linear boundary. Projecting quadratic
-                # nodes onto an inferred parametrization can fold its sharp
-                # seams; straight midside interpolation preserves that boundary.
-                gmsh.option.setNumber("Mesh.SecondOrderLinear", 1)
-                gmsh.model.mesh.classifySurfaces(40 * math.pi / 180, True, True, math.pi)
-                gmsh.model.mesh.createGeometry()
-                if request.get("topology", "tet") == "tet":
-                    shell = gmsh.model.geo.addSurfaceLoop([tag for _, tag in gmsh.model.getEntities(2)])
-                    gmsh.model.geo.addVolume([shell])
-                    gmsh.model.geo.synchronize()
-            result = mesh(gmsh, request)
-        elif action == "shell":
-            if discrete:
-                raise ValueError("STL has no CAD faces to shell mesh. Import the source STEP/BREP instead.")
+        if action == "shell":
             from cad_shell import shell_mesh
             result = shell_mesh(gmsh, {**request, "sheets": sheets})
+        elif action == "mesh":
+            raise ValueError("Meshing with Gmsh needs the Gmsh plugin.")
         else:
-            if discrete:
-                gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
-                gmsh.option.setNumber("Mesh.Binary", 0)
-            captured = [] if discrete else cad_sheets.capture(gmsh, sheets)
+            captured = cad_sheets.capture(gmsh, sheets)
             gmsh.write(request["output"])
             # BREP serialization assigns fresh entity tags on import. Preview the
             # exact canonical snapshot that the next worker will load.
             gmsh.clear()
-            if discrete:
-                gmsh.merge(request["output"])
-            else:
-                load(gmsh, request["output"])
-            sheets = [] if discrete else cad_sheets.rematch(gmsh, captured)
+            load(gmsh, request["output"])
+            sheets = cad_sheets.rematch(gmsh, captured)
             cad_sheets.protect(gmsh, sheets)
-            if not discrete:
-                remove_loose(gmsh)
+            remove_loose(gmsh)
             data = topology(gmsh)
-            data["discrete"] = discrete
+            data["discrete"] = False
             data["sheets"] = sheets
-            cache = keys = out = None
-            if not discrete:
-                from cad_mapping import augment
-                cache = read_cache(request.get("cache"))
-                augment(gmsh, data, cache)
-                keys, out = data.pop("_signatures"), data.pop("_cache")
-            if request.get("early") and not discrete:
+            from cad_mapping import augment
+            cache = read_cache(request.get("cache"))
+            augment(gmsh, data, cache)
+            keys, out = data.pop("_signatures"), data.pop("_cache")
+            if request.get("early"):
                 # Lite preview: report the topology first, then finish the
                 # display tessellation that committing this result needs.
                 edges = edge_polylines(gmsh, data)
@@ -1084,7 +1063,7 @@ def execute(request):
                 result = {"topology": data, "preview": preview(gmsh, data, edges, cache, keys, out)}
             else:
                 result = {"topology": data, "preview": preview(gmsh, data, None, cache, keys, out)}
-            if out is not None and request.get("cacheOut"):
+            if request.get("cacheOut"):
                 write_cache(request["cacheOut"], out)
         result["log"] = "\n".join(gmsh.logger.get())[-24_000:]
         return result
@@ -1105,9 +1084,9 @@ def serve():
     """A worker started ahead of time: libraries are loaded before the task
     exists. It reads one request path from stdin, runs it in that task's
     directory with output to its log, and exits like a cold worker would."""
-    sources = [Path(__file__), Path(__file__).with_name("cad_mapping.py")]
-    stamps = [path.stat().st_mtime for path in sources]
-    gmsh_module()
+    sources = [Path(__file__), Path(__file__).with_name("cad_mapping.py"), Path(__file__).with_name("cad_geom.py")]
+    stamps = [path.stat().st_mtime for path in sources if path.is_file()]
+    geometry_module()
     import cad_mapping  # noqa: F401  (loads numpy too)
     line = sys.stdin.readline().strip()
     if not line:
@@ -1117,7 +1096,7 @@ def serve():
     log = os.open(request_path.parent / "gmsh.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.dup2(log, 1)
     os.dup2(log, 2)
-    if [path.stat().st_mtime for path in sources] != stamps:
+    if [path.stat().st_mtime for path in sources if path.is_file()] != stamps:
         # The kernel changed on disk while this worker waited: run the new code.
         os.execv(sys.executable, [sys.executable, str(Path(__file__)), str(request_path)])
     main(request_path)

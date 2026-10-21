@@ -6,17 +6,16 @@ from pathlib import Path
 import time
 import unittest
 
+import cad_kernel
 import server
 from cad_sessions import MAX_STAGED, CadError, CadSessions
 
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL = (Path("/opt/homebrew/opt/gmsh/lib/gmsh.py").exists()
-          or Path("/usr/local/opt/gmsh/lib/gmsh.py").exists()
-          or server.importlib.util.find_spec("gmsh") is not None)
+KERNEL = cad_kernel.available()
 
 
-@unittest.skipUnless(KERNEL, "Gmsh Python/OpenCASCADE kernel is not installed")
+@unittest.skipUnless(KERNEL, "the CAD geometry kernel is not available")
 class MappingTopologyTests(unittest.TestCase):
     def setUp(self):
         self.sessions = CadSessions(server.run_cad_worker)
@@ -130,7 +129,7 @@ class MappingTopologyTests(unittest.TestCase):
         import json
         import tempfile
         import cad_kernel
-        gmsh = cad_kernel.gmsh_module()
+        gmsh = cad_kernel.geometry_module()
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             # An L with a block in its notch: both faces at the re-entrant edge are
@@ -187,7 +186,7 @@ class MappingTopologyTests(unittest.TestCase):
     def test_a_cut_through_an_acute_corner_runs_into_its_face_material_only(self):
         import tempfile
         import cad_kernel
-        gmsh = cad_kernel.gmsh_module()
+        gmsh = cad_kernel.geometry_module()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ring.brep"
             # A wall ring around a triangular pocket whose corner at (35, 5) is acute.
@@ -223,7 +222,7 @@ class MappingTopologyTests(unittest.TestCase):
     def test_a_ring_cut_once_stays_open_until_a_second_cut_separates_it(self):
         import tempfile
         import cad_kernel
-        gmsh = cad_kernel.gmsh_module()
+        gmsh = cad_kernel.geometry_module()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "frame.brep"
             gmsh.initialize(["frame-test", "-nopopup"], readConfigFiles=False)

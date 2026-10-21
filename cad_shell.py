@@ -5,7 +5,7 @@ one node distribution with an even count, shared by every face that uses it,
 so neighboring faces conform. Each face is meshed in its parameter plane,
 scaled so that lengths there match lengths on the surface, with its boundary
 nodes fixed; interior nodes are then mapped back onto the surface. Triangles
-come from Gmsh, restricted to the chosen faces.
+are the Gmsh plugin's (cad_gmsh_plugin.tri_shell, which reuses the helpers here).
 
 A pad is one ring of quads around a picked hole whose outside is a square:
 the square's nodes are fixed, and the rest of the face is meshed to them.
@@ -819,48 +819,6 @@ def quad_shell(gmsh, request):
     return elements, coordinates, reports, edges, faces, mesher, pads
 
 
-def tri_shell(gmsh, request):
-    """Triangles from Gmsh on the chosen faces only (shared edges conform)."""
-    model = gmsh.model
-    size = float(request["size"])
-    faces = _select_faces(gmsh, request)
-    area = sum(float(model.occ.getMass(2, f)) for f in faces)
-    if 2.3 * area / (size * size) > MAX_ELEMENTS:
-        raise ValueError(f"About {2.3 * area / (size * size):,.0f} elements exceed the {MAX_ELEMENTS:,} limit. Raise the element size.")
-    for option, value in (("Mesh.MeshSizeMin", size), ("Mesh.MeshSizeMax", size), ("Mesh.Algorithm", 6), ("Mesh.ElementOrder", 1)):
-        gmsh.option.setNumber(option, value)
-    counts, _ = _controls(request)
-    for edge, count in counts.items():
-        model.mesh.setTransfiniteCurve(edge, count + 1)
-    model.setVisibility(model.getEntities(), 0)
-    model.setVisibility([(2, f) for f in faces], 1, recursive=True)
-    gmsh.option.setNumber("Mesh.MeshOnlyVisible", 1)
-    model.mesh.generate(2)
-    tags, coords, _ = model.mesh.getNodes()
-    coordinates = {int(t): np.array(coords[3 * i:3 * i + 3]) for i, t in enumerate(tags)}
-    elements, reports = [], []
-    pid_of, _, offsets = _properties(faces, request)
-    for index, face in enumerate(faces):
-        types, _, nodes = model.mesh.getElements(2, face)
-        count = 0
-        for kind, connectivity in zip(types, nodes):
-            if int(kind) != 2:
-                continue
-            for k in range(0, len(connectivity), 3):
-                ids = [int(n) for n in connectivity[k:k + 3]]
-                p = [coordinates[n] for n in ids]
-                uv = model.getParametrization(2, face, np.mean(p, axis=0).tolist())
-                normal = np.array(model.getNormal(face, list(uv)), dtype=float)
-                if np.dot(np.cross(p[1] - p[0], p[2] - p[0]), normal) < 0:
-                    ids = [ids[0], ids[2], ids[1]]
-                elements.append({"type": "CTRIA3", "pid": pid_of[face], "nodes": ids, "face": face, **({"zoffs": offsets[face]} if face in offsets else {})})
-                count += 1
-        reports.append({"face": face, "quads": count, "valid": count > 0, "issues": [] if count else ["Gmsh produced no triangles."]})
-    used = {n for e in elements for n in e["nodes"]}
-    coordinates = {n: p for n, p in coordinates.items() if n in used}
-    return elements, coordinates, reports, None, faces, "gmsh", []
-
-
 def _node_normals(elements, coordinates):
     """Area-weighted unit normals of the mesh at its nodes."""
     sums = {}
@@ -971,15 +929,15 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
                       "parts": len({e["pid"] for e in out}), "faces": len(faces)}}
 
 
-def shell_mesh(gmsh, request):
+def check_request(request):
+    """Refuse a shell request that cannot be meshed, before any geometry is read."""
     element = request.get("element", "quad")
     if element not in ("quad", "tri"):
         raise ValueError("Shell elements are quad or tri.")
     placement = request.get("placement", "surface")
     if placement == "midsurface":
-        existing = {int(tag) for _, tag in gmsh.model.getEntities(2)}
         other = request.get("facesB")
-        if not isinstance(other, list) or not other or any(type(f) is not int or f not in existing for f in other):
+        if not isinstance(other, list) or not other:
             raise ValueError("Pick the faces of the opposite side for the midsurface.")
         if set(other) & set(request.get("faceIds") or []):
             raise ValueError("A face cannot be on both sides of the midsurface.")
@@ -991,6 +949,27 @@ def shell_mesh(gmsh, request):
         raise ValueError("Place the shell on the faces, at the midsurface, or at an offset.")
     if request.get("pads") and element != "quad":
         raise ValueError("Pads are rings of quads: mesh with quad elements.")
-    elements, coordinates, reports, edges, faces, mesher, pads = (tri_shell if element == "tri" else quad_shell)(gmsh, request)
+
+
+def finish(gmsh, request, made):
+    """Place a meshed shell (on the faces, at the midsurface or offset) and report it."""
+    elements, coordinates, reports, edges, faces, mesher, pads = made
     placed = place(gmsh, elements, coordinates, request)
     return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads, request)
+
+
+def check_faces(gmsh, request):
+    """Refuse a midsurface whose opposite side names faces the model does not have."""
+    if request.get("placement") == "midsurface":
+        existing = {int(tag) for _, tag in gmsh.model.getEntities(2)}
+        if any(type(f) is not int or f not in existing for f in request["facesB"]):
+            raise ValueError("Pick the faces of the opposite side for the midsurface.")
+
+
+def shell_mesh(gmsh, request):
+    """Quad shell mesh of the chosen faces. Triangles are Gmsh's (cad_gmsh_plugin)."""
+    check_request(request)
+    check_faces(gmsh, request)
+    if request.get("element", "quad") != "quad":
+        raise ValueError("Triangle shells come from the Gmsh plugin.")
+    return finish(gmsh, request, quad_shell(gmsh, request))

@@ -1,11 +1,21 @@
 """Local CAD mesh sizing and verified curve division constraints.
 
+Part of the Gmsh plugin (cad_gmsh_plugin): the controls become Gmsh size fields
+and transfinite curves, and are only used with Gmsh's own module.
+
 Controls refer to the current immutable CAD revision. Copied sweep seeds inherit
 controls through geometric matching, including translation along a sweep axis.
 Gmsh size fields are documented at https://gmsh.info/doc/texinfo/gmsh.html#Mesh-size-fields
 """
 
 import math
+
+import numpy as np
+
+# Samples along an edge when its natural division count is integrated, and along a controlled
+# edge when distances to it are measured (Gmsh's Distance field samples a curve 100 times).
+INTEGRATION_SAMPLES = 129
+DISTANCE_SAMPLES = 100
 
 
 class LocalControls:
@@ -18,6 +28,8 @@ class LocalControls:
         self.controls = {}
         self.matches = {}
         self.mapped_faces = set()
+        self.edge_sizes = {}
+        self.polylines = {}
         self.background = None
         self.tolerance = max(max(geometry["bounds"][i + 3] - geometry["bounds"][i] for i in range(3)) * 1e-7, 1e-7)
         for name, entities in (("edgeSizes", self.edges), ("faceSizes", self.faces), ("edgeDivisions", self.edges)):
@@ -62,6 +74,7 @@ class LocalControls:
                         | {edge for face in self.controls["faceSizes"] for edge in self.faces[face]["edges"]}}
         fields, sizes = [], [self.size]
         edge_sizes = dict(self.controls["edgeSizes"])
+        self.edge_sizes = edge_sizes
         for face, size in self.controls["faceSizes"].items():
             matches = [tag for _, tag in model.getEntities(2) if self.equivalent(self.faces[face], 2, tag, axis)]
             if not matches and not any(self.matches.get(edge) for edge in self.faces[face]["edges"]):
@@ -188,6 +201,49 @@ class LocalControls:
             if nodes > 500_000 or elements > 500_000:
                 raise ValueError(f"Local mapped controls would produce {nodes:,} nodes and {elements:,} elements, exceeding the 500,000 limit before generation.")
 
+    def polyline(self, tag, samples):
+        """Points along an edge of the model, evenly spaced in its parameter (cached)."""
+        key = (tag, samples)
+        if key not in self.polylines:
+            model = self.gmsh.model
+            low, high = model.getParametrizationBounds(1, tag)
+            parameters = np.linspace(float(low[0]), float(high[0]), samples)
+            self.polylines[key] = np.array(model.getValue(1, tag, parameters.tolist()), dtype=float).reshape(-1, 3)
+        return self.polylines[key]
+
+    def size_along(self, points):
+        """Element size at each point: the global size, lowered near the edges with a size control.
+
+        Near a controlled edge the size grows from the control's size at that edge to the global
+        size over a distance (the Threshold field `apply` defines: it holds the control's size out
+        to its own length from the edge and reaches the global size at twice the global size, or four
+        times the control's, whichever is more). The smallest size from any control wins.
+        """
+        sizes = np.full(len(points), self.size)
+        for edge, size in self.edge_sizes.items():
+            near = min_distance = None
+            for tag in self.matches.get(edge, []):
+                path = self.polyline(tag, DISTANCE_SAMPLES)
+                distance = np.min(np.linalg.norm(points[:, None, :] - path[None, :, :], axis=2), axis=1)
+                min_distance = distance if min_distance is None else np.minimum(min_distance, distance)
+            if min_distance is None:
+                continue
+            start, end = size, max(self.size * 2, size * 4)
+            near = size + (self.size - size) * np.clip((min_distance - start) / (end - start), 0.0, 1.0)
+            sizes = np.minimum(sizes, near)
+        return sizes
+
+    def natural_count(self, tag):
+        """Divisions an edge gets at the sizes in force, with no count set for it.
+
+        The edge's length integrated over the local size, rounded as Gmsh's own 1D mesher
+        rounds it (up, but not for an excess under one hundredth), and at least one.
+        """
+        points = self.polyline(tag, INTEGRATION_SAMPLES)
+        steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        sizes = self.size_along((points[:-1] + points[1:]) / 2)
+        return max(1, int(float(np.sum(steps / sizes)) + 0.99))
+
     def conform_boundary_counts(self, seed_regions):
         """Preserve requested counts and make every quad patch boundary even.
 
@@ -197,7 +253,6 @@ class LocalControls:
         parity by breaking its neighbor's shared interface.
         """
         model = self.gmsh.model
-        model.mesh.generate(1)
         face_edges = {face: [abs(int(edge)) for loop in model.occ.getCurveLoops(face)[1] for edge in loop]
                       for _, face in seed_regions}
         parent = {edge: edge for edges in face_edges.values() for edge in edges}
@@ -222,7 +277,7 @@ class LocalControls:
                 fixed[group] = divisions
         counts = {}
         for group, edges in groups.items():
-            value = max(sum(len(tags) for tags in model.mesh.getElements(1, edge)[1]) for edge in edges)
+            value = max(self.natural_count(edge) for edge in edges)
             for edge in edges:
                 try:
                     low, high = model.getParametrizationBounds(1, edge)

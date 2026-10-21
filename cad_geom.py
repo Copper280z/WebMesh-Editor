@@ -447,6 +447,10 @@ class Model:
         self.snapshot = Snapshot(kernel.registry)
         self.occ = Occ(kernel)
 
+    def add(self, name):
+        """A new, empty model (the kernel holds one at a time)."""
+        self.kernel.clear()
+
     # -- entities
     def getEntities(self, dim=-1):
         dims = (0, 1, 2, 3) if dim < 0 else (dim,)

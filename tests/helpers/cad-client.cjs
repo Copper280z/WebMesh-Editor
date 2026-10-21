@@ -11,7 +11,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const PYTHON = process.env.PYTHON || 'python3';
 
 function kernelAvailable() {
-  const probe = spawnSync(PYTHON, ['-c', 'import sys; sys.path.insert(0, "."); import cad_kernel; cad_kernel.gmsh_module()'], { cwd: ROOT, encoding: 'utf8' });
+  const probe = spawnSync(PYTHON, ['-c', 'import sys; sys.path.insert(0, "."); import cad_kernel; cad_kernel.geometry_module()'], { cwd: ROOT, encoding: 'utf8' });
   return probe.status === 0;
 }
 

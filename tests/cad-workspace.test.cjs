@@ -15,7 +15,7 @@ function element(id) {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) };
 }
 
-function setup({ imported = 'box', prepared = 'split-box' } = {}) {
+function setup({ imported = 'box', prepared = 'split-box', gmsh = true } = {}) {
   const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [] };
   const listeners = new Map(), elements = new Map();
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
@@ -40,6 +40,8 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
   const window = { addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); } };
   const context = { window, document, location: { protocol: 'http:' }, File, btoa, atob, structuredClone, AbortController, setTimeout, clearTimeout, performance, console,
     async fetch(url, request) {
+      // The service reports which optional plugins it has (the Gmsh plugin may be missing).
+      if (url === '/api/health') return { ok: true, json: async () => ({ cad: { available: true }, plugins: { gmsh: { available: gmsh } } }) };
       const data = JSON.parse(request.body), action = url.split('/').pop();
       calls.requests.push({ action, data });
       if (failNext[action]) { const error = failNext[action]; delete failNext[action]; return { ok: false, json: async () => ({ error }) }; }
@@ -290,6 +292,37 @@ test('the Gmsh methods reuse fixed edge counts as exact divisions', async () => 
   assert.deepEqual(mesh.data.edgeDivisions, [{ id: edge, divisions: 3 }]);
   assert.equal(mesh.data.cadId, 'c'.repeat(32));
   assert.equal(mesh.data.topology, 'tet');
+});
+
+test('without the Gmsh plugin its choices are shown disabled with the reason; mapped hexes and quad shells stay on', async () => {
+  const f = await imported({ gmsh: false });
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
+  await settle();
+  f.workspace.api.step('mesh');
+  let body = f.workspace.render().body;
+  assert.match(body, /data-act="mesh-method" data-value="gmsh"[^>]*disabled/, 'the Gmsh method cannot be chosen');
+  assert.doesNotMatch(body, /data-act="mesh-method" data-value="mapped"[^>]*disabled/);
+  assert.doesNotMatch(body, /data-act="mesh-method" data-value="shell"[^>]*disabled/);
+  assert.match(body, /Gmsh methods \(tets, triangle shells, sweeps\) are off: The Gmsh plugin is not installed/);
+  f.click('mesh-method', { value: 'shell' });
+  body = f.workspace.render().body;
+  assert.match(body, /data-act="shell-element" data-value="tri"[^>]*disabled/, 'triangle shells are Gmsh\'s');
+  assert.doesNotMatch(body, /data-act="shell-element" data-value="quad"[^>]*disabled/);
+  assert.doesNotMatch(f.workspace.render().foot, /shell-mesh[^>]*disabled/, 'the quad shell can be generated');
+  // A project saved with triangles still says why it cannot mesh them here.
+  f.workspace.api.step('mesh');
+  f.click('shell-element', { value: 'tri' });
+  assert.match(f.workspace.render().body, /Switch to quad elements/);
+  assert.match(f.workspace.render().foot, /shell-mesh[^>]*disabled/);
+});
+
+test('with the Gmsh plugin its methods are offered', async () => {
+  const f = await imported({ gmsh: true });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  f.workspace.api.step('mesh');
+  const body = f.workspace.render().body;
+  assert.doesNotMatch(body, /data-act="mesh-method" data-value="gmsh"[^>]*disabled/);
+  assert.doesNotMatch(body, /Gmsh methods \(tets/);
 });
 
 test('undo returns to the previous revision and clears staged operations', async () => {

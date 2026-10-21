@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Local WebMesh server and optional Gmsh CAD meshing bridge (stdlib only).
+"""Local WebMesh server (stdlib only) with an OpenCASCADE CAD service and an optional Gmsh plugin.
 
-Run ``python3 server.py`` and visit http://127.0.0.1:8765. Gmsh must be on PATH
-or supplied using --gmsh. The server deliberately binds only to IPv4 loopback.
-Uploaded GEO programs are not accepted: CAD is read from fixed-name data files,
-and every GEO command is generated here from validated numeric parameters.
+Run ``python3 server.py`` and visit http://127.0.0.1:8765. CAD import,
+preparation, sheets and quad shell meshing run in worker processes on
+OpenCASCADE (OCP, see cad_geom.py). Gmsh is an optional meshing plugin
+(cad_gmsh_plugin.py): without it the server still serves all of that, and
+reports in /api/health which plugin features are available. Gmsh's own methods
+(tets, triangle shells, Gmsh's quad/hex methods and sweeps, STL import and the
+legacy /api/mesh path) need it on PATH, or supplied using --gmsh. The server
+deliberately binds only to IPv4 loopback. Uploaded GEO programs are not
+accepted: CAD is read from fixed-name data files, and every GEO command is
+generated here from validated numeric parameters.
 
 The legacy /api/mesh hex path uses transfinite six-face blocks. Editable CAD
 sessions additionally support verified source-face and layered column sweeps.
@@ -41,6 +47,7 @@ import tempfile
 import threading
 import time
 
+import cad_gmsh_plugin
 import quadmesh_bridge
 from urllib.parse import unquote, urlsplit
 
@@ -97,31 +104,44 @@ def vector(value, name, count, positive=False):
 
 
 def find_gmsh(explicit=None):
-    if explicit:
-        return shutil.which(explicit)
-    return shutil.which("gmsh") or ("/opt/homebrew/bin/gmsh" if Path("/opt/homebrew/bin/gmsh").is_file() else None)
+    return cad_gmsh_plugin.find_executable(explicit)
+
+
+def cad_kernel_status():
+    """Whether the OpenCASCADE kernel (OCP) is installed, without loading it into this process."""
+    import cad_kernel
+    backend = cad_kernel.backend()
+    if backend == "gmsh":
+        return {"available": cad_gmsh_plugin.module_available(), "kernel": "Gmsh's OpenCASCADE wrapper (comparison backend)", "backend": backend}
+    if importlib.util.find_spec("OCP") is None:
+        return {"available": False, "kernel": None, "backend": backend,
+                "note": "OpenCASCADE's Python binding is missing: python3 -m pip install cadquery-ocp"}
+    try:
+        from importlib.metadata import version
+        number = version("cadquery-ocp")
+    except Exception:
+        number = None
+    return {"available": True, "kernel": "OpenCASCADE" + (f" (OCP {number})" if number else ""), "backend": backend}
 
 
 def health(gmsh):
-    version = None
-    if gmsh:
-        try:
-            result = subprocess.run([gmsh, "-version"], capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                version = (result.stdout + result.stderr).strip()[:160]
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    kernel = importlib.util.find_spec("gmsh") is not None or any((Path(folder) / "gmsh.py").is_file()
-                for folder in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"))
-    return {"ok": True, "gmsh": {"available": version is not None, "version": version},
-            "cad": {"available": kernel, "operations": ["preview", "slice", "fuse", "split", "project", "passages", "defeature", "heal", "sweep", "layered", "mapped", "shell"],
+    plugin = cad_gmsh_plugin.status(gmsh)
+    kernel = cad_kernel_status()
+    formats = ["step", "iges", "brep"] + (["stl"] if plugin["available"] else [])
+    return {"ok": True,
+            # The gmsh program the legacy /api/mesh path runs.
+            "gmsh": {"available": plugin["executable"], "version": plugin["version"]},
+            "cad": {**kernel, "operations": ["preview", "slice", "fuse", "split", "project", "passages", "defeature", "heal", "surface", "extend", "join", "mapped", "shell"],
                     "nativeMapping": True},
+            # Optional extras: what is missing is turned off, with the reason, not hidden.
+            "plugins": {"gmsh": plugin},
             "quadmesh": quadmesh_bridge.status(),
-            "formats": ["step", "iges", "brep", "stl"], "topologies": ["tri", "quad", "tet", "hex"],
+            "formats": formats, "topologies": ["tri", "quad", "tet", "hex"] if plugin["available"] else ["hex"],
             "orders": [1, 2], "limits": {"cadBytes": MAX_CAD, "timeoutSeconds": MESH_TIMEOUT,
                                         "meshBytes": MAX_MESH, "residentBytes": MAX_RSS},
             "notes": ["Hex meshing requires compatible mapped blocks, a verified sweep, or prepared common-base columns.",
-                      "STL remeshing requires a manifold surface; volume meshing requires a closed shell.",
+                      "Tet, triangle-shell, Gmsh quad/hex and sweep meshing and STL import need the Gmsh plugin." if not plugin["available"]
+                      else "STL remeshing requires a manifold surface; volume meshing requires a closed shell.",
                       "Executable .geo files are intentionally not accepted."]}
 
 
@@ -192,6 +212,24 @@ def validate_shell_request(data):
     if element == "quad" and not quadmesh_bridge.available(mesher):
         library = quadmesh_bridge.MESHERS[mesher]["library"]
         raise MeshError(quadmesh_bridge.status()["libraries"][library]["error"], status=503)
+    if element == "tri":
+        require_plugin("Triangle shell meshing")
+
+
+def require_plugin(what):
+    if not cad_gmsh_plugin.module_available():
+        raise MeshError(f"{what} needs the Gmsh plugin, which is not installed. {cad_gmsh_plugin.INSTALL}", status=503)
+
+
+def plugin_feature(endpoint, data):
+    """What a CAD request asks of the Gmsh plugin, or None when the core can do it."""
+    if endpoint == "/api/cad/mesh":
+        return "Gmsh meshing"
+    if endpoint == "/api/cad/shell" and data.get("element") == "tri":
+        return "Triangle shell meshing"
+    if endpoint == "/api/cad/import" and str(data.get("format", "")).lower() == "stl":
+        return "STL import"
+    return None
 
 
 def geometry_source(data, directory):
@@ -365,7 +403,7 @@ def watch_process(process, directory, until=None, deadline=None):
                 except FileNotFoundError:
                     continue
                 if size > maximum:
-                    raise MeshError(f"Gmsh exceeded the {filename} output limit. Increase mesh size or simplify the CAD.")
+                    raise MeshError(f"The CAD worker exceeded the {filename} output limit. Increase mesh size or simplify the CAD.")
             code = process.poll()
             if code is not None:
                 return code
@@ -378,7 +416,7 @@ def watch_process(process, directory, until=None, deadline=None):
             if now >= next_rss_check:
                 usage = resident_bytes(process.pid)
                 if usage is not None and usage > MAX_RSS:
-                    raise MeshError("Gmsh exceeded the 2 GiB memory limit. Increase mesh size or simplify the CAD.")
+                    raise MeshError("The CAD worker exceeded the 2 GiB memory limit. Increase mesh size or simplify the CAD.")
                 next_rss_check = now + 0.5
             try:
                 # Exit wakes this wait at once; an early result is polled for.
@@ -433,7 +471,7 @@ def generate_mesh(data, gmsh):
 
 class WarmWorkers:
     """Kernel processes started ahead of time, so a request does not wait for
-    Python and Gmsh to load. Each still runs exactly one task and exits, as a
+    Python and OpenCASCADE to load. Each still runs exactly one task and exits, as a
     cold worker does; a replacement is started as soon as one is taken."""
 
     def __init__(self, size=2):
@@ -455,7 +493,12 @@ class WarmWorkers:
             with self.lock:
                 self.idle.append(process)
 
-    def take(self, request_path):
+    def take(self, request_path, plugin=False):
+        if plugin:
+            # A Gmsh task must not share a process with OpenCASCADE (OCP): a fresh interpreter, no preloaded libraries.
+            with open(request_path.parent / "gmsh.log", "ab") as log:
+                return subprocess.Popen([sys.executable, str(ROOT / "cad_kernel.py"), str(request_path)], cwd=request_path.parent,
+                                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         with self.lock:
             process = None
             while self.idle and process is None:
@@ -506,7 +549,7 @@ def run_cad_worker(request, source, output, early=None, started=None):
         request_path.write_text(json.dumps(request, allow_nan=False))
         log_path = directory / "gmsh.log"
         log_path.touch()
-        process = WARM.take(request_path)
+        process = WARM.take(request_path, plugin=cad_gmsh_plugin.handles(request))
         if started is not None:
             started(process.kill)
         deadline = time.monotonic() + MESH_TIMEOUT
@@ -522,7 +565,8 @@ def run_cad_worker(request, source, output, early=None, started=None):
         code = watch_process(process, directory, deadline=deadline)
         result_path = directory / "worker-result.json"
         if code or not result_path.is_file():
-            raise CadError("The CAD kernel could not complete this operation. Check the Gmsh Python bindings.", log=log_tail(log_path))
+            raise CadError("The CAD kernel could not complete this operation. Check the OpenCASCADE (OCP) installation"
+                           + (" and the Gmsh plugin." if cad_gmsh_plugin.handles(request) else "."), log=log_tail(log_path))
         result = json.loads(result_path.read_text())
         if result.get("error"):
             raise CadError(result["error"], log=result.get("log", log_tail(log_path)))
@@ -660,6 +704,9 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 if endpoint == "/api/mesh":
                     result = generate_mesh(data, self.gmsh)
                 else:
+                    wanted = plugin_feature(endpoint, data)
+                    if wanted:
+                        require_plugin(wanted)
                     if endpoint == "/api/cad/mesh":
                         validate_request(data)
                     if endpoint == "/api/cad/shell":
@@ -699,7 +746,8 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     with make_server(args.port, gmsh) as server:
         print(f"WebMesh: http://127.0.0.1:{server.server_address[1]}")
-        print(f"Gmsh: {gmsh or 'unavailable; CAD meshing disabled'}")
+        print(f"Gmsh plugin: {'available' if cad_gmsh_plugin.module_available() else 'not installed (tets, triangle shells, sweeps and STL are off)'}"
+              + (f"; program {gmsh}" if gmsh else ""))
         print(f"CAD sessions: {server.cad_sessions.root}")
         try:
             server.serve_forever()

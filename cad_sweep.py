@@ -1,5 +1,8 @@
 """Mapped and swept CAD meshing with exact geometry and mesh validation.
 
+Part of the Gmsh plugin (cad_gmsh_plugin): these meshers drive Gmsh and are only
+called with Gmsh's own module, in a worker that has not loaded OpenCASCADE's.
+
 A sweep is permitted only when the proposed extrusion is geometrically equivalent
 to the current prepared CAD. Symmetric OpenCASCADE Boolean differences check this;
 matching mass alone is insufficient. No model-specific features or IDs are used.

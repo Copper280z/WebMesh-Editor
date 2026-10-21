@@ -84,6 +84,20 @@
     let treeFilter = 'all', treeShare = 0.42;
     try { const share = Number(localStorage.getItem('webmesh.cad.treeShare')); if (share > 0.15 && share < 0.85) treeShare = share; } catch { /* storage unavailable */ }
     let bound = false, tooltip = null, viewTools = null;
+    // The Gmsh plugin is optional (/api/health reports it). Until the server answers it is assumed present;
+    // when it is missing its choices are shown disabled, with the reason, not hidden.
+    let plugins = { gmsh: { available: true } };
+    const gmshReady = () => plugins.gmsh?.available !== false;
+    const GMSH_MISSING = 'The Gmsh plugin is not installed. Install Gmsh and its Python bindings (python3 -m pip install gmsh), then restart python3 server.py. Mapped hexes and quad shells do not need it.';
+    async function loadPlugins() {
+      try {
+        if (location.protocol === 'file:' || typeof fetch !== 'function') return;
+        const response = await fetch('/api/health');
+        if (!response.ok) return;
+        const health = await response.json();
+        if (health?.plugins?.gmsh) { plugins = health.plugins; if (!gmshReady() && meshSettings.method === 'gmsh' && !discrete()) meshSettings = { ...meshSettings, method: 'mapped' }; hooks.render?.(); }
+      } catch { /* no service to ask: leave the choices as they are */ }
+    }
     const autoState = { running: false, message: '', blends: false, holes: true, controller: null, stopping: false, review: null };
 
     /* ------------------------------------------------------------ server -- */
@@ -640,7 +654,7 @@
     const chip = (text, tone = '') => `<span class="cad-chip ${tone}">${text}</span>`;
     const btn = (act, label, { cls = '', data = {}, title = '', disabled = false, iconName = '' } = {}) =>
       `<button type="button" class="cad-btn ${cls}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')} ${title ? `title="${esc(title)}"` : ''} ${disabled ? 'disabled' : ''}>${iconName ? icon(iconName) : ''}${label}</button>`;
-    const seg = (act, options, value, extra = '') => `<div class="cad-seg ${extra}" role="group">${options.map(([v, label, iconName, title]) => `<button type="button" data-act="${act}" data-value="${esc(v)}" aria-pressed="${String(v) === String(value)}" ${title ? `title="${esc(title)}"` : ''}>${iconName ? icon(iconName) : ''}<span>${label}</span></button>`).join('')}</div>`;
+    const seg = (act, options, value, extra = '') => `<div class="cad-seg ${extra}" role="group">${options.map(([v, label, iconName, title, off]) => `<button type="button" data-act="${act}" data-value="${esc(v)}" aria-pressed="${String(v) === String(value)}" ${title ? `title="${esc(title)}"` : ''} ${off ? 'disabled' : ''}>${iconName ? icon(iconName) : ''}<span>${label}</span></button>`).join('')}</div>`;
     const numberField = (field, label, value, attrs = '') => `<label class="cad-field"><span>${label}</span><input data-field="${field}" type="number" step="any" value="${esc(value)}" ${attrs}></label>`;
     function renderPart(id, fn) {
       const el = document.getElementById(id);
@@ -711,8 +725,8 @@
         return `<div class="cad-foot-row">${btn('step', 'Next: Size', { cls: 'primary', data: { value: 'size' }, iconName: 'arrow' })}</div>`;
       }
       if (step === 'size') return `<div class="cad-foot-row">${btn('step', 'Back', { cls: 'ghost', data: { value: 'prepare' } })}${btn('step', 'Next: Mesh', { cls: 'primary', data: { value: 'mesh' }, iconName: 'arrow' })}</div>`;
-      if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh' })}</div>`;
-      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell' })}</div>`;
+      if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh', disabled: !gmshReady(), title: gmshReady() ? '' : GMSH_MISSING })}</div>`;
+      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell', disabled: shell.element === 'tri' && !gmshReady(), title: shell.element === 'tri' && !gmshReady() ? GMSH_MISSING : '' })}</div>`;
       return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', covering({ volumes: mappedTarget() }).length ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
     }
 
@@ -1096,7 +1110,7 @@
     /* --------------------------------------------------------------- mesh -- */
     function meshBody() {
       let html = `<div id="cad-meshes">${meshesCard()}</div>`;
-      if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['shell', 'Shell', 'shell', 'Quad or tri shell elements on faces, at a midsurface or offset'], ['gmsh', 'Other (Gmsh)', 'spark', 'Tet, tri, quad and sweep methods through Gmsh']], meshSettings.method)}</section>`;
+      if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['shell', 'Shell', 'shell', 'Quad or tri shell elements on faces, at a midsurface or offset'], ['gmsh', 'Other (Gmsh)', 'spark', gmshReady() ? 'Tet, tri, quad and sweep methods through Gmsh' : GMSH_MISSING, !gmshReady()]], meshSettings.method)}${gmshReady() ? '' : `<p class="cad-note">${icon('warn')} Gmsh methods (tets, triangle shells, sweeps) are off: ${esc(GMSH_MISSING)}</p>`}</section>`;
       if (meshSettings.method === 'shell' && !discrete()) html += `<div id="cad-shell">${shellBody()}</div>`;
       else if (meshSettings.method === 'mapped' && !discrete()) {
         const s = analysis.summary, selectedSolids = selection.kind === 'solid' ? selection.ids.filter(id => analysis.volumes.get(id)?.mappable) : [];
@@ -1146,7 +1160,8 @@
       const all = session.topology.faces.length, quad = shell.element === 'quad';
       const count = list => `${list.length} face${list.length === 1 ? '' : 's'}`;
       let html = `<section class="cad-card"><div class="cad-card-title">Shell mesh <small>${quad ? (shell.mesher === 'paved' ? 'native paved' : 'native quadmesh') : 'Gmsh triangles'}</small></div>
-        <div class="cad-row"><span class="cad-row-label">Elements</span>${seg('shell-element', [['quad', 'Quad CQUAD4'], ['tri', 'Tri CTRIA3']], shell.element, 'compact')}</div>`;
+        <div class="cad-row"><span class="cad-row-label">Elements</span>${seg('shell-element', [['quad', 'Quad CQUAD4'], ['tri', 'Tri CTRIA3', '', gmshReady() ? 'Triangles through Gmsh' : GMSH_MISSING, !gmshReady()]], shell.element, 'compact')}</div>
+        ${!quad && !gmshReady() ? `<p class="cad-note warn">${icon('warn')} ${esc(GMSH_MISSING)} Switch to quad elements.</p>` : ''}`;
       if (quad) html += `<div class="cad-row"><span class="cad-row-label">Mesher</span>${seg('shell-mesher', [['recombined', 'Recombined', '', 'Triangulate, pair into quads and subdivide; faces share nodes along their edges'], ['paved', 'Paved', '', 'Rows of quads that follow every boundary and hole (Q-Morph); faces share nodes along their edges'], ['quadtree', 'Quadtree', '', 'Quadtree mesh of each face on its own']], shell.mesher, 'compact')}</div>
         ${shell.mesher === 'quadtree' ? `<p class="cad-note warn">${icon('warn')} The quadtree meshes each face on its own: faces will not share nodes along their edges.</p>` : ''}`;
       html += `<div class="cad-row"><span class="cad-row-label">Place</span>${seg('shell-placement', [['surface', 'On faces'], ['midsurface', 'Midsurface'], ['offset', 'Offset']], shell.placement, 'compact')}</div>`;
@@ -1225,6 +1240,7 @@
     function legacyBody() {
       const options = discrete() ? [['tet', 'Tetrahedral volume'], ['tri', 'Triangular surface']] : [['tet', 'Tetrahedral volume'], ['tri', 'Triangular surface'], ['quad', 'Quadrilateral surface'], ['sweep', 'Sweep quads → hex'], ['layered', 'Sweep partitioned columns']];
       let html = `<section class="cad-card"><div class="cad-card-title">Gmsh method</div>
+        ${gmshReady() ? '' : `<p class="cad-note warn">${icon('warn')} ${esc(GMSH_MISSING)}</p>`}
         <label class="cad-field"><span>Method</span><select data-field="legacy-method">${options.map(([v, l]) => `<option value="${v}" ${legacy.method === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <div class="cad-row"><span class="cad-row-label">Order</span>${seg('mesh-order', [[1, 'Linear'], [2, 'Quadratic']], meshSettings.order, 'compact')}</div>
         ${numberField('legacy-size', legacy.method === 'sweep' || legacy.method === 'layered' ? 'Surface size' : 'Element size', round(Number(legacy.size) || defaultSize()), 'min="0"')}`;
@@ -1501,6 +1517,7 @@
       hooks.render();
     }
     async function gmshMesh() {
+      if (!gmshReady()) throw Error(GMSH_MISSING);
       const method = legacy.method, isHex = ['sweep', 'layered'].includes(method);
       const finite = (value, label) => { if (String(value).trim() === '' || !Number.isFinite(Number(value))) throw Error(`Enter a finite ${label}.`); return Number(value); };
       const payload = { ...token(), topology: isHex ? 'hex' : method, dimension: ['tri', 'quad'].includes(method) ? 2 : 3, order: Number(meshSettings.order), size: finite(legacy.size, 'element size'), divisions: 6 };
@@ -1976,7 +1993,7 @@
       render, bind, importFile, updateAvailability, hasGeometry: () => !!session, getFile: () => source,
       activate(value) {
         active = value;
-        if (value) refreshSessions();
+        if (value) { refreshSessions(); loadPlugins(); }
         document.getElementById('app')?.classList.toggle('cad-mode', !!value);
         if (value && session) { if (step !== 'mesh' || !freshMeshes().length) engine()?.setCadVisible(true); updateDisplay(); }
         engine()?.setCadSelectionMode?.(value && session ? pick : 'none');

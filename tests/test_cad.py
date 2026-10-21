@@ -1,4 +1,8 @@
-"""Real CAD acceptance tests: preview, preparation, sweep fidelity and topology."""
+"""Real CAD acceptance tests: preview, preparation, sweep fidelity and topology.
+
+Import, preparation and topology run on the geometry kernel. The meshes Gmsh makes
+(mapped, swept and layered hexes, tets, STL) run only when the Gmsh plugin is installed.
+"""
 
 import base64
 import json
@@ -10,18 +14,43 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import cad_gmsh_plugin
+import cad_kernel
 import server
 from cad_sessions import CadError, CadSessions
 from cad_sweep import connected_components
 
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL = (Path("/opt/homebrew/opt/gmsh/lib/gmsh.py").exists()
-          or Path("/usr/local/opt/gmsh/lib/gmsh.py").exists()
-          or server.importlib.util.find_spec("gmsh") is not None)
+KERNEL = cad_kernel.available()
+PLUGIN = cad_gmsh_plugin.module_available()
+plugin = unittest.skipUnless(PLUGIN, "the Gmsh plugin is not installed")
+
+# Gmsh and OpenCASCADE's Python binding must not share a process: Gmsh scripts run on their own.
+INVERTED_MIDSIDE = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import cad_gmsh_plugin
+gmsh = cad_gmsh_plugin.load()
+gmsh.initialize(readConfigFiles=False, interruptible=False)
+gmsh.option.setNumber("General.Terminal", 0)
+gmsh.model.addDiscreteEntity(3, 1)
+points = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]
+edges = [(0, 1), (0, 3), (0, 4), (1, 2), (1, 5), (2, 3), (2, 6), (3, 7), (4, 5), (4, 7), (5, 6), (6, 7)]
+points += [[(points[a][i] + points[b][i]) / 2 for i in range(3)] for a, b in edges]
+points[8] = [0.5, 0, 2.5]  # Corners remain a valid unit cube.
+gmsh.model.mesh.addNodes(3, 1, list(range(1, 21)), [v for point in points for v in point])
+gmsh.model.mesh.addElementsByType(1, 17, [1], list(range(1, 21)))
+try:
+    cad_gmsh_plugin.mesh_quality(gmsh, 3)
+except ValueError as error:
+    print(error)
+else:
+    raise SystemExit("the inverted midside node was accepted")
+"""
 
 
-@unittest.skipUnless(KERNEL, "Gmsh Python/OpenCASCADE kernel is not installed")
+@unittest.skipUnless(KERNEL, "the CAD geometry kernel is not available")
 class CadAcceptanceTests(unittest.TestCase):
     def setUp(self):
         self.sessions = CadSessions(server.run_cad_worker)
@@ -52,6 +81,7 @@ class CadAcceptanceTests(unittest.TestCase):
         self.assertIn("remain importable", str(error.exception))
         self.assertEqual(self.sessions.records, {})
 
+    @plugin
     def test_split_conserves_volume_and_yields_connected_mapped_hexes(self):
         cad = self.import_file(ROOT / "examples/block.step")
         prepared = self.sessions.prepare(self.request(cad, operation={"kind": "split", "axis": "x", "position": 50}))
@@ -70,6 +100,7 @@ class CadAcceptanceTests(unittest.TestCase):
         self.assertEqual(len(second["topology"]["volumes"]), 3)
         self.assertAlmostEqual(second["topology"]["volume"], cad["topology"]["volume"], places=6)
 
+    @plugin
     def test_exact_three_thin_patch_divisions_share_a_coarse_bulk_mesh(self):
         cad = self.import_file(ROOT / "examples/block.step")
         cad = self.sessions.prepare(self.request(cad, operation={"kind": "split", "axis": "y", "position": 0.5}))
@@ -92,6 +123,7 @@ class CadAcceptanceTests(unittest.TestCase):
                 self.assertEqual(levels, {0, round(1 / 6, 8), round(1 / 3, 8), 0.5})
                 self.assertLess(result["stats"]["elements"], 1000)
 
+    @plugin
     def test_even_mapped_edge_controls_propagate_and_are_bounded_before_meshing(self):
         cad = self.import_file(ROOT / "examples/block.step")
         edge = cad["topology"]["edges"][0]["id"]
@@ -103,6 +135,7 @@ class CadAcceptanceTests(unittest.TestCase):
             self.sessions.mesh(self.request(cad, topology="hex", method="mapped", divisions=70, size=10,
                                order=1, edgeDivisions=[{"id": edge, "divisions": 200}]))
 
+    @plugin
     def test_conflicting_opposite_mapped_counts_are_rejected(self):
         cad = self.import_file(ROOT / "examples/block.step")
         by_edge = {edge["id"]: edge for edge in cad["topology"]["edges"]}
@@ -116,13 +149,14 @@ class CadAcceptanceTests(unittest.TestCase):
             self.sessions.mesh(self.request(cad, topology="hex", method="mapped", divisions=6, size=10, order=1,
                  edgeDivisions=[{"id": opposite[0], "divisions": 3}, {"id": opposite[1], "divisions": 4}]))
 
+    @plugin
     def test_explicit_curved_mapped_block_propagates_local_counts(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             script = """import sys
 sys.path.insert(0, sys.argv[1])
-from cad_kernel import gmsh_module
-g=gmsh_module();g.initialize(['test','-nopopup'],readConfigFiles=False);g.option.setNumber('General.Terminal',0)
+from cad_kernel import geometry_module
+g=geometry_module();g.initialize(['test','-nopopup'],readConfigFiles=False);g.option.setNumber('General.Terminal',0)
 o=g.model.occ
 p=[o.addPoint(*xyz) for xyz in [(1,0,0),(2,0,0),(0,2,0),(0,1,0),(0,0,0)]]
 edges=[o.addLine(p[0],p[1]),o.addCircleArc(p[1],p[4],p[2]),o.addLine(p[2],p[3]),o.addCircleArc(p[3],p[4],p[0])]
@@ -180,6 +214,7 @@ g.write('sector.brep');g.finalize()
         with self.assertRaisesRegex(CadError, "sever"):
             self.sessions.prepare(self.request(cad, operation={**passage, "height": bounds[5] - bounds[2] + 10}))
 
+    @plugin
     def test_generic_quadratic_layered_sweep_preserves_a_closed_port_and_upper_bridge(self):
         cad = self.import_file(ROOT / "examples/block.step")
         bounds = cad["topology"]["bounds"]
@@ -229,6 +264,7 @@ g.write('sector.brep');g.finalize()
         self.assertGreater(prepared["topology"]["volume"], cad["topology"]["volume"])
         self.assertEqual(prepared["history"][-1]["operation"]["kind"], "defeature")
 
+    @plugin
     def test_stl_preview_and_triangle_tet_mesh_are_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
@@ -246,7 +282,7 @@ g.write('sector.brep');g.finalize()
                 self.sessions.prepare(self.request(cad, operation={"kind": "heal"}))
 
 
-@unittest.skipUnless(KERNEL and (ROOT / "flexure.step").exists(), "User's flexure CAD is unavailable")
+@unittest.skipUnless(KERNEL and PLUGIN and (ROOT / "flexure.step").exists(), "The Gmsh plugin or the user's flexure CAD is unavailable")
 class FlexureHexAcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -416,12 +452,14 @@ class BracketLayeredHexAcceptanceTests(unittest.TestCase):
         self.assertAlmostEqual(self.simplified["topology"]["volume"], 46993.121692283, places=6)
         self.assertLess(3 * 2 ** 0.5, 4.25)  # square corners lie inside the original bores
 
+    @plugin
     def test_layered_sweep_requires_an_explicit_count_for_each_interval(self):
         cad = self.prepared
         with self.assertRaisesRegex(CadError, "each of the 4 detected intervals"):
             self.sessions.mesh({"cadId": cad["cadId"], "revision": cad["revision"], "topology": "hex",
                                 "method": "layered", "axis": "z", "layerCounts": [10], "size": 4, "order": 1})
 
+    @plugin
     def test_layered_hex8_and_hex20_share_every_interface_and_preserve_exact_cad(self):
         cad = self.prepared
         for order in (1, 2):
@@ -480,25 +518,11 @@ class QuadraticConformityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "midside node IDs"):
             self.check(elements)
 
-    @unittest.skipUnless(KERNEL, "Gmsh kernel is unavailable")
+    @plugin
     def test_curved_quadratic_jacobian_check_catches_inverted_midside(self):
-        from cad_kernel import gmsh_module, mesh_quality
-        gmsh = gmsh_module()
-        gmsh.initialize(readConfigFiles=False, interruptible=False)
-        gmsh.option.setNumber("General.Terminal", 0)
-        try:
-            gmsh.model.addDiscreteEntity(3, 1)
-            points = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
-                      [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]
-            edges = [(0, 1), (0, 3), (0, 4), (1, 2), (1, 5), (2, 3), (2, 6), (3, 7), (4, 5), (4, 7), (5, 6), (6, 7)]
-            points += [[(points[a][i] + points[b][i]) / 2 for i in range(3)] for a, b in edges]
-            points[8] = [0.5, 0, 2.5]  # Corners remain a valid unit cube.
-            gmsh.model.mesh.addNodes(3, 1, list(range(1, 21)), [v for point in points for v in point])
-            gmsh.model.mesh.addElementsByType(1, 17, [1], list(range(1, 21)))
-            with self.assertRaisesRegex(ValueError, "nonpositive Jacobians"):
-                mesh_quality(gmsh, 3)
-        finally:
-            gmsh.finalize()
+        done = subprocess.run([sys.executable, "-c", INVERTED_MIDSIDE, str(ROOT)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("nonpositive Jacobians", done.stdout)
 
 
 if __name__ == "__main__":
