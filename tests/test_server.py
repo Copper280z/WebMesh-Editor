@@ -10,6 +10,7 @@ import http.client
 import importlib.util
 import json
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -60,6 +61,35 @@ class RequestValidationTests(unittest.TestCase):
         with self.assertRaises(server.MeshError) as caught:
             server.generate_mesh({"topology": "hex"}, None)
         self.assertEqual(caught.exception.status, 503)
+
+
+class ShutdownTests(unittest.TestCase):
+    def test_a_stopped_server_removes_its_cad_sessions_folder(self):
+        for stop in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=stop.name):
+                process = subprocess.Popen([sys.executable, "-u", str(ROOT / "server.py"), "--port", "0"], cwd=ROOT,
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                try:
+                    folder = None
+                    for _ in range(5):
+                        line = process.stdout.readline()
+                        if line.startswith("CAD sessions: "):
+                            folder = Path(line.split(": ", 1)[1].strip())
+                            break
+                    self.assertTrue(folder and folder.is_dir(), "the server reports its sessions folder")
+                    process.send_signal(stop)
+                    process.wait(timeout=15)
+                    self.assertFalse(folder.exists())
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.stdout.close()
+
+    def test_closing_the_warm_workers_removes_their_folder(self):
+        warm = server.WarmWorkers(size=0)
+        self.assertTrue(Path(warm.folder).is_dir())
+        warm.close()
+        self.assertFalse(Path(warm.folder).exists())
 
 
 class HTTPTests(unittest.TestCase):

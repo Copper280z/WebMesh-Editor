@@ -87,7 +87,8 @@ def drop_snapshot(path):
 
 class CadSessions:
     def __init__(self, runner):
-        self.temporary = tempfile.TemporaryDirectory(prefix="webmesh-cad-sessions-")
+        # A preview still writing while the server stops must not stop the cleanup.
+        self.temporary = tempfile.TemporaryDirectory(prefix="webmesh-cad-sessions-", ignore_cleanup_errors=True)
         self.root = Path(self.temporary.name)
         self.records = {}
         self.runner = runner

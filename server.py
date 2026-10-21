@@ -34,6 +34,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -473,6 +474,7 @@ class WarmWorkers:
         for process in idle:
             process.kill()
             process.wait(timeout=5)
+        shutil.rmtree(self.folder, ignore_errors=True)
 
 
 WARM = WarmWorkers()
@@ -692,13 +694,23 @@ def main():
     parser.add_argument("--gmsh", help="Path to the Gmsh executable")
     args = parser.parse_args()
     gmsh = find_gmsh(args.gmsh)
+    # A stop signal (kill, a test helper) ends the server like Ctrl-C does, so
+    # its CAD sessions folder and warm workers are removed rather than left behind.
+    signal.signal(signal.SIGTERM, stop)
     with make_server(args.port, gmsh) as server:
         print(f"WebMesh: http://127.0.0.1:{server.server_address[1]}")
         print(f"Gmsh: {gmsh or 'unavailable; CAD meshing disabled'}")
+        print(f"CAD sessions: {server.cad_sessions.root}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
+        finally:
+            server.cad_sessions.temporary.cleanup()
+
+
+def stop(signum, frame):
+    raise KeyboardInterrupt
 
 
 if __name__ == "__main__":
