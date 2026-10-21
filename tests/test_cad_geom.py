@@ -256,6 +256,30 @@ class OperationTests(unittest.TestCase):
         self.assertAlmostEqual(o.getMass(3, result[0][1]), 20 * 20 * 5, places=6)
         self.assertEqual(len(m.getEntities(3)), 1)
 
+    def test_healing_sews_loose_faces_into_a_solid_and_leaves_a_clean_solid_alone(self):
+        k = kernel()
+        o, m = k.model.occ, k.model
+        box = o.addBox(0, 0, 0, 2, 3, 4)
+        o.synchronize()
+        before = (len(m.getEntities(2)), o.getMass(3, box))
+        healed = o.healShapes([(3, box)])
+        o.synchronize()
+        self.assertEqual([item[0] for item in healed], [3])
+        self.assertEqual((len(m.getEntities(2)), round(o.getMass(3, healed[0][1]), 9)), (before[0], round(before[1], 9)))
+        # Six faces that were copied one by one share no edges; sewing joins them, and the closed shell becomes a solid.
+        o.remove(o.getEntities(3), recursive=True)
+        second = o.addBox(0, 0, 0, 2, 3, 4)
+        faces = [t for _, t in o.getEntities(2)]
+        copies = [o.copy([(2, t)])[0] for t in faces]
+        o.remove([(3, second)], recursive=True)
+        o.synchronize()
+        self.assertEqual((len(m.getEntities(3)), len(m.getEntities(2)), len(m.getEntities(1))), (0, 6, 24))
+        sewn = o.healShapes(copies, tolerance=1e-6, sewFaces=True, makeSolids=True)
+        o.synchronize()
+        solids = [item for item in sewn if item[0] == 3]
+        self.assertEqual((len(solids), len(m.getEntities(3)), len(m.getEntities(1))), (1, 1, 12))
+        self.assertAlmostEqual(o.getMass(3, solids[0][1]), 24.0, places=6)
+
     def test_a_failed_boolean_says_so(self):
         k = kernel()
         o = k.model.occ
@@ -379,7 +403,7 @@ class FileTests(unittest.TestCase):
             o.addBox(0, 0, 0, 2, 3, 4)
             o.addRectangle(10, 0, 0, 5, 5)
             o.synchronize()
-            for name in ("part.brep", "part.step"):
+            for name in ("part.brep", "part.step", "part.iges"):
                 path = Path(folder) / name
                 k.write(str(path))
                 again = kernel()

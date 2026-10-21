@@ -470,7 +470,7 @@ class WarmWorkers:
     Python and OpenCASCADE to load. Each still runs exactly one task and exits, as a
     cold worker does; a replacement is started as soon as one is taken."""
 
-    def __init__(self, size=2):
+    def __init__(self, size=PREVIEW_SLOTS):
         self.size = size
         self.idle = []
         self.lock = threading.Lock()

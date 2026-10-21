@@ -37,7 +37,8 @@ try:
     from OCP.BRepAlgoAPI import BRepAlgoAPI_BuilderAlgo, BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Defeaturing, BRepAlgoAPI_Fuse
     from OCP.BRepBndLib import BRepBndLib
     from OCP.BRepBuilderAPI import (BRepBuilderAPI_Copy, BRepBuilderAPI_GTransform, BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace,
-                                    BRepBuilderAPI_MakeVertex, BRepBuilderAPI_MakeWire, BRepBuilderAPI_NurbsConvert, BRepBuilderAPI_Transform)
+                                    BRepBuilderAPI_MakeVertex, BRepBuilderAPI_MakeWire, BRepBuilderAPI_NurbsConvert, BRepBuilderAPI_Sewing,
+                                    BRepBuilderAPI_Transform)
     from OCP.BRepCheck import BRepCheck_Analyzer
     from OCP.BRepClass import BRepClass_FaceClassifier
     from OCP.BRepClass3d import BRepClass3d_SolidClassifier
@@ -55,9 +56,9 @@ try:
     from OCP.GeomAbs import GeomAbs_Parabola, GeomAbs_Plane, GeomAbs_Sphere, GeomAbs_SurfaceOfExtrusion, GeomAbs_SurfaceOfRevolution
     from OCP.GeomAbs import GeomAbs_Torus
     from OCP.IFSelect import IFSelect_RetDone
-    from OCP.IGESControl import IGESControl_Reader
+    from OCP.IGESControl import IGESControl_Reader, IGESControl_Writer
     from OCP.ShapeAnalysis import ShapeAnalysis_Surface
-    from OCP.ShapeFix import ShapeFix_Face, ShapeFix_FixSmallFace, ShapeFix_Shape
+    from OCP.ShapeFix import ShapeFix_Face, ShapeFix_FixSmallFace, ShapeFix_Shape, ShapeFix_Solid
     from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Reader, STEPControl_Writer
     from OCP.TopAbs import (TopAbs_COMPOUND, TopAbs_COMPSOLID, TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_IN, TopAbs_ON, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID, TopAbs_VERTEX, TopAbs_WIRE)
@@ -149,6 +150,19 @@ def _pieces(shape):
     return out
 
 
+def _items(found):
+    """The shapes of an OpenCASCADE list, taken off the front.
+
+    Iterating one of these lists in Python costs about 4 ms however short it is; this does not.
+    The binding hands back a copy of a history list, so emptying it does not disturb the operation.
+    """
+    out = []
+    while not found.IsEmpty():
+        out.append(found.First())
+        found.RemoveFirst()
+    return out
+
+
 def _compound(shapes):
     compound = TopoDS_Compound()
     builder = BRep_Builder()
@@ -166,6 +180,11 @@ def _point(x, y=None, z=None):
 
 def _xyz(p):
     return [p.X(), p.Y(), p.Z()]
+
+
+def _cross(a, b):
+    """Cross product of two gp_Vec as a tuple (cheaper than NumPy on three numbers)."""
+    return (a.Y() * b.Z() - a.Z() * b.Y(), a.Z() * b.X() - a.X() * b.Z(), a.X() * b.Y() - a.Y() * b.X())
 
 
 def _flat(values):
@@ -216,7 +235,10 @@ class Registry:
         self.wires = {}
         self.ceiling = [0, 0, 0, 0]
         self.version = 0
-        self._parents = None
+        # What contains what, kept up to date as entities are bound and unbound:
+        # (dim, tag) -> tags one dimension up that bound it (`bounding`), or that hold it in any way, an
+        # INTERNAL face of a solid or a junction edge inside a face included (`holding`).
+        self.bounding, self.holding = {}, {}
 
     def find(self, shape):
         dim = _dim(shape)
@@ -238,7 +260,25 @@ class Registry:
         self.shapes[dim][tag] = shape
         self.index[dim].put(shape, tag)
         self.version += 1
+        held, bounded = self._relations(dim, shape)
+        for child in held:
+            self.holding.setdefault((dim - 1, child), set()).add(tag)
+        for child in bounded:
+            self.bounding.setdefault((dim - 1, child), set()).add(tag)
         return tag
+
+    def _relations(self, dim, shape):
+        """(tags a bound shape holds, tags it bounds) one dimension down."""
+        held, bounded = set(), set()
+        if dim:
+            lower = self.index[dim - 1]
+            for child in _direct(shape, internal=True):
+                tag = lower.get(child)
+                if tag is not None:
+                    held.add(tag)
+                    if child.Orientation() in (TopAbs_FORWARD, TopAbs_REVERSED):
+                        bounded.add(tag)
+        return held, bounded
 
     def bind_closure(self, shape, want=-1):
         """Bind a shape and everything below it, in tag order; returns the shape's own tag."""
@@ -249,45 +289,29 @@ class Registry:
         return self.bind(shape, want)
 
     def unbind(self, dim, tag):
-        shape = self.shapes[dim].pop(tag, None)
+        shape = self.shapes[dim].get(tag)
         if shape is None:
             return
+        held, bounded = self._relations(dim, shape)
+        for child in held:
+            self.holding.get((dim - 1, child), set()).discard(tag)
+        for child in bounded:
+            self.bounding.get((dim - 1, child), set()).discard(tag)
+        del self.shapes[dim][tag]
         self.index[dim].drop(shape)
         if tag == self.ceiling[dim]:
             self.ceiling[dim] = max(self.shapes[dim], default=0)
         self.version += 1
 
     def parents(self, proper=True):
-        """{(dim, tag): number of bound entities one dimension up that contain it}.
-
-        With `proper`, only entities that it bounds count; otherwise also those that
-        hold it INTERNAL (a cut face inside a solid, a junction edge inside a face).
-        """
-        if self._parents is None or self._parents[0] != self.version:
-            proper_counts, all_counts = {}, {}
-            for dim in (1, 2, 3):
-                lower = self.index[dim - 1]
-                for shape in self.shapes[dim].values():
-                    held, bounding = set(), set()
-                    for child in _direct(shape, internal=True):
-                        tag = lower.get(child)
-                        if tag is not None:
-                            held.add(tag)
-                            if child.Orientation() in (TopAbs_FORWARD, TopAbs_REVERSED):
-                                bounding.add(tag)
-                    for tag in held:
-                        all_counts[(dim - 1, tag)] = all_counts.get((dim - 1, tag), 0) + 1
-                    for tag in bounding:
-                        proper_counts[(dim - 1, tag)] = proper_counts.get((dim - 1, tag), 0) + 1
-            self._parents = (self.version, proper_counts, all_counts)
-        return self._parents[1 if proper else 2]
+        """{(dim, tag): tags one dimension up that contain it}: those it bounds, or with `proper` False also
+        those that hold it INTERNAL (a cut face inside a solid, a junction edge inside a face)."""
+        return self.bounding if proper else self.holding
 
     def children(self, dim, tag):
         """(dim - 1, tag) of everything a bound entity holds, INTERNAL parts included."""
-        if not dim:
-            return set()
-        lower = self.index[dim - 1]
-        return {(dim - 1, t) for t in (lower.get(c) for c in _direct(self.shapes[dim][tag], internal=True)) if t is not None}
+        held, _ = self._relations(dim, self.shapes[dim][tag])
+        return {(dim - 1, t) for t in held}
 
     def remove_many(self, entities, recursive=False, protect=frozenset()):
         """Unbind entities, highest dimension first; with `recursive`, also what lies below them that nothing else contains.
@@ -295,7 +319,6 @@ class Registry:
         An entity another bound entity still contains cannot be removed on its own
         (as in Gmsh, that includes the INTERNAL faces of a solid).
         """
-        counts = dict(self.parents(proper=False))
         heap = [(-int(d), int(t)) for d, t in entities]
         heapq.heapify(heap)
         seen = set()
@@ -305,13 +328,12 @@ class Registry:
             if (dim, tag) in seen or tag not in self.shapes[dim] or (dim, tag) in protect:
                 continue
             seen.add((dim, tag))
-            if counts.get((dim, tag)):
+            if self.holding.get((dim, tag)):
                 continue
             children = self.children(dim, tag)
             self.unbind(dim, tag)
-            for child in children:
-                counts[child] = counts.get(child, 1) - 1
-                if recursive:
+            if recursive:
+                for child in children:
                     heapq.heappush(heap, (-child[0], child[1]))
 
     def remove(self, dim, tag, recursive=False, protect=frozenset()):
@@ -319,8 +341,8 @@ class Registry:
 
     def top_level(self):
         """Entities no other bound entity contains, as (dim, tag), highest dimension first."""
-        parents = self.parents()
-        return [(dim, tag) for dim in (3, 2, 1, 0) for tag in sorted(self.shapes[dim]) if not parents.get((dim, tag))]
+        bounding = self.bounding
+        return [(dim, tag) for dim in (3, 2, 1, 0) for tag in sorted(self.shapes[dim]) if not bounding.get((dim, tag))]
 
     def entities(self, dim=-1):
         dims = (0, 1, 2, 3) if dim < 0 else (dim,)
@@ -388,7 +410,7 @@ class Snapshot:
         self.shapes = [dict(items) for items in registry.shapes]
         self._index = [None] * 4
         self._wires = {}
-        self._up = None
+        self._up = {key: tuple(sorted(parents)) for key, parents in registry.bounding.items() if parents}
         self.cache = {}
 
     def index(self, dim):
@@ -429,14 +451,7 @@ class Snapshot:
 
     def up(self, dim, tag):
         """Sorted tags of the entities one dimension up that contain this one."""
-        if self._up is None:
-            up = {}
-            for parent_dim in (1, 2, 3):
-                for parent in self.shapes[parent_dim]:
-                    for child in set(self.down(parent_dim, parent)):
-                        up.setdefault((parent_dim - 1, child), set()).add(parent)
-            self._up = up
-        return sorted(self._up.get((dim, tag), ()))
+        return self._up.get((dim, tag), ())
 
 
 class Model:
@@ -623,21 +638,21 @@ class Model:
         for u, v in _pairs(parametricCoord, 2):
             u, v = float(u), float(v)
             surface.D1(u, v, point, du, dv)
-            normal = np.cross([du.X(), du.Y(), du.Z()], [dv.X(), dv.Y(), dv.Z()])
-            size = float(np.linalg.norm(normal))
+            normal = _cross(du, dv)
+            size = math.sqrt(normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2)
             if size < 1e-14:
                 # A pole or an apex: step a little way into the face.
                 for step in (1e-6, 1e-4):
                     uu = u + step * (upper[0] - lower[0]) * (1 if u < (lower[0] + upper[0]) / 2 else -1)
                     vv = v + step * (upper[1] - lower[1]) * (1 if v < (lower[1] + upper[1]) / 2 else -1)
                     surface.D1(uu, vv, point, du, dv)
-                    normal = np.cross([du.X(), du.Y(), du.Z()], [dv.X(), dv.Y(), dv.Z()])
-                    size = float(np.linalg.norm(normal))
+                    normal = _cross(du, dv)
+                    size = math.sqrt(normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2)
                     if size >= 1e-14:
                         break
             if size < 1e-14:
                 raise ValueError(f"Face {tag} has no defined normal at ({u:g}, {v:g}).")
-            out.extend(flip * normal / size)
+            out.extend((flip * normal[0] / size, flip * normal[1] / size, flip * normal[2] / size))
         return np.array(out)
 
     def getCurvature(self, dim, tag, parametricCoord):
@@ -940,7 +955,7 @@ class Occ:
             tags = [self._add(far), self._add(body)]
             out.extend([(dim, tags[0]), (dim + 1, tags[1])])
             for sub in _subshapes(base, dim - 1) if dim else [base]:
-                for side in prism.Generated(sub):
+                for side in _items(prism.Generated(sub)):
                     side_tag = self.registry.find(side)
                     if side_tag is not None and (_dim(side), side_tag) not in out:
                         out.append((_dim(side), side_tag))
@@ -958,10 +973,22 @@ class Occ:
             raise ValueError(f"OpenCASCADE could not complete the {name}. The geometry may overlap itself or touch only at a point.")
         result = operation.Shape()
 
+        survivors = ShapeIndex()
+        for piece in _pieces(result):
+            survivors.put(piece, 1)
+
         def images(s):
-            """What an input became: its modified parts, itself when untouched, nothing when consumed."""
-            changed = list(operation.Modified(s))
-            return changed if changed else ([] if operation.IsDeleted(s) else [s])
+            """What an input became: nothing when consumed, itself when the result still has it, else its modified parts.
+
+            Asking the operation about every input is slow when most are untouched, so it is asked only about
+            the ones the result no longer contains.
+            """
+            if operation.IsDeleted(s):
+                return []
+            if survivors.get(s) is not None:
+                return [s]
+            changed = _items(operation.Modified(s))
+            return changed if changed else [s]
         mapped = [images(s) for s in objects + tools]
         if unify:
             # A fuse merges coplanar faces and collinear edges the interfaces left behind.
@@ -975,7 +1002,7 @@ class Occ:
                 for piece in shapes:
                     if chain.IsRemoved(piece):
                         continue
-                    again = list(chain.Modified(piece))
+                    again = _items(chain.Modified(piece))
                     out.extend(again if again else [piece])
                 return out
             mapped = [unified(m) for m in mapped]
@@ -1114,7 +1141,11 @@ def _mid_on_arc(a, c, b):
 
 
 def _heal(shape, tolerance, degenerated, small_edges, small_faces, sew, make_solids):
-    """ShapeFix, then (optionally) the small-face fixer and sewing, on a copy: the result is a new shape."""
+    """Repair a shape: ShapeFix, the small-face fixer, then (for loose faces) sewing and closed shells made into solids.
+
+    Solids are repaired where they are; sewing is for faces that belong to no solid, so that
+    a solid (or several sharing faces) is never taken apart and put together again.
+    """
     fixer = ShapeFix_Shape(shape)
     fixer.SetPrecision(float(tolerance))
     fixer.SetMaxTolerance(float(tolerance))
@@ -1126,7 +1157,35 @@ def _heal(shape, tolerance, degenerated, small_edges, small_faces, sew, make_sol
         small.SetPrecision(float(tolerance))
         small.Perform()
         shape = small.FixShape()
-    return shape
+    if not sew:
+        return shape
+    in_solids = _ShapeMap()
+    for solid in _subshapes(shape, 3):
+        TopExp.MapShapes_s(solid, TopAbs_FACE, in_solids)
+    loose = [face for face in _subshapes(shape, 2) if not in_solids.Contains(face)]
+    if len(loose) < 2:
+        return shape
+    sewing = BRepBuilderAPI_Sewing(float(tolerance))
+    for face in loose:
+        sewing.Add(face)
+    sewing.Perform()
+    sewn = sewing.SewedShape()
+    if sewn.IsNull():
+        return shape
+    kept = [s_ for s_ in _pieces(shape) if _dim(s_) == 3]
+    solids = []
+    for shell in _subshapes_of_type(sewn, TopAbs_SHELL):
+        if make_solids and BRep_Tool.IsClosed_s(shell):
+            solids.append(ShapeFix_Solid().SolidFromShell(TopoDS.Shell(shell)))
+        else:
+            kept.extend(_direct(shell))
+    return _compound(kept + solids)
+
+
+def _subshapes_of_type(shape, kind):
+    found = _ShapeMap()
+    TopExp.MapShapes_s(shape, kind, found)
+    return [found.FindKey(i) for i in range(1, found.Extent() + 1)]
 
 
 # --------------------------------------------------------------------------
@@ -1229,7 +1288,7 @@ class Kernel:
         return [(_dim(p), self.registry.find(p)) for p in found]
 
     def write(self, path):
-        """Write the top-level entities as BREP or STEP (a flat file of what the model holds)."""
+        """Write the top-level entities as BREP, STEP or IGES (a flat file of what the model holds)."""
         top = self.registry.top_level()
         compound = _compound([self.registry.shapes[d][t] for d, t in top])
         suffix = Path(path).suffix.lower()
@@ -1241,8 +1300,14 @@ class Kernel:
             writer.Transfer(compound, STEPControl_AsIs)
             if writer.Write(str(path)) != IFSelect_RetDone:
                 raise ValueError("The STEP file could not be written.")
+        elif suffix in {".iges", ".igs"}:
+            writer = IGESControl_Writer("MM", 1)  # millimetres, solids as B-reps
+            writer.AddShape(compound)
+            writer.ComputeModel()
+            if not writer.Write(str(path)):
+                raise ValueError("The IGES file could not be written.")
         else:
-            raise ValueError(f"Cannot write {suffix or 'this'} geometry. Use BREP or STEP.")
+            raise ValueError(f"Cannot write {suffix or 'this'} geometry. Use BREP, STEP or IGES.")
 
     def merge(self, path):
         if Path(path).suffix.lower() in {".stl", ".msh"}:
@@ -1268,17 +1333,13 @@ class Kernel:
                 location = TopLoc_Location()
                 triangulation = BRep_Tool.Triangulation_s(TopoDS.Face(face), location)
                 triangles = []
-                if triangulation is not None:
+                if triangulation is not None and triangulation.NbTriangles():
                     transform = location.Transformation()
-                    nodes = [triangulation.Node(i).Transformed(transform) for i in range(1, triangulation.NbNodes() + 1)]
-                    flip = face.Orientation() == TopAbs_REVERSED
-                    for i in range(1, triangulation.NbTriangles() + 1):
-                        a, b, c = triangulation.Triangle(i).Get()
-                        if flip:
-                            b, c = c, b
-                        for n in (a, b, c):
-                            point = nodes[n - 1]
-                            triangles.extend((point.X(), point.Y(), point.Z()))
+                    nodes = np.array([_xyz(triangulation.Node(i).Transformed(transform)) for i in range(1, triangulation.NbNodes() + 1)])
+                    corners = np.array([triangulation.Triangle(i).Get() for i in range(1, triangulation.NbTriangles() + 1)]) - 1
+                    if face.Orientation() == TopAbs_REVERSED:
+                        corners = corners[:, [0, 2, 1]]
+                    triangles = nodes[corners].ravel().tolist()
                 out[tag] = triangles
         finally:
             BRepTools.Clean_s(compound)

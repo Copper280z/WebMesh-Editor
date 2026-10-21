@@ -34,6 +34,7 @@ class _Geometry:
         self.span = max(max(bounds[i + 3] - bounds[i] for i in range(3)), 1e-9)
         self.tolerance = max(self.span * 1e-7, 1e-10)
         self.vertices = {}
+        self._vertex_table = None
         for _, tag in self.model.getEntities(0):
             self.vertices[int(tag)] = np.array(self.model.getValue(0, tag, []), dtype=float)
         self.edges = {}
@@ -44,14 +45,21 @@ class _Geometry:
         self.solid_senses = {}
 
     def nearest_vertex(self, point, candidates=None):
-        best, distance = None, math.inf
-        for tag in (candidates if candidates else self.vertices):
-            if tag not in self.vertices:
-                continue
-            d = float(np.linalg.norm(self.vertices[tag] - point))
-            if d < distance:
-                best, distance = tag, d
-        return best if distance <= max(self.span * 1e-6, 1e-8) else None
+        if candidates:
+            tags = [tag for tag in candidates if tag in self.vertices]
+            if not tags:
+                return None
+            points = np.array([self.vertices[tag] for tag in tags])
+        else:
+            if self._vertex_table is None or self._vertex_table[0] != len(self.vertices):
+                tags = list(self.vertices)
+                self._vertex_table = (len(tags), tags, np.array([self.vertices[tag] for tag in tags]).reshape(-1, 3))
+            _, tags, points = self._vertex_table
+            if not tags:
+                return None
+        distances = np.sqrt(np.sum((points - point) ** 2, axis=1))
+        nearest = int(np.argmin(distances))
+        return tags[nearest] if float(distances[nearest]) <= max(self.span * 1e-6, 1e-8) else None
 
         self.inverses = {}
 

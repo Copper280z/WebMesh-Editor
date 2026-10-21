@@ -75,6 +75,23 @@ class CadAcceptanceTests(unittest.TestCase):
         self.assertEqual(set(cad["preview"]["triangleFaceIds"]), {face["id"] for face in cad["topology"]["faces"]})
         self.assertGreater(len(cad["preview"]["edges"]), 0)
 
+    def test_iges_and_brep_files_import_like_the_step_they_came_from(self):
+        reference = self.import_file(ROOT / "examples/plate-hole.step")["topology"]
+        geom = cad_kernel.geometry_module()
+        geom.initialize()
+        geom.model.occ.importShapes(str(ROOT / "examples/plate-hole.step"))
+        geom.model.occ.synchronize()
+        with tempfile.TemporaryDirectory() as temporary:
+            for suffix in ("iges", "brep"):
+                path = Path(temporary) / f"plate.{suffix}"
+                geom.write(str(path))
+                with self.subTest(suffix):
+                    topology = self.import_file(path)["topology"]
+                    for key in ("faces", "edges", "volumes", "vertices"):
+                        self.assertEqual(len(topology[key]), len(reference[key]), key)
+                    self.assertAlmostEqual(topology["volume"], reference["volume"], delta=1e-6 * reference["volume"])
+                    self.assertAlmostEqual(sum(f["area"] for f in topology["faces"]), sum(f["area"] for f in reference["faces"]), delta=1e-5 * reference["volume"])
+
     def test_snapshots_are_bounded_by_the_reimport_limit(self):
         with patch.object(server, "MAX_CAD", 1), self.assertRaises(CadError) as error:
             self.import_file(ROOT / "examples/block.step")
