@@ -1,31 +1,48 @@
 #!/usr/bin/env python3
-"""Isolated OpenCASCADE/Gmsh worker for CAD preview, preparation and mesh checks.
+"""Isolated OpenCASCADE worker for CAD preview, preparation and shell meshing.
 
-The HTTP process never loads Gmsh's global C API. A worker imports one immutable
-BREP snapshot, performs one operation, and exits; failed operations cannot alter a
-session. Gmsh's OpenCASCADE API is documented at:
-https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002focc
-https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002fmesh
+A worker imports one immutable BREP snapshot, performs one operation, and exits;
+failed operations cannot alter a session. Geometry runs on OpenCASCADE through
+cad_geom.py (the `gmsh` argument below is that kernel, named for the tag-based
+API shape it keeps). Gmsh is an optional meshing plugin: see cad_gmsh_plugin.py.
+
+WEBMESH_CAD_BACKEND selects the geometry kernel: `occ` (OpenCASCADE through
+OCP) or `gmsh` (Gmsh's own OpenCASCADE wrapper, kept for comparison).
 """
 
 import gzip
-import importlib.util
 import json
 import math
 import os
 from pathlib import Path
 import sys
 
+BACKENDS = ("occ", "gmsh")
+DEFAULT_BACKEND = "gmsh"
 
-def gmsh_module():
-    """Find pip installations or the Python bindings bundled with Homebrew."""
-    if importlib.util.find_spec("gmsh") is None:
-        for directory in ("/opt/homebrew/opt/gmsh/lib", "/usr/local/opt/gmsh/lib"):
-            if (Path(directory) / "gmsh.py").is_file():
-                sys.path.insert(0, directory)
-                break
-    import gmsh
-    return gmsh
+
+def backend():
+    name = os.environ.get("WEBMESH_CAD_BACKEND", DEFAULT_BACKEND).strip().lower()
+    if name not in BACKENDS:
+        raise ValueError(f"WEBMESH_CAD_BACKEND must be one of {', '.join(BACKENDS)}, not {name!r}.")
+    return name
+
+
+def geometry_module():
+    """A geometry kernel with the tag-based shape of the Gmsh API (see cad_geom.py)."""
+    if backend() == "occ":
+        import cad_geom
+        return cad_geom.module()
+    import cad_gmsh_plugin
+    return cad_gmsh_plugin.load()
+
+
+gmsh_module = geometry_module  # the name older callers and tests use
+
+
+def native(gmsh):
+    """True for the OpenCASCADE kernel, False for Gmsh's own."""
+    return bool(getattr(gmsh, "native", False))
 
 
 def safe_mass(gmsh, dimension, tag, native=None):
@@ -158,14 +175,29 @@ def tessellation(gmsh, data, cache=None, keys=None, out=None):
     model = gmsh.model
     bounds = data["bounds"]
     diagonal = math.sqrt(sum((bounds[i + 3] - bounds[i]) ** 2 for i in range(3)))
+    previous = (cache or {}).get("triangles", {}) if keys is not None and out is not None else {}
+    analytic = {face["id"] for face in data["faces"] if face.get("surface", {}).get("kind") in {"plane", "cylinder", "sphere"}}
+    reused = {tag: previous[keys.face[tag]] for tag in analytic if keys.face.get(tag) in previous}
+    if native(gmsh):
+        # OpenCASCADE's incremental mesher: chords within diagonal/500 of the surface and turning at most
+        # 1/48 of a circle per segment; the faces the previous revision tessellated are reused.
+        faces = [tag for _, tag in model.getEntities(2)]
+        made = gmsh.tessellate([tag for tag in faces if tag not in reused], max(diagonal / 500, 1e-6), 2 * math.pi / 48)
+        positions, face_ids = [], []
+        for tag in faces:
+            triangles = reused[tag] if tag in reused else made.get(tag, [])
+            positions.extend(triangles)
+            face_ids.extend([tag] * (len(triangles) // 9))
+            if tag in analytic and out is not None:
+                out["triangles"][keys.face[tag]] = triangles
+        if len(face_ids) > 250_000:
+            raise ValueError("CAD preview exceeds 250,000 triangles. Simplify the geometry first.")
+        return positions, face_ids
     size = max(diagonal / 24, 1e-5)
     gmsh.option.setNumber("Mesh.MeshSizeMin", size)
     gmsh.option.setNumber("Mesh.MeshSizeMax", size)
     gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 48)
     gmsh.option.setNumber("Mesh.ElementOrder", 1)
-    previous = (cache or {}).get("triangles", {}) if keys is not None and out is not None else {}
-    analytic = {face["id"] for face in data["faces"] if face.get("surface", {}).get("kind") in {"plane", "cylinder", "sphere"}}
-    reused = {tag: previous[keys.face[tag]] for tag in analytic if keys.face.get(tag) in previous}
     if not data.get("discrete"):
         faces = [tag for _, tag in model.getEntities(2)]
         if reused:
@@ -223,7 +255,7 @@ def preview(gmsh, data, edges=None, cache=None, keys=None, out=None):
     positions, face_ids = tessellation(gmsh, data, cache, keys, out)
     if edges is None:
         edges = edge_polylines(gmsh, data)
-    if not data.get("discrete"):
+    if not data.get("discrete") and not native(gmsh):
         gmsh.model.mesh.clear()
     return {"positions": positions, "triangleFaceIds": face_ids, "edges": edges, "faces": data["faces"]}
 
@@ -961,13 +993,15 @@ def load(gmsh, path):
 
 
 def execute(request):
-    gmsh = gmsh_module()
+    gmsh = geometry_module()
     gmsh.initialize(["webmesh-cad", "-nopopup"], readConfigFiles=False, interruptible=False)
     gmsh.option.setNumber("General.Terminal", 0)
     gmsh.option.setNumber("General.NumThreads", 1)
     gmsh.logger.start()
     try:
         discrete = Path(request["input"]).suffix.lower() in {".stl", ".msh"}
+        if native(gmsh) and (discrete or request.get("action") == "mesh" or (request.get("action") == "shell" and request.get("element") == "tri")):
+            raise ValueError("This needs the Gmsh plugin, which is not installed.")
         if discrete:
             gmsh.merge(request["input"])
         else:

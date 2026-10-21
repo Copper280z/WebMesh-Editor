@@ -340,6 +340,9 @@ def extend(gmsh, operation, records):
         if min(reach) < -tolerance:
             raise ValueError(f"Edge {edge} crosses face {target}; extend it to a face beyond its end.")
         corners = [p0, p1, p1 + direction * max(reach[1], 0), p0 + direction * max(reach[0], 0)]
+        if float(np.dot(np.cross(p1 - p0, direction), ns)) < 0:
+            # The strip faces the way the sheet does: faces of opposite sense are not merged into one.
+            corners = corners[::-1]
         points = [occ.addPoint(*c) for c in corners]
         lines = [occ.addLine(points[i], points[(i + 1) % 4]) for i in range(4) if np.linalg.norm(corners[i] - corners[(i + 1) % 4]) > tolerance]
         strips.setdefault(face, []).append((2, occ.addPlaneSurface([occ.addCurveLoop(lines)])))
