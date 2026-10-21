@@ -28336,6 +28336,11 @@ ${formatRanges(v.ranges, 500)}`;
     window.__WEBMESH_DISPOSE__ = __webmeshDispose;
   } catch {
   }
+  // Firefox keeps a reloaded or closed page's WebGL buffers (about 190 MB for a large window) until its
+  // garbage collector runs, so free them as the page goes. A page kept for Back (persisted) keeps them.
+  window.addEventListener("pagehide", (event) => {
+    if (!event.persisted) __webmeshDispose();
+  });
   function renderViewportFrame() {
     const prevAutoClear = renderer.autoClear;
     const prevToneMapping = renderer.toneMapping;
