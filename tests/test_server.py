@@ -139,6 +139,22 @@ class HTTPTests(unittest.TestCase):
             for _ in range(server.PREVIEW_SLOTS):
                 self.httpd.preview_slots.release()
 
+    def test_sessions_can_be_listed_and_closed_while_a_mesh_runs(self):
+        json_headers = {"Content-Type": "application/json"}
+        self.httpd.mesh_slot.acquire()
+        try:
+            status, _, body = self.request("POST", "/api/cad/sessions", "{}", json_headers)
+            self.assertEqual(status, 200)
+            listed = json.loads(body)
+            self.assertEqual(listed["budget"], 512 * 1024 * 1024)
+            self.assertIsInstance(listed["sessions"], list)
+            self.assertEqual(self.request("POST", "/api/cad/close", json.dumps({"cadId": "0" * 32}), json_headers)[0], 404)
+            self.assertEqual(self.request("POST", "/api/cad/resume", json.dumps({"cadId": "0" * 32}), json_headers)[0], 404)
+        finally:
+            self.httpd.mesh_slot.release()
+        # They take small requests only.
+        self.assertEqual(self.request("POST", "/api/cad/sessions", "{" + " " * 5000 + "}", json_headers)[0], 413)
+
     def test_busy_service_rejects_before_reading_large_body(self):
         self.httpd.mesh_slot.acquire()
         try:

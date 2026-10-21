@@ -607,7 +607,9 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         if not self.trusted_request():
             return
         endpoint = urlsplit(self.path).path
-        if endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
+        # Session bookkeeping is small and quick: it runs beside meshing, without a slot.
+        light = endpoint in {"/api/cad/sessions", "/api/cad/resume", "/api/cad/close"}
+        if not light and endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
@@ -621,14 +623,16 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         except ValueError:
             self.json_response(400, {"error": "Invalid Content-Length."})
             return
-        if not 0 < length <= MAX_REQUEST:
-            self.json_response(413, {"error": "Request must be between 1 byte and 34 MiB."})
+        if not 0 < length <= (4096 if light else MAX_REQUEST):
+            self.json_response(413, {"error": "Request must be between 1 byte and 34 MiB." if not light else "Session requests are small JSON objects."})
             return
         # Acquire before reading a potentially large body so parallel tabs cannot
         # allocate many request-sized buffers while the mesher is already busy.
         # Previews never change a session, so a few run side by side (Auto-fix
         # scores candidates in parallel); they queue briefly for a free slot.
-        if endpoint == "/api/cad/preview":
+        if light:
+            slot = None
+        elif endpoint == "/api/cad/preview":
             slot = self.server.preview_slots
             if not slot.acquire(timeout=PREVIEW_WAIT):
                 self.json_response(409, {"error": "Too many CAD previews are running. Try again shortly."})
@@ -659,7 +663,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                     if endpoint == "/api/cad/shell":
                         validate_shell_request(data)
                     method = endpoint.rsplit("/", 1)[1]
-                    handler = self.server.cad_sessions.import_cad if method == "import" else getattr(self.server.cad_sessions, method)
+                    handler = getattr(self.server.cad_sessions, {"import": "import_cad", "close": "close_session"}.get(method, method))
                     result = handler(data)
                 self.json_response(200, result)
             except (MeshError, CadError) as exc:
@@ -668,7 +672,8 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 self.log_error("Meshing failed: %s", type(exc).__name__)
                 self.json_response(500, {"error": "The local meshing service encountered an unexpected error."})
         finally:
-            slot.release()
+            if slot is not None:
+                slot.release()
 
 
 def make_server(port=8765, gmsh=None):

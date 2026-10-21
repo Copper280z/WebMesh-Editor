@@ -66,6 +66,8 @@
     let shell = { element: 'quad', mesher: 'recombined', placement: 'surface', scope: 'all', faces: [], facesB: [], size: null, perCircle: 12, offset: 0, thickness: 1, pidPerFace: false,
       pads: [], padSize: null, padSide: null };
     let meshPreview = null, meshError = null, meshTimer = null, generated = null, committingMesh = false, report = null, auditHistory = [];
+    // CAD sessions open on the server (Sessions): resume one after a reload, or close one to free storage.
+    let sessionsInfo = null, sessionsOpen = false, sessionsLoading = false, closing = null;
     let expanded = { blocked: false, groups: false, sums: false, history: true, solids: true, features: false };
     let treeFilter = 'all', treeShare = 0.42;
     try { const share = Number(localStorage.getItem('webmesh.cad.treeShare')); if (share > 0.15 && share < 0.85) treeShare = share; } catch { /* storage unavailable */ }
@@ -79,7 +81,11 @@
       try {
         const response = await fetch('/api/cad/' + path, { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await response.json();
-        if (!response.ok || data.error) throw Error(data.error || 'CAD operation failed.');
+        if (!response.ok || data.error) {
+          // Full storage is resolved by closing sessions: show them.
+          if (/under Sessions/.test(data.error || '') && path !== 'sessions') { sessionsOpen = true; refreshSessions().then(() => hooks.render()); }
+          throw Error(data.error || 'CAD operation failed.');
+        }
         return data;
       } catch (error) {
         if (error.name === 'AbortError') throw Error('The CAD operation timed out. Simplify the geometry or the operation.');
@@ -190,6 +196,43 @@
       updateDisplay();
       hooks.refresh();
     }
+    async function refreshSessions() {
+      if (sessionsLoading || location.protocol === 'file:') return;
+      sessionsLoading = true;
+      try { sessionsInfo = await api('sessions', {}); }
+      catch { sessionsInfo = { sessions: [], bytes: 0, budget: 1, failed: true }; }
+      finally { sessionsLoading = false; }
+      if (active) { renderPart('cad-sessions', sessionsCard); if (session) hooks.render(); }
+    }
+    async function resumeSession(cadId) {
+      hooks.message('Resuming the CAD session…');
+      const data = await api('resume', { cadId });
+      const original = data.original; delete data.original;
+      const file = new File([fromBase64(original.content)], original.filename);
+      source = file; generated = null; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      sessionsOpen = false; closing = null;
+      accept(data); hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
+      hooks.log(`Resumed CAD ${file.name}`);
+      hooks.message(`Resumed ${file.name} at ${data.cursor ? `“${data.history?.[data.cursor]?.label}” (${data.cursor} step${data.cursor === 1 ? '' : 's'})` : 'its import'}.`);
+      refreshSessions();
+    }
+    function sessionsCard() {
+      const info = sessionsInfo;
+      if (!info) return sessionsLoading ? '<p class="cad-note">Looking for open CAD sessions…</p>' : '';
+      if (info.failed) return session ? '<p class="cad-note warn">The CAD service did not list its sessions.</p>' : '';
+      if (!info.sessions.length) return session ? '<p class="cad-note">No CAD sessions are open on the server.</p>' : '';
+      const mib = bytes => fmt(bytes / 1048576, 3);
+      const ago = time => { const s = Math.max(0, Date.now() / 1000 - time); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+      const rows = info.sessions.map(s => {
+        const here = session?.cadId === s.cadId, confirm = closing === s.cadId;
+        return `<div class="cad-session${here ? ' here' : ''}"><div class="cad-session-name"><strong title="${esc(s.filename)}">${esc(s.filename)}</strong><small title="${esc(s.label)}">${s.steps} step${s.steps === 1 ? '' : 's'}${s.steps ? ` · ${esc(s.label)}` : ''} · ${mib(s.bytes)} MiB · ${ago(s.lastUsed)}</small></div>
+          ${here ? chip('Open here', 'ok') : btn('session-resume', 'Resume', { cls: 'ghost mini', data: { value: s.cadId }, title: 'Work in this session from its last step' })}${btn('session-close', confirm ? 'Confirm close' : 'Close', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: s.cadId }, title: 'Delete this session and its undo steps from the server' })}</div>`;
+      }).join('');
+      const share = info.bytes / info.budget;
+      return `<div class="cad-card"><div class="cad-card-title">Sessions on this server <small>${mib(info.bytes)} of ${mib(info.budget)} MiB</small></div>
+        <div class="cad-meter${share > 0.9 ? ' bad' : share > 0.7 ? ' warn' : ''}"><i style="width:${Math.min(100, Math.round(100 * share))}%"></i></div>${rows}
+        <p class="cad-note">Resume picks a session up at its last step with its undo history; sizes and mesh settings start fresh. Close deletes it from the server.</p></div>`;
+    }
     async function importFile(file) {
       if (file.size > 23 * 1024 * 1024) throw Error('Choose a CAD file smaller than 23 MB.');
       hooks.message(`Reading ${file.name}…`);
@@ -198,6 +241,7 @@
       source = file; generated = null; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
       accept(data); hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
       hooks.log(`Imported CAD ${file.name}`);
+      if (sessionsOpen) refreshSessions();
       const s = analysis?.summary;
       hooks.message(`${file.name}: ${session.topology.volumes.length} solid${session.topology.volumes.length === 1 ? '' : 's'} · ${session.topology.faces.length} faces${s ? ` · ${s.mappable}/${s.volumes} ready for mapped hex` : ''}.`);
     }
@@ -451,6 +495,12 @@
       else el.innerHTML = fn();
     }
 
+    function clearAll() {
+      source = null; session = null; selection = { kind: null, ids: [] }; report = null; generated = null; auditHistory = []; pending = null; clearPreview();
+      analysis = recognized = geometry = intervals = null; meshPreview = null; sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
+      engine()?.clearCadGeometry?.(); updateViewTools();
+    }
+
     function render() {
       if (!session) {
         const body = `<div class="cad-wb">
@@ -459,6 +509,7 @@
             <h3>Import CAD to start hex meshing</h3>
             <p>STEP · IGES · BREP · STL. Geometry appears immediately with every solid checked for mapped hex meshing.</p>
             ${btn('import', 'Import CAD…', { cls: 'primary wide', iconName: 'file' })}
+            <section id="cad-sessions">${sessionsCard()}</section>
             <ol class="cad-howto"><li><b>Prepare</b> — slice solids into blocks and remove features. Click geometry; the tool suggests the fix.</li><li><b>Size</b> — set element size; edge counts are solved so every block conforms.</li><li><b>Mesh</b> — preview native HEX8/HEX20 with quality, then add to the model.</li></ol>
           </div><div id="wb-report"></div></div>`;
         return { body, foot: '', ready: false };
@@ -477,7 +528,9 @@
         <section class="cad-file">
           <div class="cad-file-row">${icon('file')}<div class="cad-file-name"><strong title="${esc(source?.name)}">${esc(source?.name || session.filename)}</strong><small>${t.volumes.length} solid${t.volumes.length === 1 ? '' : 's'} · ${t.faces.length} faces · ${t.edges.length} edges</small></div>
           ${btn('undo', '', { cls: 'icon ghost', iconName: 'undo', title: undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo', disabled: !undoLabel })}${btn('redo', '', { cls: 'icon ghost', iconName: 'redo', title: redoLabel ? `Redo: ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo', disabled: !redoLabel })}${btn('import', 'Replace', { cls: 'ghost small' })}</div>
+          <div class="cad-file-sessions"><button type="button" class="cad-link" data-act="sessions" title="CAD sessions open on the server: resume or close them">${sessionsOpen ? 'Hide sessions' : 'Sessions'}</button>${sessionsInfo && !sessionsInfo.failed ? `<small>${sessionsInfo.sessions.length} open · ${fmt(sessionsInfo.bytes / 1048576, 3)} of ${fmt(sessionsInfo.budget / 1048576, 3)} MiB</small>` : ''}</div>
         </section>
+        ${sessionsOpen ? `<section id="cad-sessions">${sessionsCard()}</section>` : ''}
         <nav class="cad-steps" role="tablist">${[['prepare', '1', 'Prepare'], ['size', '2', 'Size'], ['mesh', '3', 'Mesh']].map(([key, n, label]) =>
           `<button role="tab" data-act="step" data-value="${key}" aria-selected="${step === key}" ${discrete() && key !== 'mesh' ? 'disabled' : ''}><span class="n">${n}</span><span class="l">${label}</span>${stepStatus[key] || ''}</button>`).join('')}</nav>
         ${discrete() ? '' : `<div class="cad-pickbar"><span>Pick</span>${seg('pick', [['auto', 'Auto', 'target', 'Nearest point, edge or face (0)'], ['solid', 'Solid', 'solid', 'Pick solids (1)'], ['face', 'Face', 'face', 'Pick faces (2)'], ['edge', 'Edge', 'edge', 'Pick edges (3)'], ['vertex', 'Point', 'vertex', 'Pick vertices (4)']], pick, 'pick')}</div>`}
@@ -1323,6 +1376,18 @@
       try {
         switch (act) {
           case 'import': document.getElementById('wb-cad-file').click(); break;
+          case 'sessions': sessionsOpen = !sessionsOpen; closing = null; if (sessionsOpen) refreshSessions(); hooks.render(); break;
+          case 'session-resume': hooks.run(() => resumeSession(value)); break;
+          case 'session-close':
+            // A second click confirms: closing deletes the session's undo steps.
+            if (closing !== value) { closing = value; renderPart('cad-sessions', sessionsCard); break; }
+            closing = null;
+            hooks.run(async () => {
+              sessionsInfo = await api('close', { cadId: value });
+              if (session?.cadId === value) { clearAll(); hooks.render(); hooks.message('Session closed. Import CAD or resume another session.'); }
+              else { renderPart('cad-sessions', sessionsCard); hooks.message('Session closed.'); }
+            });
+            break;
           case 'step': changeStep(value); break;
           case 'pick': setPick(value); renderPart('cad-context', contextCard); break;
           case 'clear-selection': setSelection(null, []); break;
@@ -1697,6 +1762,7 @@
       render, bind, importFile, updateAvailability, hasGeometry: () => !!session, getFile: () => source,
       activate(value) {
         active = value;
+        if (value) refreshSessions();
         document.getElementById('app')?.classList.toggle('cad-mode', !!value);
         if (value && session) { if (step !== 'mesh' || !generated || generated.stale) engine()?.setCadVisible(true); updateDisplay(); }
         engine()?.setCadSelectionMode?.(value && session ? pick : 'none');
@@ -1707,11 +1773,7 @@
         }
         updateViewTools();
       },
-      clear() {
-        source = null; session = null; selection = { kind: null, ids: [] }; report = null; generated = null; auditHistory = []; pending = null; clearPreview();
-        analysis = recognized = geometry = intervals = null; meshPreview = null; sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
-        engine()?.clearCadGeometry?.(); updateViewTools();
-      },
+      clear() { clearAll(); },
       async serialize() {
         if (!source) return null;
         const owned = generated ? engine().getMeshOwner(session.cadId) : null;

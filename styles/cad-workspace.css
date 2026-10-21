@@ -358,5 +358,18 @@ kbd{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;bor
 .cad-side>span{flex:1 1 92px;min-width:0}
 .cad-side strong{color:#dbe8f5;font-weight:600;margin-left:4px}
 .cad-pads{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
+#cad-sessions:empty{display:none}
+.cad-file-sessions{display:flex;align-items:baseline;gap:8px;padding:3px 9px 0}
+.cad-file-sessions small{font-size:9px;color:#7189a3;font-variant-numeric:tabular-nums}
+.cad-session{display:flex;align-items:center;gap:5px;padding:6px 0;border-top:1px solid #223041}
+.cad-session-name{flex:1;min-width:0;display:flex;flex-direction:column}
+.cad-session-name strong{font-size:11px;color:#e3ecf5;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cad-session-name small{font-size:9.5px;color:#7189a3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.cad-session.here strong{color:#74e0c6}
+.cad-meter{height:4px;border-radius:2px;background:#1c2633;margin:2px 0 6px;overflow:hidden}
+.cad-meter i{display:block;height:100%;background:#5cd9bb}
+.cad-meter.warn i{background:#e9be6a}.cad-meter.bad i{background:#ff7a6a}
+.cad-btn.ghost.danger{border-color:#ff7a6a88;color:#ff9b8e}
+.cad-btn.ghost.on{background:#243142;color:#e6eef7}
 .cad-pads .cad-chip button{border:0;background:none;color:inherit;font:inherit;padding:0 0 0 2px;cursor:pointer;opacity:.7}
 .cad-pads .cad-chip button:hover{opacity:1}

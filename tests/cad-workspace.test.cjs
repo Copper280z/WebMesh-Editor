@@ -21,6 +21,10 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
   const owned = { elements: [], properties: [] };
   let revision = 0, busy = false, visible = true;
+  // Sessions the mock server holds besides the one imported here (left from before a reload), and errors to return once.
+  const others = [{ cadId: 'd'.repeat(32), filename: 'old.step', steps: 3, kept: 4, label: 'Sliced the web', revision: 3, created: 0, lastUsed: Date.now() / 1000 - 600, bytes: 40 * 1048576, discrete: false },
+    { cadId: 'e'.repeat(32), filename: 'scrap.step', steps: 0, kept: 1, label: 'Imported geometry', revision: 0, created: 0, lastUsed: Date.now() / 1000 - 7200, bytes: 5 * 1048576, discrete: false }];
+  const failNext = {};
   const payload = (name, rev) => ({ ...plain(fixture(name)), cadId: 'c'.repeat(32), revision: rev, filename: 'part.step', history: Array.from({ length: rev + 1 }, (_, i) => ({ revision: i, label: i ? 'Changed' : 'Imported geometry' })) });
   const viewport = new Proxy({}, { get: (_, key) => key === 'section' ? () => new Float32Array() : key === 'volumeFaces' || key === 'faceVolumes' ? () => [] : (...args) => { if (key === 'setOverlay') calls.overlays.push(args[0]); } });
   const engine = {
@@ -37,6 +41,7 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
     async fetch(url, request) {
       const data = JSON.parse(request.body), action = url.split('/').pop();
       calls.requests.push({ action, data });
+      if (failNext[action]) { const error = failNext[action]; delete failNext[action]; return { ok: false, json: async () => ({ error }) }; }
       let result;
       if (action === 'import') result = payload(imported, revision);
       else if (action === 'preview') result = { ...payload(prepared, revision), staged: true };
@@ -44,6 +49,14 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
       else if (action === 'undo') { revision++; result = payload(imported, revision); }
       else if (action === 'redo' || action === 'revert') { revision++; result = { ...payload(prepared, revision), cursor: action === 'revert' ? data.to : undefined }; }
       else if (action === 'export') result = { filename: 'part-prepared.brep', format: 'brep', content: btoa('brep'), history: [] };
+      else if (action === 'sessions' || action === 'close') {
+        if (action === 'close') { const at = others.findIndex(s => s.cadId === data.cadId); if (at >= 0) others.splice(at, 1); }
+        result = { sessions: others.map(plain), bytes: others.reduce((sum, s) => sum + s.bytes, 0), budget: 512 * 1048576 };
+      }
+      else if (action === 'resume') {
+        const other = others.find(s => s.cadId === data.cadId);
+        result = { ...payload(prepared, other.revision), cadId: other.cadId, filename: other.filename, cursor: 1, original: { filename: other.filename, format: 'step', content: btoa('STEP') } };
+      }
       else if (action === 'mesh') result = { mesh: { nodes: [{ id: 1, x: 0, y: 0, z: 0 }], elements: [{ id: 1, type: 'CTETRA', pid: 1, nodes: [1, 1, 1, 1] }] }, quality: { minScaledJacobian: 0.5 } };
       else if (action === 'shell') {
         const midsurface = data.placement === 'midsurface';
@@ -73,7 +86,7 @@ function setup({ imported = 'box', prepared = 'split-box' } = {}) {
   const click = (act, data = {}) => panel.listeners.click[0]({ target: { closest: () => ({ dataset: { act, ...data }, disabled: false, setAttribute() {} }) }, preventDefault() {} });
   const input = (field, value, kind = 'change') => (kind === 'change' ? panel.listeners.change[0] : panel.listeners.input[0])({ target: { closest: selector => selector.includes('data-field') ? { dataset: { field }, value: String(value), type: 'text' } : null } });
   const emit = (name, detail) => (listeners.get(name) || []).forEach(fn => fn({ detail }));
-  return { workspace, calls, click, input, emit, owned, get revision() { return revision; }, setOwned: list => { owned.elements = list; } };
+  return { workspace, calls, click, input, emit, owned, failNext, others, get revision() { return revision; }, setOwned: list => { owned.elements = list; } };
 }
 
 async function imported(options) {
@@ -387,6 +400,56 @@ test('pads are added from picked holes with their own size, sent with the shell 
   assert.equal(f.calls.requests.filter(r => r.action === 'shell')[1].data.pads, undefined);
   f.click('shell-pad-remove', { value: '0' });
   assert.match(f.workspace.render().body, /Pads <strong>1 hole/);
+});
+
+test('sessions on the server can be resumed after a reload, and closed with a confirming second click', async () => {
+  const f = setup({ prepared: 'split-box' });
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
+  await settle();
+  // No geometry open (a fresh page): the sessions are listed under Import.
+  let body = f.workspace.render().body;
+  assert.match(body, /Sessions on this server/);
+  assert.match(body, /old\.step/);
+  assert.match(body, /3 steps · Sliced the web · 40 MiB · 10 min ago/);
+  f.click('session-resume', { value: 'd'.repeat(32) });
+  await settle();
+  const state = f.workspace.getState();
+  assert.equal(state.cadId, 'd'.repeat(32));
+  assert.equal(state.filename, 'old.step');
+  assert.ok(f.calls.messages.some(m => /Resumed old\.step at “/.test(m.text)), JSON.stringify(f.calls.messages));
+  // With a session open, Sessions lists them and marks this one.
+  f.click('sessions');
+  await settle();
+  body = f.workspace.render().body;
+  assert.match(body, /Open here/);
+  f.click('session-close', { value: 'e'.repeat(32) });
+  assert.match(f.workspace.render().body, /Confirm close/);
+  assert.equal(f.calls.requests.filter(r => r.action === 'close').length, 0, 'one click only asks');
+  f.click('session-close', { value: 'e'.repeat(32) });
+  await settle();
+  assert.equal(f.calls.requests.filter(r => r.action === 'close').length, 1);
+  assert.doesNotMatch(f.workspace.render().body, /scrap\.step/);
+  // Closing the open session clears the workspace.
+  f.click('session-close', { value: 'd'.repeat(32) });
+  f.click('session-close', { value: 'd'.repeat(32) });
+  await settle();
+  assert.equal(f.workspace.getState().cadId, undefined);
+  assert.match(f.workspace.render().body, /Import CAD to start/);
+});
+
+test('full CAD storage opens the sessions list', async () => {
+  const f = await imported();
+  f.failNext.prepare = 'CAD storage is full (513 of 512 MiB). Close sessions you no longer need under Sessions, below the file name in CAD & mesh.';
+  const faces = f.workspace.getState().topology.faces.filter(x => x.surface.kind === 'plane');
+  f.workspace.api.select('face', [faces[0].id]);
+  f.workspace.render();
+  f.workspace.api.runAction(f.workspace.api.infer().findIndex(a => a.key === 'slice-parallel'));
+  await f.workspace.api.waitForPreview();
+  await assert.rejects(f.workspace.api.apply(), /CAD storage is full/);
+  for (let i = 0; i < 20; i++) await new Promise(resolve => setTimeout(resolve, 2));
+  const body = f.workspace.render().body;
+  assert.match(body, /Sessions on this server/);
+  assert.match(body, /old\.step/);
 });
 
 test('picked neighboring solids are fused through the preview and apply flow', async () => {

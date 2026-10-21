@@ -153,6 +153,8 @@ Every generated CAD mesh is checked for requested element types, nonpositive Jac
 
 Poor quadratic hexes receive a bounded high-order optimization pass that moves nodes on their CAD parametrizations without adding elements. The result must still have positive adaptive Jacobians, conforming shared midside nodes and a minimum scaled Jacobian of at least `0.1`; otherwise generation fails with a request to refine the curved region.
 
+**Sessions.** Each import is a CAD session on the server, with one snapshot per undoable step; it stays open when the page reloads. **Sessions** (below the file name in CAD & mesh, and under **Import CAD** when nothing is open) lists them with their steps, size and last use: **Resume** picks one up at its last step with its undo history (sizes and mesh settings start fresh), and **Close** (click twice) deletes it. All sessions share 512 MiB of snapshot storage, stored compressed; when it fills, previews are dropped first, and a step or import that still does not fit is refused with a pointer to Sessions: no session is closed to make room. A session unused for 24 hours is closed. Sessions end when the server stops.
+
 Preparation uses temporary, immutable BREP snapshots. The service accepts CAD data rather than executable GEO programs, binds only to loopback, and limits file sizes, processing time and memory. This is a focused preparation toolset; arbitrary sketching, general boolean design tools, curved sweeps and interactive point-to-point face partitioning are not implemented.
 
 ### Flexure acceptance workflow

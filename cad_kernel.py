@@ -8,6 +8,7 @@ https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002focc
 https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002fmesh
 """
 
+import gzip
 import importlib.util
 import json
 import math
@@ -913,14 +914,16 @@ def read_cache(path):
     if not path:
         return None
     try:
-        return json.loads(Path(path).read_text())
-    except (OSError, ValueError):
+        raw = Path(path).read_bytes()
+        return json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+    except (OSError, ValueError, EOFError):
         return None
 
 
 def write_cache(path, cache):
+    # Gzipped: a session keeps one cache per undoable step.
     try:
-        Path(path).write_text(json.dumps(cache, allow_nan=False, separators=(",", ":")))
+        Path(path).write_bytes(gzip.compress(json.dumps(cache, allow_nan=False, separators=(",", ":")).encode(), compresslevel=3))
     except (OSError, ValueError):
         Path(path).unlink(missing_ok=True)
 

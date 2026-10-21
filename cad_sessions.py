@@ -9,6 +9,7 @@ on to another revision in the meantime.
 import base64
 import binascii
 from collections import OrderedDict
+import gzip
 import json
 from pathlib import Path
 import queue
@@ -24,7 +25,17 @@ import uuid
 MAX_SNAPSHOTS = 96
 # Previewed results kept per session for its current revision, least recently used first out.
 MAX_STAGED = 8
+# Stored snapshots of all sessions together. When it fills, previews go first;
+# sessions are never closed to make room: the user closes them (Sessions).
+BUDGET = 512 * 1024 * 1024
+MAX_SESSIONS = 24
+IDLE = 24 * 3600  # a session unused this long is closed
 CHANGED = "The CAD geometry changed. Refresh it before applying this operation."
+
+
+def full(used):
+    return CadError(f"CAD storage is full ({used / 1048576:.0f} of {BUDGET // 1048576} MiB). Close sessions you no longer need under "
+                    "Sessions, below the file name in CAD & mesh.", 507)
 
 
 class CadError(Exception):
@@ -35,6 +46,31 @@ class CadError(Exception):
 
 def dumps(value):
     return json.dumps(value, allow_nan=False, separators=(",", ":"))
+
+
+def pack(value):
+    """A result as stored: compact JSON, gzipped (display data shrinks about 3.5 times)."""
+    return gzip.compress(dumps(value).encode(), compresslevel=3)
+
+
+def unpack(path):
+    raw = path.read_bytes()
+    return json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+
+
+def size_of(paths):
+    total = 0
+    for path in paths:
+        try:
+            total += path.stat().st_size
+        except FileNotFoundError:
+            pass
+    return total
+
+
+def files_of(item):
+    """The files of a kept state or a staged preview."""
+    return [item["path"], item["path"].with_suffix(".cache.json"), item["json"]]
 
 
 def lite_view(result):
@@ -73,16 +109,30 @@ class CadSessions:
         shutil.rmtree(self.root / key, ignore_errors=True)
 
     def prune(self):
-        expired = [key for key, record in self.records.items() if time.time() - record["lastUsed"] > 7200]
+        expired = [key for key, record in self.records.items() if time.time() - record["lastUsed"] > IDLE]
         for key in expired:
             self.close(key)
-        while self.records and (len(self.records) >= 8 or self.total_size() > 512 * 1024 * 1024):
-            self.close(min(self.records, key=lambda item: self.records[item]["lastUsed"]))
+
+    def relieve(self, limit=BUDGET, keep=()):
+        """Drop finished previews, least recently used sessions first, until storage
+        is within `limit`. Lock held. Returns the storage in use."""
+        total = self.total_size()
+        if total <= limit:
+            return total
+        finished = [(record["lastUsed"], key, operation_key, entry) for key, record in self.records.items()
+                    for operation_key, entry in (record.get("staged") or {}).items() if entry["ready"].is_set() and entry not in keep]
+        for _, key, operation_key, entry in sorted(finished, key=lambda item: item[0]):
+            if total <= limit:
+                break
+            total -= size_of(files_of(entry))
+            self.records[key]["staged"].pop(operation_key, None)
+            self.drop(entry)
+        return total
 
     def lookup(self, data):
         key = data.get("cadId")
         if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{32}", key) or key not in self.records:
-            raise CadError("CAD session expired or was not found. Import the geometry again.", 404)
+            raise CadError("CAD session expired or was not found. Import the geometry again, or resume it under Sessions.", 404)
         record = self.records[key]
         if type(data.get("revision")) is not int or data["revision"] != record["revision"]:
             raise CadError(CHANGED, 409)
@@ -97,7 +147,7 @@ class CadSessions:
 
     def payload(self, key, record):
         state = record["states"][record["cursor"]]
-        result = json.loads(state["json"].read_text())
+        result = unpack(state["json"])
         # History lists every kept state; those after `cursor` were undone and can be redone.
         result.update(cadId=key, revision=record["revision"], filename=record["filename"], cursor=record["cursor"],
                       history=[{"revision": item["revision"], "operation": item["operation"], "label": item["label"]}
@@ -126,17 +176,25 @@ class CadSessions:
         try:
             snapshot = folder / ("state-0.msh" if kind == "stl" else "state-0.brep")
             result = self.runner({"action": "import"}, source, snapshot)
-            json_path = folder / "state-0.json"
-            json_path.write_text(dumps(result))
+            json_path = folder / "state-0.json.gz"
+            json_path.write_bytes(pack(result))
         except Exception:
             shutil.rmtree(folder, ignore_errors=True)
             raise
         filename = data.get("filename")
         filename = Path(filename).name[:200] if isinstance(filename, str) else "Geometry." + kind
         with self.lock:
-            # Invalid new imports never evict existing working CAD sessions.
+            # A new import never closes another session: it waits for the user to.
             self.prune()
-            self.records[key] = {"filename": filename, "revision": 0, "cursor": 0, "lastUsed": time.time(),
+            if len(self.records) >= MAX_SESSIONS:
+                shutil.rmtree(folder, ignore_errors=True)
+                raise CadError(f"{len(self.records)} CAD sessions are open. Close sessions you no longer need under Sessions, below the file name in CAD & mesh.", 507)
+            used = self.relieve()
+            if used > BUDGET:
+                shutil.rmtree(folder, ignore_errors=True)
+                raise full(used)
+            now = time.time()
+            self.records[key] = {"filename": filename, "revision": 0, "cursor": 0, "lastUsed": now, "created": now,
                                  "discrete": kind == "stl", "source": source,
                                  "states": [{"path": snapshot, "json": json_path,
                                              "revision": 0, "operation": {"kind": "import"}, "label": "Imported geometry"}]}
@@ -187,6 +245,7 @@ class CadSessions:
         staged[entry["key"]] = entry
         while len(staged) > MAX_STAGED:
             self.drop(staged.pop(next(iter(staged))))
+        self.relieve(keep=(entry,))
         return entry
 
     def staged_result(self, entry, full):
@@ -200,12 +259,12 @@ class CadSessions:
                 return dict(entry["lite"])
             if entry["failed"]:
                 raise entry["failed"]
-            result = json.loads(entry["json"].read_text())
+            result = unpack(entry["json"])
         return result if full else lite_view(result)
 
     def run_preview(self, key, record, base, operation, operation_key, source, lite):
         output = self.root / key / f"staged-{uuid.uuid4().hex[:8]}.brep"
-        entry = {"base": base, "key": operation_key, "path": output, "json": output.with_suffix(".json"),
+        entry = {"base": base, "key": operation_key, "path": output, "json": output.with_suffix(".json.gz"),
                  "ready": threading.Event(), "failed": None, "lite": None, "cancel": None, "discarded": False}
         token = object()
 
@@ -225,7 +284,7 @@ class CadSessions:
         if not lite:
             try:
                 result = self.runner(request, source, output, started=started)
-                entry["json"].write_text(dumps(result))
+                entry["json"].write_bytes(pack(result))
             except Exception as error:
                 drop_snapshot(output)
                 entry["json"].unlink(missing_ok=True)
@@ -254,10 +313,10 @@ class CadSessions:
         def work():
             try:
                 result = self.runner(request, source, output, early=early, started=started)
-                text = dumps(result)
+                blob = pack(result)
                 with self.lock:
                     if not entry["discarded"]:
-                        entry["json"].write_text(text)
+                        entry["json"].write_bytes(blob)
             except Exception as error:
                 with self.lock:
                     entry["failed"] = self.moved_on(key, record, base) or error
@@ -336,10 +395,10 @@ class CadSessions:
                 return self.commit(key, record, operation, entry["path"], entry["json"])
             source = record["states"][record["cursor"]]["path"]
         output = folder / f"prepare-{uuid.uuid4().hex[:8]}.brep"
-        json_path = output.with_suffix(".json")
+        json_path = output.with_suffix(".json.gz")
         try:
             result = self.runner({"action": "prepare", "operation": operation}, source, output)
-            json_path.write_text(dumps(result))
+            json_path.write_bytes(pack(result))
         except Exception:
             drop_snapshot(output)
             json_path.unlink(missing_ok=True)
@@ -357,17 +416,21 @@ class CadSessions:
         revision = record["revision"] + 1
         folder = self.root / key
         output = folder / f"state-{revision}.brep"
-        json_path = folder / f"state-{revision}.json"
+        json_path = folder / f"state-{revision}.json.gz"
         brep.replace(output)
         result_json.replace(json_path)
         cache = brep.with_suffix(".cache.json")
         if cache.is_file():
             cache.replace(output.with_suffix(".cache.json"))
-        if self.total_size() > 512 * 1024 * 1024:
+        # This step ends the revision's other previews and drops the undone
+        # states ahead of it: count the room they leave before refusing it.
+        self.discard_staged(record)
+        undone = size_of([path for state in record["states"][record["cursor"] + 1:] for path in files_of(state)])
+        used = self.relieve(BUDGET + undone) - undone
+        if used > BUDGET:
             drop_snapshot(output)
             json_path.unlink(missing_ok=True)
-            raise CadError("CAD snapshot storage reached 512 MiB. Export prepared geometry and reimport it to continue.")
-        self.discard_staged(record)
+            raise full(used)
         for discarded in record["states"][record["cursor"] + 1:]:
             drop_snapshot(discarded["path"])
             discarded["json"].unlink(missing_ok=True)
@@ -436,6 +499,42 @@ class CadSessions:
             _, record = self.lookup(data)
             source = record["states"][record["cursor"]]["path"]
         return self.runner({**{k: v for k, v in data.items() if k not in {"cadId", "revision"}}, "action": "mesh"}, source, None)
+
+    def sessions(self, data):
+        """Every open session, most recently used first, with the storage each uses."""
+        with self.lock:
+            self.prune()
+            items = []
+            for key, record in self.records.items():
+                items.append({"cadId": key, "filename": record["filename"], "steps": record["cursor"], "kept": len(record["states"]),
+                              "label": record["states"][record["cursor"]]["label"], "revision": record["revision"],
+                              "created": record.get("created", record["lastUsed"]), "lastUsed": record["lastUsed"],
+                              "bytes": size_of(path for path in (self.root / key).rglob("*") if path.is_file()), "discrete": bool(record.get("discrete"))})
+            items.sort(key=lambda item: -item["lastUsed"])
+            return {"sessions": items, "bytes": self.total_size(), "budget": BUDGET}
+
+    def pick(self, data):
+        key = data.get("cadId")
+        if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{32}", key) or key not in self.records:
+            raise CadError("That CAD session is no longer open.", 404)
+        return key, self.records[key]
+
+    def resume(self, data):
+        """Pick up an open session where it stands, with its original file for project saves."""
+        with self.lock:
+            key, record = self.pick(data)
+            record["lastUsed"] = time.time()
+            result = self.payload(key, record)
+            source = record["source"]
+            result["original"] = {"filename": record["filename"], "format": source.suffix.lstrip("."), "content": base64.b64encode(source.read_bytes()).decode()}
+            return result
+
+    def close_session(self, data):
+        """Close a session for good: its snapshots and undo steps are deleted."""
+        with self.lock:
+            key, _ = self.pick(data)
+            self.close(key)
+        return self.sessions({})
 
     def shell(self, data):
         """Shell mesh of the current revision's faces; the session does not change."""
