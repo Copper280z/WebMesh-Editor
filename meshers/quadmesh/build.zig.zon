@@ -1,0 +1,21 @@
+.{
+    .name = .quadmesh,
+    .version = "0.2.0",
+    .fingerprint = 0xd4b959d34480d95f,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .googletest = .{
+            .url = "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz",
+            .hash = "N-V-__8AAEV8PgDOBc81AuVJQ9XhGo46f-4dlQ7sXar_M0_i",
+            // Only the tests need it: `zig build` alone never fetches it.
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "include",
+        "src",
+        "bindings",
+    },
+}

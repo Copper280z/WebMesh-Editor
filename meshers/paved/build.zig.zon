@@ -1,0 +1,14 @@
+.{
+    .name = .quadmesh_paved,
+    .version = "0.1.0",
+    .fingerprint = 0x7f281aaecfa68307,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+        "bindings",
+    },
+}

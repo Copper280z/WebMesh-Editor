@@ -1,0 +1,9 @@
+.DS_Store
+.cache
+.zig-cache/
+zig-out/
+zig-pkg/
+__pycache__/
+*.ppm
+*.bdf
+*.svg

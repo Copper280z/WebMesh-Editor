@@ -1,0 +1,434 @@
+#include "quadmesh/mesh.hpp"
+#include "quadmesh/cell_arrangement.hpp"
+#include "quadmesh/two_ref_template.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <stdexcept>
+
+namespace quadmesh {
+namespace {
+
+int node_provenance_priority(NodeProvenance provenance) noexcept
+{
+  switch (provenance) {
+  case NodeProvenance::BoundaryIntersection:
+    return 5;
+  case NodeProvenance::QuadtreeCorner:
+    return 4;
+  case NodeProvenance::Transition:
+    return 3;
+  case NodeProvenance::PropagatedGridLine:
+    return 2;
+  case NodeProvenance::Smoothed:
+    return 1;
+  case NodeProvenance::TemplateInterior:
+    return 0;
+  }
+  return 0;
+}
+
+NodeProvenance edge_to_node_provenance(EdgeNodeProvenance provenance) noexcept
+{
+  switch (provenance) {
+  case EdgeNodeProvenance::CellCorner:
+    return NodeProvenance::QuadtreeCorner;
+  case EdgeNodeProvenance::Transition:
+    return NodeProvenance::Transition;
+  case EdgeNodeProvenance::BoundaryIntersection:
+    return NodeProvenance::BoundaryIntersection;
+  case EdgeNodeProvenance::PropagatedGridLine:
+    return NodeProvenance::PropagatedGridLine;
+  }
+  return NodeProvenance::TemplateInterior;
+}
+
+std::pair<NodeProvenance, bool> classify_local_node(
+    Point2 point,
+    CellId cell,
+    const EdgeSequences& sequences,
+    const MeshingConfig& config)
+{
+  NodeProvenance best = NodeProvenance::TemplateInterior;
+  bool constrained = false;
+  for (CellSide side : {CellSide::South, CellSide::East, CellSide::North, CellSide::West}) {
+    const CellEdgeSequence* sequence = sequences.find(cell, side);
+    if (sequence == nullptr) {
+      continue;
+    }
+    for (const EdgeNode& node : sequence->nodes) {
+      if (!nearly_equal(point, node.point, config.tolerances.node_merge_epsilon)) {
+        continue;
+      }
+      const NodeProvenance candidate = edge_to_node_provenance(node.provenance);
+      if (node_provenance_priority(candidate) > node_provenance_priority(best)) {
+        best = candidate;
+      }
+      if (candidate == NodeProvenance::BoundaryIntersection) {
+        constrained = true;
+      }
+    }
+  }
+  return {best, constrained};
+}
+
+NodeId find_or_add_node(GlobalMesh& mesh, const MeshNode& node, const MeshingConfig& config, bool* merged)
+{
+  for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+    MeshNode& existing = mesh.nodes[i];
+    if (nearly_equal(existing.point, node.point, config.tolerances.node_merge_epsilon)) {
+      if (node_provenance_priority(node.provenance) > node_provenance_priority(existing.provenance)) {
+        existing.provenance = node.provenance;
+      }
+      existing.constrained = existing.constrained || node.constrained;
+      if (merged != nullptr) {
+        *merged = true;
+      }
+      return NodeId{static_cast<std::uint32_t>(i)};
+    }
+  }
+  mesh.nodes.push_back(node);
+  if (merged != nullptr) {
+    *merged = false;
+  }
+  return NodeId{static_cast<std::uint32_t>(mesh.nodes.size() - 1U)};
+}
+
+double signed_area(Point2 a, Point2 b, Point2 c, Point2 d) noexcept
+{
+  return 0.5 * (a.x * b.y - a.y * b.x + b.x * c.y - b.y * c.x +
+                 c.x * d.y - c.y * d.x + d.x * a.y - d.y * a.x);
+}
+
+Point2 compute_polygon_center(const std::vector<Point2>& vertices)
+{
+  if (vertices.size() == 3) {
+    return {(vertices[0].x + vertices[1].x + vertices[2].x) / 3.0,
+            (vertices[0].y + vertices[1].y + vertices[2].y) / 3.0};
+  }
+  double area = 0.0;
+  Point2 centroid{0.0, 0.0};
+  for (std::size_t i = 0; i < vertices.size(); ++i) {
+    const Point2 a = vertices[i];
+    const Point2 b = vertices[(i + 1U) % vertices.size()];
+    const double f = a.x * b.y - b.x * a.y;
+    area += f;
+    centroid.x += (a.x + b.x) * f;
+    centroid.y += (a.y + b.y) * f;
+  }
+  if (std::abs(area) <= 1.0e-12) {
+    for (const Point2& p : vertices) {
+      centroid.x += p.x;
+      centroid.y += p.y;
+    }
+    return {centroid.x / static_cast<double>(vertices.size()),
+            centroid.y / static_cast<double>(vertices.size())};
+  }
+  return {centroid.x / (3.0 * area), centroid.y / (3.0 * area)};
+}
+
+void apply_2ref_template(LocalCellMesh& local, const TwoRefTemplate& t, const Aabb2& bounds)
+{
+  const double w = bounds.max.x - bounds.min.x;
+  const double h = bounds.max.y - bounds.min.y;
+
+  for (const Point2& unit_p : t.unit_nodes) {
+    const Point2 p{bounds.min.x + unit_p.x * w, bounds.min.y + unit_p.y * h};
+    local.nodes.push_back({p, NodeProvenance::TemplateInterior, false});
+  }
+
+  for (const LocalQuad& q : t.quads) {
+    local.quads.push_back(q);
+  }
+}
+
+void remove_unreferenced_nodes(LocalCellMesh& mesh)
+{
+  std::vector<bool> referenced(mesh.nodes.size(), false);
+  for (const LocalQuad& quad : mesh.quads) {
+    for (const std::uint32_t node : quad.nodes) {
+      if (node < referenced.size()) {
+        referenced[node] = true;
+      }
+    }
+  }
+
+  std::vector<std::uint32_t> old_to_new(mesh.nodes.size());
+  std::vector<MeshNode> compact_nodes;
+  compact_nodes.reserve(mesh.nodes.size());
+  for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+    if (!referenced[i]) {
+      continue;
+    }
+    old_to_new[i] = static_cast<std::uint32_t>(compact_nodes.size());
+    compact_nodes.push_back(mesh.nodes[i]);
+  }
+
+  for (LocalQuad& quad : mesh.quads) {
+    for (std::uint32_t& node : quad.nodes) {
+      node = old_to_new[node];
+    }
+  }
+  mesh.nodes = std::move(compact_nodes);
+}
+
+void mesh_cell_with_polygon_subdivision(
+    LocalCellMesh& local,
+    CellId cell_id,
+    const Aabb2& bounds,
+    const DomainGeometry& domain,
+    const EdgeSequences& edge_sequences,
+    const MeshingConfig& config)
+{
+  const CellArrangementBuilder arrangement_builder;
+  const CellArrangement arrangement = arrangement_builder.run(
+      domain, cell_id, bounds, edge_sequences, config);
+
+  for (const auto& vertex : arrangement.vertices) {
+    const auto [provenance, constrained] = classify_local_node(vertex.point, cell_id, edge_sequences, config);
+    local.nodes.push_back({vertex.point, provenance, constrained || vertex.constrained});
+  }
+
+  for (const auto& face : arrangement.faces) {
+    if (!face.inside_material) {
+      continue;
+    }
+    std::vector<Point2> polygon;
+    polygon.reserve(face.vertices.size());
+    for (const std::uint32_t vi : face.vertices) {
+      polygon.push_back(arrangement.vertices[vi].point);
+    }
+
+    if (polygon.size() < 3) {
+      continue;
+    }
+
+    const Point2 center = compute_polygon_center(polygon);
+    const std::uint32_t center_idx = static_cast<std::uint32_t>(local.nodes.size());
+    const auto [center_prov, center_constr] = classify_local_node(center, cell_id, edge_sequences, config);
+    local.nodes.push_back({center, center_prov, center_constr});
+
+    std::vector<std::uint32_t> midpoints;
+    midpoints.reserve(polygon.size());
+
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+      const Point2 a = polygon[i];
+      const Point2 b = polygon[(i + 1U) % polygon.size()];
+      const Point2 midpoint{(a.x + b.x) * 0.5, (a.y + b.y) * 0.5};
+      const std::uint32_t mid_idx = static_cast<std::uint32_t>(local.nodes.size());
+      const auto [mid_prov, mid_constr] = classify_local_node(midpoint, cell_id, edge_sequences, config);
+      local.nodes.push_back({midpoint, mid_prov, mid_constr});
+      midpoints.push_back(mid_idx);
+    }
+
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+      LocalQuad quad;
+      quad.nodes = {
+          face.vertices[i],
+          midpoints[i],
+          center_idx,
+          midpoints[(i + polygon.size() - 1U) % polygon.size()]};
+      local.quads.push_back(quad);
+    }
+  }
+  remove_unreferenced_nodes(local);
+}
+
+void remove_unreferenced_nodes(LocalCellMesh& mesh)
+{
+  std::vector<bool> referenced(mesh.nodes.size(), false);
+  for (const LocalQuad& quad : mesh.quads) {
+    for (const std::uint32_t node : quad.nodes) {
+      if (node < referenced.size()) {
+        referenced[node] = true;
+      }
+    }
+  }
+
+  std::vector<std::uint32_t> old_to_new(mesh.nodes.size());
+  std::vector<MeshNode> compact_nodes;
+  compact_nodes.reserve(mesh.nodes.size());
+  for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+    if (!referenced[i]) {
+      continue;
+    }
+    old_to_new[i] = static_cast<std::uint32_t>(compact_nodes.size());
+    compact_nodes.push_back(mesh.nodes[i]);
+  }
+
+  for (LocalQuad& quad : mesh.quads) {
+    for (std::uint32_t& node : quad.nodes) {
+      node = old_to_new[node];
+    }
+  }
+  mesh.nodes = std::move(compact_nodes);
+}
+
+} // namespace
+
+const LocalCellMesh* LocalMeshingData::find(CellId cell) const
+{
+  const auto it = std::find_if(cells.begin(), cells.end(), [&](const auto& mesh) {
+    return mesh.cell == cell;
+  });
+  return it == cells.end() ? nullptr : &*it;
+}
+
+LocalMeshingResult LocalCellMesher::run(
+    const Quadtree& tree,
+    const WorkingGeometry& working,
+    const EdgeSequences& edge_sequences,
+    const TemplateSelection& selection,
+    const MeshingConfig& config) const
+{
+  (void)selection;
+  LocalMeshingData output;
+  LocalMeshingDebug debug;
+
+  TwoRefCatalog catalog;
+  catalog.initialize_defaults();
+
+  for (const CellId id : tree.leaf_ids()) {
+    LocalCellMesh local;
+    local.cell = id;
+    local.template_id = 0;
+
+    const HangingNodePattern pattern = classify_hanging_nodes(tree, id);
+
+    if (pattern != HangingNodePattern::None && should_apply_checkerboard(id, tree)) {
+      const TwoRefTemplate* t = catalog.find(pattern);
+      if (t != nullptr) {
+        apply_2ref_template(local, *t, tree.cell(id).bounds);
+        local.template_id = static_cast<int>(pattern);
+      } else {
+        mesh_cell_with_polygon_subdivision(local, id, tree.cell(id).bounds, working.working_geometry, edge_sequences, config);
+      }
+    } else {
+      mesh_cell_with_polygon_subdivision(local, id, tree.cell(id).bounds, working.working_geometry, edge_sequences, config);
+    }
+
+    debug.records.push_back({id, local.nodes.size(), local.quads.size(), 0.0});
+    output.cells.push_back(std::move(local));
+  }
+
+  return {output, debug};
+}
+
+StitchResult MeshStitcher::run(
+    const LocalMeshingData& local_meshes,
+    const BoundaryEmbedding& embedding,
+    const MeshingConfig& config) const
+{
+  GlobalMesh mesh;
+  mesh.required_boundary_points = embedding.required_points;
+  StitchDebug debug;
+
+  for (const LocalCellMesh& local : local_meshes.cells) {
+    std::vector<NodeId> local_to_global(local.nodes.size());
+    for (std::size_t i = 0; i < local.nodes.size(); ++i) {
+      bool merged = false;
+      const NodeId id = find_or_add_node(mesh, local.nodes[i], config, &merged);
+      local_to_global[i] = id;
+      if (merged) {
+        ++debug.duplicate_coordinate_merges;
+      }
+      debug.merge_events.push_back({local.cell, static_cast<std::uint32_t>(i), id});
+    }
+
+    for (const LocalQuad& local_quad : local.quads) {
+      Quad4 quad;
+      quad.source_cell = local.cell;
+      quad.template_id = local.template_id;
+      for (std::size_t i = 0; i < quad.nodes.size(); ++i) {
+        quad.nodes[i] = local_to_global[local_quad.nodes[i]];
+      }
+      mesh.quads.push_back(quad);
+    }
+  }
+
+  return {mesh, debug};
+}
+
+SmoothingResult MeshSmoother::run(GlobalMesh mesh, const MeshingConfig& config) const
+{
+  SmoothingDebug debug;
+  for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+    if (mesh.nodes[i].constrained) {
+      debug.constrained_nodes.push_back(NodeId{static_cast<std::uint32_t>(i)});
+    }
+  }
+
+  if (!config.smoothing.enabled || mesh.nodes.empty()) {
+    debug.displacement_lengths.assign(mesh.nodes.size(), 0.0);
+    return {mesh, debug};
+  }
+
+  std::vector<std::vector<NodeId>> adjacency(mesh.nodes.size());
+  for (const Quad4& quad : mesh.quads) {
+    for (std::size_t i = 0; i < 4; ++i) {
+      const NodeId a = quad.nodes[i];
+      const NodeId b = quad.nodes[(i + 1U) % 4U];
+      adjacency[a.value].push_back(b);
+      adjacency[b.value].push_back(a);
+    }
+  }
+  for (auto& neighbors : adjacency) {
+    std::sort(neighbors.begin(), neighbors.end());
+    neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+  }
+
+  debug.displacement_lengths.assign(mesh.nodes.size(), 0.0);
+  for (std::uint16_t iteration = 0; iteration < config.smoothing.iterations; ++iteration) {
+    std::vector<Point2> next_positions;
+    next_positions.reserve(mesh.nodes.size());
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+      const MeshNode& node = mesh.nodes[i];
+      if (node.constrained || adjacency[i].empty()) {
+        next_positions.push_back(node.point);
+        continue;
+      }
+      Point2 average{0.0, 0.0};
+      for (const NodeId neighbor : adjacency[i]) {
+        average.x += mesh.nodes[neighbor.value].point.x;
+        average.y += mesh.nodes[neighbor.value].point.y;
+      }
+      average.x /= static_cast<double>(adjacency[i].size());
+      average.y /= static_cast<double>(adjacency[i].size());
+      next_positions.push_back(Point2{
+          node.point.x + (average.x - node.point.x) * config.smoothing.relaxation,
+          node.point.y + (average.y - node.point.y) * config.smoothing.relaxation});
+    }
+    for (std::size_t i = 0; i < mesh.nodes.size(); ++i) {
+      const double move = distance(mesh.nodes[i].point, next_positions[i]);
+      debug.displacement_lengths[i] += move;
+      mesh.nodes[i].point = next_positions[i];
+      if (move > 0.0) {
+        mesh.nodes[i].provenance = NodeProvenance::Smoothed;
+      }
+    }
+    debug.iteration_count = static_cast<std::uint16_t>(iteration + 1U);
+  }
+
+  return {mesh, debug};
+}
+
+double signed_quad_area(const GlobalMesh& mesh, const Quad4& quad) noexcept
+{
+  return signed_area(
+      mesh.nodes[quad.nodes[0].value].point,
+      mesh.nodes[quad.nodes[1].value].point,
+      mesh.nodes[quad.nodes[2].value].point,
+      mesh.nodes[quad.nodes[3].value].point);
+}
+
+double signed_quad_area(const std::vector<MeshNode>& nodes, const LocalQuad& quad) noexcept
+{
+  return signed_area(
+      nodes[quad.nodes[0]].point,
+      nodes[quad.nodes[1]].point,
+      nodes[quad.nodes[2]].point,
+      nodes[quad.nodes[3]].point);
+}
+
+} // namespace quadmesh
