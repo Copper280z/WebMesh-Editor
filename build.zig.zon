@@ -1,0 +1,11 @@
+.{
+    .name = .webmesh_studio,
+    .version = "3.0.0",
+    .fingerprint = 0xc17694c6e7f1c587,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .quadmesh = .{ .path = "meshers/quadmesh" },
+        .paved = .{ .path = "meshers/paved" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "meshers" },
+}

@@ -1,11 +1,11 @@
 """Locate and call the native quad face meshers.
 
 Two separate libraries implement the same C ABI (quadmesh.h, 0.2 or later):
-quadmesh (C++, ~/Documents/quadmesh/cpp2: quadtree and recombination paths)
-and the paved Q-Morph mesher (Zig, ~/Documents/quadmesh/paved). Both are loaded
-through quadmesh's standard-library ctypes binding. WEBMESH_QUADMESH_LIB and
-WEBMESH_PAVED_LIB name other builds; WEBMESH_QUADMESH_BINDING another binding.
-Nothing here depends on Gmsh.
+quadmesh (C++, meshers/quadmesh: quadtree and recombination paths) and the
+paved Q-Morph mesher (Zig, meshers/paved). `zig build` in the repository root
+builds both into zig-out/lib, and both are loaded through quadmesh's
+standard-library ctypes binding. WEBMESH_QUADMESH_LIB and WEBMESH_PAVED_LIB name
+other builds; WEBMESH_QUADMESH_BINDING another binding. Nothing here depends on Gmsh.
 """
 
 import importlib.util
@@ -13,14 +13,13 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-BASES = (ROOT.parent / "quadmesh", Path.home() / "Documents" / "quadmesh")
+BUILT = ROOT / "zig-out"
+HINT = "Run `zig build` (Zig 0.17) in the WebMesh folder"
 LIBRARIES = {
-    "quadmesh": {"env": "WEBMESH_QUADMESH_LIB", "folders": ("cpp2/builddir", "cpp2/build"),
-                 "names": ("libquadmesh_capi.dylib", "libquadmesh_capi.so", "quadmesh_capi.dll"),
-                 "hint": "Build ~/Documents/quadmesh/cpp2 with Meson, or set WEBMESH_QUADMESH_LIB."},
-    "paved": {"env": "WEBMESH_PAVED_LIB", "folders": ("paved/zig-out/lib",),
-              "names": ("libquadmesh_paved.dylib", "libquadmesh_paved.so", "quadmesh_paved.dll"),
-              "hint": "Build ~/Documents/quadmesh/paved with `zig build`, or set WEBMESH_PAVED_LIB."},
+    "quadmesh": {"env": "WEBMESH_QUADMESH_LIB", "names": ("libquadmesh_capi.dylib", "libquadmesh_capi.so", "quadmesh_capi.dll"),
+                 "hint": f"{HINT}, or set WEBMESH_QUADMESH_LIB."},
+    "paved": {"env": "WEBMESH_PAVED_LIB", "names": ("libquadmesh_paved.dylib", "libquadmesh_paved.so", "quadmesh_paved.dll"),
+              "hint": f"{HINT}, or set WEBMESH_PAVED_LIB."},
 }
 
 # Face meshers WebMesh offers, by name: the library and how each one is asked for.
@@ -39,14 +38,13 @@ _loaded = {}
 
 def _binding():
     configured = os.environ.get("WEBMESH_QUADMESH_BINDING")
-    candidates = [Path(configured)] if configured else [base / "cpp2" / "bindings" / "python" / "quadmesh.py" for base in BASES]
-    for path in candidates:
-        if path.is_file():
-            spec = importlib.util.spec_from_file_location("webmesh_quadmesh_binding", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-    raise ImportError("quadmesh's Python binding (cpp2/bindings/python/quadmesh.py) was not found; set WEBMESH_QUADMESH_BINDING.")
+    path = Path(configured) if configured else ROOT / "meshers" / "quadmesh" / "bindings" / "python" / "quadmesh.py"
+    if path.is_file():
+        spec = importlib.util.spec_from_file_location("webmesh_quadmesh_binding", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    raise ImportError(f"quadmesh's Python binding ({path}) was not found; set WEBMESH_QUADMESH_BINDING.")
 
 
 def _candidates(spec):
@@ -54,10 +52,8 @@ def _candidates(spec):
     if configured:
         yield Path(configured).expanduser()
         return
-    for base in BASES:
-        for folder in spec["folders"]:
-            for name in spec["names"]:
-                yield base / folder / name
+    for name in spec["names"]:
+        yield BUILT / ("bin" if name.endswith(".dll") else "lib") / name
 
 
 def _load(name):

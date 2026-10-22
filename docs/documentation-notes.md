@@ -35,15 +35,12 @@ The documentation should say when to use which.
 The browser caches WebMesh's scripts. After an update, reload with Cmd-Shift-R (Ctrl-Shift-R on Windows and Linux), or the page keeps running the old code. A server restart also ends every CAD session (see Sessions in the README), so export prepared geometry or save the project first.
 
 ### Gmsh becoming an optional plugin
-*2026-10-21 · README rewritten on the port branch, not merged yet*
+*2026-10-22 · merged; README rewritten by the port, wording not reviewed yet*
 
-On the port branch (`worktree-agent-a7e11b498bf9ab91c`), OpenCASCADE (through OCP) does all the geometry. Gmsh is an optional plugin that adds tets, triangle (CTRIA3) shells, Gmsh's quad and hex methods and sweeps, and STL import. Without it, **Mesh → Other (Gmsh)** and triangle shells are disabled with a note.
+Since the OpenCASCADE port (merged 2026-10-22), OpenCASCADE (through OCP) does all the geometry. Gmsh is an optional plugin that adds tets, triangle (CTRIA3) shells, Gmsh's quad and hex methods and sweeps, and STL import. Without it, **Mesh → Other (Gmsh)** and triangle shells are disabled with a note.
 
-The port's README already describes this. Review its wording when the branch is merged.
-
-### Installing OCP on Homebrew's Python
-*2026-10-21 · README may be wrong*
-
-The port's README says `python3 -m pip install numpy cadquery-ocp`. Homebrew's Python refuses system-wide pip installs, so on a Mac this needs `--user` (and possibly `--break-system-packages`), or a virtual environment. The port's own install went to `~/Library/Python/3.14`. The install steps should give a command that works as written.
+The README describes this; review its wording.
 
 ## Done
+
+- *Installing OCP on Homebrew's Python* (2026-10-22): the README's start section now gives `--user --break-system-packages` or a virtual environment, alongside the new `zig build` step for the meshers.
