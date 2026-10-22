@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project workspace mockups</title>
+<style>
+/* Mockups for docs/design/project-workspace.md, in WebMesh's own palette (styles/workbench.css). */
+:root{--bg:#10151d;--panel:#171e28;--panel2:#151c26;--text:#dce4ee;--muted:#8594a7;--faint:#5d6b7d;--border:#293341;--accent:#5cd9bb;--warn:#e8c26a;--danger:#ff8e8e;--amber:#f0a94b}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0b0f15;color:var(--text);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.page{max-width:1500px;margin:0 auto;padding:28px 16px 60px}
+.page>h1{font-size:22px;margin:0 0 4px;letter-spacing:-.3px}
+.page>p{color:var(--muted);max-width:820px;margin:0 0 8px}
+.screen{margin-top:44px}
+.screen>h2{font-size:16px;margin:0 0 2px}
+.screen>p{color:var(--muted);margin:0 0 14px;max-width:900px}
+.scaler{position:relative;width:100%;overflow:hidden;border-radius:10px;box-shadow:0 0 0 1px #2a3442,0 18px 50px #0008}
+.frame{position:absolute;left:0;top:0;width:1440px;height:900px;transform-origin:0 0;display:grid;grid-template-columns:280px minmax(0,1fr) 360px;grid-template-rows:48px 40px minmax(0,1fr) auto 26px;background:var(--bg);overflow:hidden}
+.notes{margin:14px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 22px}
+.notes li{display:flex;gap:10px;color:#b9c5d3;font-size:12.5px}
+.notes b{color:var(--text);font-weight:600}
+.num{flex:none;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--amber);color:#2a1a02;font-size:11px;font-weight:800}
+.co{position:absolute;z-index:20;width:24px;height:24px;font-size:12px;box-shadow:0 0 0 3px #10151dcc}
+/* ?only=A|B|C shows one frame at full size, for the PNGs beside this page. */
+body.only .page{padding:0;max-width:none}
+body.only .page>h1,body.only .page>p,body.only .page>ul,body.only .screen>h2,body.only .screen>p,body.only .notes{display:none}
+body.only .screen{margin:0}
+body.only .scaler{border-radius:0;box-shadow:none}
+
+/* top bar and stage bar */
+.top{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--panel2);border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:16px;color:#f0f5fa}
+.logo{width:26px;height:26px;border-radius:7px;border:1px solid #5cd9bb55;background:#5cd9bb12;display:grid;place-items:center;color:#6be2c4}
+.brand small{font-size:9px;font-weight:700;letter-spacing:1px;color:#8e9caf;border:1px solid #354254;border-radius:4px;padding:1px 5px}
+.proj{color:#a3b1c2;font-size:12px}.proj::before{content:"/";color:#485769;margin-right:9px}
+.sp{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border:1px solid #344152;border-radius:13px;font-size:11.5px;color:#b8c4d2;background:#1c2531}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+.dot.off{background:#56657a}.dot.warn{background:var(--warn)}.dot.bad{background:var(--danger)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid #344152;border-radius:6px;background:#202a37;color:#cbd6e3;font-size:12px;font-weight:550;white-space:nowrap}
+.btn.ghost{background:transparent;border-color:transparent;color:#a7b4c4}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#0b2b25;font-weight:700}
+.btn.sm{height:26px;padding:0 9px;font-size:11.5px}
+.stages{grid-column:1/-1;display:flex;align-items:stretch;gap:2px;padding:0 12px;background:#141b24;border-bottom:1px solid var(--border)}
+.stage{display:flex;align-items:center;gap:8px;padding:0 18px;color:#8494a9;font-size:12px;font-weight:600;border-bottom:2px solid transparent}
+.stage.on{color:var(--accent);border-bottom-color:var(--accent);background:linear-gradient(0deg,#5cd9bb0d,transparent)}
+.stage .n{font-size:10px;font-weight:700;min-width:17px;height:17px;border-radius:9px;display:inline-grid;place-items:center;padding:0 5px;background:#3a2f17;color:var(--warn)}
+.stage .n.ok{background:#16332c;color:var(--accent)}
+.stage-sep{color:#3a4758;align-self:center;font-size:11px}
+.stages .hint{margin-left:auto;align-self:center;color:var(--faint);font-size:11px}
+
+/* tree */
+.tree{grid-row:3/5;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.dock-head{display:flex;align-items:center;justify-content:space-between;height:38px;padding:0 12px 0 14px;border-bottom:1px solid var(--border);font-weight:650;font-size:12.5px}
+.dock-head small{color:var(--faint);font-weight:500}
+.search{margin:8px 10px;height:28px;border:1px solid #2f3a49;border-radius:6px;background:#121922;color:var(--faint);font-size:11.5px;padding:5px 9px}
+.nodes{flex:1;overflow:hidden;padding:2px 0 8px;font-size:12px}
+.t{display:flex;align-items:center;gap:6px;height:25px;padding-right:10px;white-space:nowrap;color:#c9d4e1}
+.t .car{width:12px;color:#5f6e82;font-size:9px;text-align:center;flex:none}
+.t .ic{width:15px;height:15px;flex:none;color:#7d8da2}
+.t .lbl{overflow:hidden;text-overflow:ellipsis}
+.t .meta{margin-left:auto;color:var(--faint);font-size:11px;display:flex;align-items:center;gap:7px}
+.t .eye{width:14px;height:14px;color:#6f7f93;flex:none}
+.t .eye.off{color:#3d4a5b}
+.t.sec{color:#9fb0c4;font-weight:600;font-size:11.5px;margin-top:4px}
+.t.sel{background:#5cd9bb14;box-shadow:inset 2px 0 0 var(--accent);color:#eef6ff}
+.t.muted .lbl{color:var(--faint);font-style:italic}
+.t.cand .lbl{color:var(--accent)}
+.st{width:7px;height:7px;border-radius:50%;flex:none;background:var(--accent)}
+.st.rev{background:var(--warn)}.st.none{background:#3d4a5b}.st.cand{background:transparent;box-shadow:0 0 0 1.5px var(--accent)}
+.tag{font-size:10px;padding:0 5px;border-radius:4px;border:1px solid #344152;color:#9aa9bb}
+
+/* viewport */
+.view{grid-column:2;grid-row:3;position:relative;background:radial-gradient(ellipse at 50% 40%,#151d28,#0e131a 70%);min-height:0;overflow:hidden}
+.view svg.scene{position:absolute;inset:0;width:100%;height:100%}
+.filters{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #2c3746;border-radius:8px;background:#141b24ee;font-size:11.5px;z-index:5;white-space:nowrap}
+.filters .g{color:var(--faint);padding:0 6px 0 8px;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase}
+.filters .f{padding:3px 9px;border-radius:5px;color:#9fb0c4}
+.filters .f.on{background:#5cd9bb1c;color:var(--accent)}
+.filters .div{width:1px;height:18px;background:#2c3746;margin:0 4px}
+.filters .chk{display:flex;align-items:center;gap:5px;color:#9fb0c4;padding:0 6px}
+.filters .chk i{width:12px;height:12px;border-radius:3px;border:1px solid var(--accent);background:var(--accent);display:inline-block}
+.caption{position:absolute;left:14px;top:56px;max-width:62%;padding:7px 11px;border:1px solid #2c3746;border-radius:7px;background:#121922e6;font-size:11.5px;color:#c6d2df;z-index:5}
+.caption b{color:#eef5fb}
+.caption .sub{color:var(--muted);font-size:11px}
+.candtag{display:inline-block;margin-right:6px;padding:0 6px;border-radius:4px;background:#5cd9bb22;color:var(--accent);font-size:10.5px;font-weight:700;letter-spacing:.3px}
+.legend{position:absolute;right:0;top:0;bottom:0;width:86px;border-left:1px solid #222c39;background:#111821;display:flex;flex-direction:column;align-items:center;padding:46px 0 14px;gap:8px;z-index:4}
+.legend .bar{flex:1;width:14px;margin-left:30px;border-radius:3px;background:linear-gradient(0deg,#2233c8,#1fb6ff 25%,#3be07a 50%,#f2e33a 75%,#f2453a)}
+.legend .lbls{position:absolute;left:10px;top:64px;bottom:31px;display:flex;flex-direction:column;justify-content:space-between;font:10.5px ui-monospace,Menlo,monospace;color:#b7c3d1;text-align:right}
+.legend .unit{font-size:10.5px;color:var(--muted);height:16px}
+.legend .nod{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+.legend .nod i{width:14px;height:9px;background:#8a94a3;border-radius:2px;display:inline-block}
+.vtools{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:2px;padding:4px;border:1px solid #2c3746;border-radius:9px;background:#151c26ee;z-index:5}
+.vtools span{width:30px;height:28px;border-radius:6px;display:grid;place-items:center;color:#8e9db0;font-size:11px}
+.triad{position:absolute;left:16px;bottom:14px;z-index:5}
+.probe{position:absolute;z-index:6;padding:6px 9px;border-radius:6px;background:#0d1218f2;border:1px solid #3a4758;font-size:11px;color:#d7e1ec;line-height:1.45}
+.probe b{color:#fff}
+
+/* inspector */
+.insp{grid-column:3;grid-row:3/5;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.insp-body{flex:1;overflow:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.insp-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px 14px;border-top:1px solid var(--border);background:#151c26}
+.insp-foot .info{margin-right:auto;color:var(--muted);font-size:11.5px}
+.ey{font-size:10px;letter-spacing:1px;color:var(--faint);font-weight:700;text-transform:uppercase}
+.ttl{font-size:15px;font-weight:650;color:#f0f5fa;margin-top:1px}
+.card{border:1px solid #2a3443;border-radius:8px;background:#141b24;padding:10px 11px}
+.card.good{border-color:#2c5a4f;background:#13221f}
+.card .h{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:650;color:#c8d4e2;margin-bottom:7px}
+.row{display:flex;align-items:center;gap:8px;min-height:27px;font-size:12px}
+.row .k{width:88px;flex:none;color:var(--muted)}
+.row .v{flex:1;min-width:0;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.inp{height:26px;border:1px solid #2f3a49;border-radius:5px;background:#10161e;padding:3px 8px;color:#dbe4ee;font-size:12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inp .u{color:var(--faint);font-size:11px}
+.inp.wide{flex:1;min-width:0;display:block;line-height:18px}
+.seg{display:inline-flex;border:1px solid #2f3a49;border-radius:6px;overflow:hidden}
+.seg span{padding:3px 8px;font-size:11.5px;color:#9fb0c4;border-right:1px solid #2f3a49}
+.seg span:last-child{border-right:0}
+.seg span.on{background:#5cd9bb1f;color:var(--accent)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:12px}
+.kv span:nth-child(odd){color:var(--muted)}
+.kv span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums}
+.ok{color:var(--accent)}.wn{color:var(--warn)}.bd{color:var(--danger)}
+.hist{display:flex;align-items:flex-end;gap:2px;height:30px;margin-top:6px}
+.hist i{flex:1;border-radius:1px}
+.list{font-size:11.5px;color:#b9c5d3;display:flex;flex-direction:column;gap:3px}
+.list div{display:flex;gap:8px}
+.list code{font:11px ui-monospace,Menlo,monospace;color:#d6e0ea}
+.small{font-size:11px;color:var(--muted)}
+.check{display:flex;align-items:center;gap:7px;font-size:12px;color:#c9d4e1}
+.check i{width:13px;height:13px;border-radius:3px;border:1px solid var(--accent);background:var(--accent);flex:none;display:grid;place-items:center;color:#0b2b25;font-style:normal;font-size:9px;font-weight:900}
+
+/* bottom dock and status bar */
+.dock{grid-column:2;grid-row:4;height:176px;border-top:1px solid var(--border);background:#131a23;display:flex;flex-direction:column;min-width:0}
+.dock.short{height:34px}
+.dtabs{display:flex;align-items:stretch;height:33px;border-bottom:1px solid var(--border);padding:0 8px;gap:2px;flex:none}
+.dtab{display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11.5px;color:#8494a9;border-bottom:2px solid transparent;font-weight:600}
+.dtab.on{color:#e3ebf4;border-bottom-color:#7f93ab}
+.dtab .n{font-size:10px;min-width:16px;height:16px;border-radius:8px;display:inline-grid;place-items:center;padding:0 4px;background:#3a2f17;color:var(--warn)}
+.dbody{flex:1;overflow:hidden;padding:6px 14px;font-size:11.5px}
+.chk-row{display:flex;align-items:center;gap:9px;height:24px;color:#c4cfdc}
+.chk-row .gate{width:92px;color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
+.chk-row a{color:var(--accent);text-decoration:none;margin-left:auto;font-size:11px}
+.chk-row.idle{color:var(--faint)}
+.chk-row.bad{color:#ffd0d0}
+.chk-h{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 0 1px}
+.st.bad{background:var(--danger)}
+.rg{display:grid;grid-template-columns:minmax(0,1fr) auto 70px;gap:5px 8px;font-size:12px;align-items:center}
+.rg .c{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px}
+.rg .sub{grid-column:1/-1;margin:-2px 0 2px;color:var(--muted);font-size:11px;display:flex;gap:8px;align-items:center}
+.oc{font-size:10.5px;padding:1px 7px;border-radius:4px;font-weight:700;justify-self:start}
+.oc.ex{background:#16332c;color:var(--accent)}.oc.cf{background:#3a2f17;color:var(--warn)}.oc.no{background:#3d1f22;color:var(--danger)}
+.card.bad{border-color:#5a2f33;background:#1f1517}
+table.tbl{width:100%;border-collapse:collapse;font:11px ui-monospace,Menlo,monospace}
+.tbl th{text-align:left;color:var(--faint);font-weight:600;padding:3px 10px 3px 0;border-bottom:1px solid #263040;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:10.5px}
+.tbl td{padding:2.5px 10px 2.5px 0;color:#c9d4e1;border-bottom:1px solid #1c2531}
+.log{font:11px/1.6 ui-monospace,Menlo,monospace;color:#b5c2d0;white-space:pre-wrap}
+.log .ok{color:var(--accent)}.log .dim{color:var(--faint)}
+.status{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--border);background:#121821;color:#8696aa;font-size:11px}
+.status .msg{color:#b6c3d2;display:flex;align-items:center;gap:6px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor"/></symbol>
+    <symbol id="i-eyeoff" viewBox="0 0 16 16"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 13L13 3" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-part" viewBox="0 0 16 16"><path d="M8 1.8l5.5 3v6.4L8 14.2l-5.5-3V4.8z M2.5 4.8L8 8l5.5-3.2 M8 8v6.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mesh" viewBox="0 0 16 16"><path d="M2 2h12v12H2z M2 6h12 M2 10h12 M6 2v12 M10 2v12" fill="none" stroke="currentColor" stroke-width="1.1"/></symbol>
+    <symbol id="i-sheet" viewBox="0 0 16 16"><path d="M2 11l5-8 7 2-5 8z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-inst" viewBox="0 0 16 16"><rect x="1.8" y="4.5" width="7.5" height="7.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 4.5V2.2h7.3v7.3h-4.5" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+    <symbol id="i-mat" viewBox="0 0 16 16"><path d="M8 2l6 3-6 3-6-3z M2 8l6 3 6-3 M2 11l6 3 6-3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-region" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.6"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-point" viewBox="0 0 16 16"><path d="M8 1.5v4 M8 10.5v4 M1.5 8h4 M10.5 8h4" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><circle cx="3.5" cy="12.5" r="2" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="12.5" cy="3.5" r="2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 11l1.3-1.3 1 1 1.4-1.4-1-1 1.4-1.4 1 1L11 5" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+    <symbol id="i-load" viewBox="0 0 16 16"><path d="M8 1.5v10 M4.5 8L8 11.5 11.5 8 M2.5 14.5h11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+    <symbol id="i-run" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 16 16"><path d="M2 14h12 M4 12V8 M7.3 12V4 M10.6 12V6.5 M13.5 12V9.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-deck" viewBox="0 0 16 16"><path d="M3 3h10 M3 6.3h10 M3 9.6h10 M3 13h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <h1>Project workspace: layout mockups</h1>
+  <p>These accompany <code>docs/design/project-workspace.md</code>, and its rules in <code>docs/design/model-rules.md</code>, which the R numbers refer to. All four screens show the review's rover model under the proposed design. A, B and C follow the successful path; D shows a recovery.</p>
+  <ul class="notes" style="margin-top:6px">
+    <li>The project tree is on the left.</li>
+    <li>The viewport is in the middle, with a caption, a selection filter bar and a docked legend.</li>
+    <li>The inspector is on the right.</li>
+    <li>Checks, Log, Run and Table share a dock under the viewport.</li>
+  </ul>
+  <p>The numbers are the same in each screen. The geometry is schematic.</p>
+
+  <!-- ============================================================ Screen A -->
+  <section class="screen">
+    <h2>A · Mesh stage: reviewing a shell-mesh candidate before committing it</h2>
+    <p>The chassis is idealized as shells: nine sheets were extended and joined, and the original solid is kept hidden as a reference. Paved, at size 5, produced a candidate. Nothing enters the model until <b>Add to model</b>.</p>
+    <div class="scaler"><div class="frame" id="frameA">
+      <div class="top">
+        <div class="brand"><span class="logo"><svg width="15" height="15"><use href="#i-part"/></svg></span>WebMesh <small>STUDIO</small></div>
+        <div class="proj">Rover with wheels</div>
+        <div class="sp"></div>
+        <span class="chip">mm · N · s · t</span>
+        <span class="chip"><span class="dot"></span>CAD <span class="dot"></span>Gmsh <span class="dot"></span>MYSTRAN <span class="dot"></span>Vibestran</span>
+        <span class="btn ghost">New</span><span class="btn ghost">Open</span><span class="btn">Save project</span><span class="btn primary">Export deck</span><span class="btn ghost">Help</span>
+      </div>
+      <div class="stages">
+        <span class="stage">Parts</span><span class="stage on">Mesh</span><span class="stage">Connect</span><span class="stage">Load</span><span class="stage">Solve</span><span class="stage">Results</span>
+        <span class="hint">Stages change the tools, not the model you see</span>
+      </div>
+
+      <aside class="tree">
+        <div class="dock-head">Project <small>Rover with wheels</small></div>
+        <div class="search">Filter project</div>
+        <div class="nodes">
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-part"/></svg><span class="lbl">Parts</span><span class="meta">1</span></div>
+          <div class="t" style="padding-left:14px"><span class="car">▾</span><span class="st none"></span><span class="lbl">rover_chassis</span><span class="meta"><span class="tag">shell</span><svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:30px"><span class="car">▾</span><svg class="ic"><use href="#i-sheet"/></svg><span class="lbl">Geometry · rev 14</span><span class="meta">13 faces</span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><svg class="ic"><use href="#i-part"/></svg><span class="lbl" style="color:#7b8a9d">Solid 1 · reference</span><span class="meta"><svg class="eye off"><use href="#i-eyeoff"/></svg></span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><svg class="ic"><use href="#i-sheet"/></svg><span class="lbl">Walls · T 4 · offset 2</span><span class="meta">4<svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><svg class="ic"><use href="#i-sheet"/></svg><span class="lbl">Floor · T 6 · offset 3</span><span class="meta">1<svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><svg class="ic"><use href="#i-sheet"/></svg><span class="lbl">Braces · T 3 · offset 1.5</span><span class="meta">8<svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:30px"><span class="car">▾</span><svg class="ic"><use href="#i-mesh"/></svg><span class="lbl">Meshes</span></div>
+          <div class="t sel cand" style="padding-left:46px"><span class="car"></span><span class="st cand"></span><span class="lbl">Shell · Paved 5 · candidate</span><span class="meta">5,759</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><svg class="ic"><use href="#i-inst"/></svg><span class="lbl">Instances</span><span class="meta">1</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-mat"/></svg><span class="lbl">Materials &amp; sections</span><span class="meta">1 · 3</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">PLA · MAT1 1</span><span class="meta">E 3,000</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-region"/></svg><span class="lbl">Regions</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-point"/></svg><span class="lbl">Points</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-link"/></svg><span class="lbl">Connections</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-load"/></svg><span class="lbl">Loads &amp; supports</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-run"/></svg><span class="lbl">Analyses</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-chart"/></svg><span class="lbl">Results</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-deck"/></svg><span class="lbl">Deck</span><span class="meta">cards by type</span></div>
+        </div>
+      </aside>
+
+      <main class="view">
+        <div class="filters"><span class="g">Geometry</span><span class="f">Body</span><span class="f on">Face</span><span class="f">Edge</span><span class="f">Point</span><span class="div"></span><span class="g">Mesh</span><span class="f">Node</span><span class="f">Element</span><span class="div"></span><span class="chk"><i></i>Visible only</span></div>
+        <div class="caption"><span class="candtag">CANDIDATE</span><b>rover_chassis · Shell · Paved 5 mm</b><div class="sub">Not in the model yet. Reference solid hidden (hidden stays hidden through edits).</div></div>
+        <svg class="scene" id="sceneA"></svg>
+        <div class="vtools"><span>↶</span><span>↷</span><span>⤢</span><span>▦</span><span>◧</span><span>ISO</span></div>
+      </main>
+
+      <aside class="insp">
+        <div class="dock-head">Inspector <small>Shell mesh</small></div>
+        <div class="insp-body">
+          <div><div class="ey">Mesh · rover_chassis</div><div class="ttl">Shell mesh</div></div>
+          <div class="card">
+            <div class="row"><span class="k">Covers</span><span class="v"><span class="inp wide">All 13 sheet faces</span></span></div>
+            <div class="row"><span class="k">Mesher</span><span class="v"><span class="seg"><span class="on">Paved</span><span>Recombined</span><span>Quadtree</span></span></span></div>
+            <div class="row"><span class="k">Size</span><span class="v"><span class="inp">5 <span class="u">mm</span></span><span class="small">one size for every method</span></span></div>
+            <div class="row"><span class="k">Per circle</span><span class="v"><span class="inp">12</span><span class="small">override</span></span></div>
+            <div class="row"><span class="k">Material</span><span class="v"><span class="inp wide">PLA · E 3,000 MPa ▾</span></span></div>
+            <div class="row"><span class="k">Sections</span><span class="v small">from sheets: T 4, T 6, T 3 → 3 PSHELL</span></div>
+          </div>
+          <div class="card good">
+            <div class="h"><span>Candidate review</span><span class="ok">complete</span></div>
+            <div class="kv">
+              <span>Coverage</span><span class="ok">13 of 13 faces</span>
+              <span>Elements</span><span>5,759 CQUAD4 · 6,323 nodes</span>
+              <span>Min / mean SJ</span><span>0.35 / 0.89</span>
+              <span>Junctions</span><span>76 T-joint edges between sheets</span>
+              <span>Suspect edges</span><span class="ok">0</span>
+              <span>Free edges</span><span>holes and open ends only</span>
+              <span>Pieces</span><span>1 connected</span>
+              <span>Replaces</span><span>nothing</span>
+            </div>
+            <div class="hist" id="histA"></div>
+            <div class="small" style="display:flex;justify-content:space-between"><span>SJ 0</span><span>worst 12 elements: <span class="ok">locate</span></span><span>1</span></div>
+          </div>
+          <div class="small">Recombined and Quadtree can't follow junctions that stop inside a face. Paved can (ABI 0.3).</div>
+        </div>
+        <div class="insp-foot"><span class="info">5,759 elements</span><span class="btn">Discard</span><span class="btn primary">Add to model</span></div>
+      </aside>
+
+      <section class="dock">
+        <div class="dtabs"><span class="dtab on">Checks</span><span class="dtab">Log</span><span class="dtab">Run</span><span class="dtab">Table</span></div>
+        <div class="dbody">
+          <div class="chk-h">For this mesh</div>
+          <div class="chk-row"><span class="st"></span><span class="gate">Mesh</span>Candidate covers 13 of 13 faces in one connected piece, with no suspect edges<a>Locate worst</a></div>
+          <div class="chk-row"><span class="st"></span><span class="gate">Idealization</span>Shell: 13 faces, 3 thicknesses from the sheets, reference solid hidden</div>
+          <div class="chk-row"><span class="st"></span><span class="gate">Physical</span>Material PLA chosen for this mesh</div>
+          <div class="chk-h">Not defined yet · expected at this point</div>
+          <div class="chk-row idle"><span class="st none"></span><span class="gate">Later</span>Supports, loads and an analysis: the Load and Solve stages</div>
+        </div>
+      </section>
+      <footer class="status"><span class="msg"><span class="dot"></span>Candidate ready: 13 of 13 faces</span><span class="sp"></span><span>GLOBAL · XYZ</span><span>WebMesh 3.0</span></footer>
+
+      <span class="num co" data-at=".stage:nth-of-type(6)" data-side="after">1</span>
+      <span class="num co" data-at=".tree .t.cand" data-side="edge">2</span>
+      <span class="num co" data-at=".filters" data-side="after">3</span>
+      <span class="num co" data-at=".caption" data-side="after">4</span>
+      <span class="num co" data-at=".insp .card.good" data-side="before">5</span>
+      <span class="num co" data-at=".dock .dtab:last-child" data-side="after">6</span>
+    </div></div>
+    <ol class="notes">
+      <li><span class="num">1</span><span><b>Stage bar</b> in place of the tool tabs. Switching stage changes the tools, never the model or the selection. Badges count only what is invalid or changed. Unfinished work isn't counted, so nothing is flagged here.</span></li>
+      <li><span class="num">2</span><span><b>The project tree</b> shows the part's own geometry: its sheets with thicknesses, and the reference solid, hidden. The mesh is listed as a candidate until it's committed.</span></li>
+      <li><span class="num">3</span><span><b>The selection filter</b> separates geometry from mesh entities and has a "visible only" toggle (F12, F14).</span></li>
+      <li><span class="num">4</span><span><b>The caption</b> always says what's on screen. A candidate is labelled as such.</span></li>
+      <li><span class="num">5</span><span><b>Candidate review:</b> coverage, quality, junctions classified as T-joints, and what this replaces, all beside the commit button (F06, F11, F17).</span></li>
+      <li><span class="num">6</span><span><b>Checks</b> put the current action first. Work that simply hasn't been done yet, such as supports and an analysis, is listed as <i>not defined yet</i>: neutral, not a warning (R18–R19). They replace the hex "1 to fix" chip (F13).</span></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ Screen B -->
+  <section class="screen">
+    <h2>B · Connect stage: one motor mount, repeated on the other three patterns</h2>
+    <p>The region was made by picking one mounting hole, then <b>All holes in this pattern</b>. The template generates the reference points and the RBE2, CBUSH and CONM2 cards, previewed in place. The wall is drawn in X-ray while you edit a connection.</p>
+    <div class="scaler"><div class="frame" id="frameB">
+      <div class="top">
+        <div class="brand"><span class="logo"><svg width="15" height="15"><use href="#i-part"/></svg></span>WebMesh <small>STUDIO</small></div>
+        <div class="proj">Rover with wheels</div>
+        <div class="sp"></div>
+        <span class="chip">mm · N · s · t</span>
+        <span class="chip"><span class="dot"></span>CAD <span class="dot"></span>Gmsh <span class="dot"></span>MYSTRAN <span class="dot"></span>Vibestran</span>
+        <span class="btn ghost">New</span><span class="btn ghost">Open</span><span class="btn">Save project</span><span class="btn primary">Export deck</span><span class="btn ghost">Help</span>
+      </div>
+      <div class="stages">
+        <span class="stage">Parts</span><span class="stage">Mesh <span class="n ok">✓</span></span><span class="stage on">Connect</span><span class="stage">Load</span><span class="stage">Solve</span><span class="stage">Results</span>
+        <span class="hint">Stages change the tools, not the model you see</span>
+      </div>
+
+      <aside class="tree">
+        <div class="dock-head">Project <small>Rover with wheels</small></div>
+        <div class="search">Filter project</div>
+        <div class="nodes">
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-part"/></svg><span class="lbl">Parts</span><span class="meta">2</span></div>
+          <div class="t" style="padding-left:14px"><span class="car">▸</span><span class="st"></span><span class="lbl">rover_chassis</span><span class="meta"><span class="tag">shell</span>5,759<svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:14px"><span class="car">▾</span><span class="st"></span><span class="lbl">wheel</span><span class="meta"><span class="tag">shell</span>1,214 ×4<svg class="eye"><use href="#i-eye"/></svg></span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><svg class="ic"><use href="#i-mesh"/></svg><span class="lbl">Shell · Recombined 2</span><span class="meta">min SJ 0.70</span></div>
+          <div class="t" style="padding-left:30px"><span class="car">▾</span><svg class="ic"><use href="#i-inst"/></svg><span class="lbl">Instances</span><span class="meta">4</span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><span class="st"></span><span class="lbl">FL · rot Z 90° · move (125, 68, 0)</span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><span class="st"></span><span class="lbl">FR · copy of FL, Y −136</span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><span class="st"></span><span class="lbl">RL · RR · reflected in YZ</span><span class="meta">2</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-mat"/></svg><span class="lbl">Materials &amp; sections</span><span class="meta">1 · 5</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-region"/></svg><span class="lbl">Regions</span><span class="meta">8</span></div>
+          <div class="t sel" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Motor FL pattern</span><span class="meta">4 holes · 48 n</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Motor FR · RL · RR patterns</span><span class="meta">3 × 48 n</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Wheel bolt holes · per instance</span><span class="meta">4 × 64 n</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Battery slots</span><span class="meta">40 n</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-point"/></svg><span class="lbl">Points</span><span class="meta">2 new</span></div>
+          <div class="t cand" style="padding-left:30px"><span class="car"></span><span class="st cand"></span><span class="lbl">Motor FL · pattern centre</span></div>
+          <div class="t cand" style="padding-left:30px"><span class="car"></span><span class="st cand"></span><span class="lbl">Shaft FL · wheel FL axis</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-link"/></svg><span class="lbl">Connections</span><span class="meta">4 wheel hubs</span></div>
+          <div class="t cand" style="padding-left:30px"><span class="car"></span><span class="st cand"></span><span class="lbl">Motor mount FL</span><span class="meta">candidate · +3</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-load"/></svg><span class="lbl">Loads &amp; supports</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-run"/></svg><span class="lbl">Analyses</span><span class="meta">0</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-deck"/></svg><span class="lbl">Deck</span><span class="meta">cards by type</span></div>
+        </div>
+      </aside>
+
+      <main class="view">
+        <div class="filters"><span class="g">Geometry</span><span class="f">Body</span><span class="f">Face</span><span class="f on">Edge loop</span><span class="f">Point</span><span class="div"></span><span class="g">Mesh</span><span class="f">Node</span><span class="f">Element</span><span class="div"></span><span class="chk"><i></i>Visible only</span></div>
+        <div class="caption"><span class="candtag">CANDIDATE</span><b>Motor mount FL</b> · rover_chassis wall + wheel FL<div class="sub">X-ray on while editing a connection · region Motor FL pattern: 48 nodes on 4 hole loops</div></div>
+        <svg class="scene" id="sceneB"></svg>
+        <div class="vtools"><span>↶</span><span>↷</span><span>⤢</span><span>▦</span><span>◧</span><span>ISO</span></div>
+      </main>
+
+      <aside class="insp">
+        <div class="dock-head">Inspector <small>Connection</small></div>
+        <div class="insp-body">
+          <div><div class="ey">Connection · template</div><div class="ttl">Motor mount FL</div><div class="small" style="margin-top:3px">Linked to template <b style="color:#c8d4e2">Motor mount</b> · no overrides · shares PBUSH 4</div></div>
+          <div class="card">
+            <div class="h"><span>Mount</span></div>
+            <div class="row"><span class="k">Region</span><span class="v"><span class="inp wide">Motor FL pattern · 48 nodes ▾</span></span></div>
+            <div class="row"><span class="k">Point</span><span class="v"><span class="inp wide">Motor FL · centre (93, 68, 52)</span></span></div>
+            <div class="row"><span class="k">Coupling</span><span class="v"><span class="seg"><span class="on">RBE2</span><span>RBE3</span></span><span class="inp">DOF 123</span></span></div>
+          </div>
+          <div class="card">
+            <div class="h"><span>Spring to shaft</span></div>
+            <div class="row"><span class="k">To point</span><span class="v"><span class="inp wide">Shaft FL · (113, 68, 52)</span></span></div>
+            <div class="row"><span class="k">K1–K3</span><span class="v"><span class="inp">100,000 <span class="u">N/mm</span></span></span></div>
+            <div class="row"><span class="k">K4–K6</span><span class="v"><span class="inp">1,000,000 <span class="u">N·mm/rad</span></span></span></div>
+            <div class="row"><span class="k">Frame</span><span class="v"><span class="inp wide">Global (CID 0)</span></span></div>
+          </div>
+          <div class="card">
+            <div class="h"><span>Motor mass</span></div>
+            <div class="row"><span class="k">Mass</span><span class="v"><span class="inp">0.35 <span class="u">kg</span></span><span class="small">= 3.5e-4 t</span></span></div>
+            <div class="row"><span class="k">Offset</span><span class="v"><span class="inp wide">20 mm inward along −X</span></span></div>
+          </div>
+          <div class="card">
+            <div class="h"><span>Repeat for</span><span class="small">same template, own regions</span></div>
+            <div class="list">
+              <div class="check"><i>✓</i>Motor FR pattern · 48 n</div>
+              <div class="check"><i>✓</i>Motor RL pattern · 48 n · mirrored</div>
+              <div class="check"><i>✓</i>Motor RR pattern · 48 n · mirrored</div>
+            </div>
+          </div>
+        </div>
+        <div class="insp-foot"><span class="info">16 cards · 8 points</span><span class="btn">Discard</span><span class="btn primary">Add 4 mounts</span></div>
+      </aside>
+
+      <section class="dock">
+        <div class="dtabs"><span class="dtab">Checks</span><span class="dtab">Log</span><span class="dtab">Run</span><span class="dtab on">Table · Motor mount FL</span></div>
+        <div class="dbody">
+          <table class="tbl">
+            <tr><th>Card</th><th>ID</th><th>Connects</th><th>Values</th><th>Owner</th></tr>
+            <tr><td>GRID</td><td>7001 · 7101</td><td>Motor FL · Shaft FL points</td><td>(93, 68, 52) · (113, 68, 52)</td><td>conn:motor-fl</td></tr>
+            <tr><td>RBE2</td><td>8001</td><td>7001 → 48 nodes, region Motor FL pattern</td><td>CM 123</td><td>conn:motor-fl</td></tr>
+            <tr><td>CBUSH</td><td>8031</td><td>7001 → 7101</td><td>PBUSH 4 · CID 0</td><td>conn:motor-fl</td></tr>
+            <tr><td>CONM2</td><td>8041</td><td>7001</td><td>M 3.5e-4 · X1 −20</td><td>conn:motor-fl</td></tr>
+          </table>
+        </div>
+      </section>
+      <footer class="status"><span class="msg"><span class="dot"></span>Preview: 4 cards per mount, all IDs free</span><span class="sp"></span><span>GLOBAL · XYZ</span><span>WebMesh 3.0</span></footer>
+
+      <span class="num co" data-at=".tree .t.sel" data-side="edge">1</span>
+      <span class="num co" data-at=".tree .t.cand" data-side="edge">2</span>
+      <span class="num co" data-at="#sceneB" data-side="point" id="coB3">3</span>
+      <span class="num co" data-at=".insp .card:last-child" data-side="before">4</span>
+      <span class="num co" data-at=".dock .dtab.on" data-side="after">5</span>
+    </div></div>
+    <ol class="notes">
+      <li><span class="num">1</span><span><b>Regions</b> are named sets made from CAD picks. After a change they are matched again by lineage and geometry, never by node count. Each shows its count before it's used (F12, R21–R23).</span></li>
+      <li><span class="num">2</span><span><b>Points</b> stand in for reference GRIDs, so you never create them by hand. Instances keep their own transforms (F08).</span></li>
+      <li><span class="num">3</span><span><b>The candidate in place:</b> the RBE2 spider on the four hole loops, the CBUSH to the shaft, the offset mass, and the wheel instance ghosted.</span></li>
+      <li><span class="num">4</span><span><b>Repeat for</b> applies one definition to the other three patterns, mirrored where needed. The four motors become one edit, not sixteen card forms. The header shows that the mount is linked to its template. Editing any generated card asks whether the change belongs to the template or to this mount only (R8–R11).</span></li>
+      <li><span class="num">5</span><span><b>Table</b> lists the cards the connection will write, with their owner tag, so expert-level inspection stays one click away.</span></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ Screen C -->
+  <section class="screen">
+    <h2>C · Results stage: a MYSTRAN run attached to the model it solved</h2>
+    <p>The analysis ran through the MYSTRAN plugin. Results are drawn on the model this run solved, which here is the current model (R28). They know their run and each element family. Shell von Mises is shown on its own; the CBUSH elements have no such field, so they are grey.</p>
+    <div class="scaler"><div class="frame" id="frameC">
+      <div class="top">
+        <div class="brand"><span class="logo"><svg width="15" height="15"><use href="#i-part"/></svg></span>WebMesh <small>STUDIO</small></div>
+        <div class="proj">Rover with wheels</div>
+        <div class="sp"></div>
+        <span class="chip">mm · N · s · t</span>
+        <span class="chip"><span class="dot"></span>CAD <span class="dot"></span>Gmsh <span class="dot"></span>MYSTRAN <span class="dot"></span>Vibestran</span>
+        <span class="btn ghost">New</span><span class="btn ghost">Open</span><span class="btn">Save project</span><span class="btn primary">Export deck</span><span class="btn ghost">Help</span>
+      </div>
+      <div class="stages">
+        <span class="stage">Parts</span><span class="stage">Mesh <span class="n ok">✓</span></span><span class="stage">Connect <span class="n ok">✓</span></span><span class="stage">Load <span class="n ok">✓</span></span><span class="stage">Solve <span class="n ok">✓</span></span><span class="stage on">Results</span>
+        <span class="hint">Stages change the tools, not the model you see</span>
+      </div>
+
+      <aside class="tree">
+        <div class="dock-head">Project <small>Rover with wheels</small></div>
+        <div class="search">Filter project</div>
+        <div class="nodes">
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-part"/></svg><span class="lbl">Parts</span><span class="meta">2 · 5 instances</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-mat"/></svg><span class="lbl">Materials &amp; sections</span><span class="meta">1 · 5</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-region"/></svg><span class="lbl">Regions</span><span class="meta">10</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-link"/></svg><span class="lbl">Connections</span><span class="meta">10</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-load"/></svg><span class="lbl">Loads &amp; supports</span><span class="meta">3</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Gravity · GRAV −Z</span><span class="meta">9,806.65</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Payload lateral · +Y</span><span class="meta">4.903 N</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><svg class="ic"><use href="#i-lock"/></svg><span class="lbl">Contact patches · 123</span><span class="meta">88 n</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-run"/></svg><span class="lbl">Analyses</span><span class="meta">1</span></div>
+          <div class="t" style="padding-left:30px"><span class="car">▾</span><span class="st"></span><span class="lbl">Static · MYSTRAN</span><span class="meta">SOL 101 · 2 cases</span></div>
+          <div class="t" style="padding-left:46px"><span class="car"></span><span class="st"></span><span class="lbl">Run 1 · 10:41 · normal end</span><span class="meta">0 fatal</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-chart"/></svg><span class="lbl">Results</span><span class="meta">1</span></div>
+          <div class="t sel" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Run 1 · current model</span><span class="meta">current</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-deck"/></svg><span class="lbl">Deck</span><span class="meta">cards by type</span></div>
+        </div>
+      </aside>
+
+      <main class="view" style="padding-right:86px">
+        <div class="caption"><b>Static · run 1 · MYSTRAN</b> · Subcase 2: gravity plus payload lateral 0.5 g<div class="sub">Shell stress · von Mises (MPa) · max of Z1/Z2 · nodal average within family · deformed ×100</div></div>
+        <svg class="scene" id="sceneC" style="right:86px;width:auto"></svg>
+        <div class="legend"><span class="unit">MPa</span><div class="bar"></div><div class="lbls"><span>3.20</span><span>2.40</span><span>1.60</span><span>0.80</span><span>0.00</span></div><span class="nod"><i></i>no data</span></div>
+        <div class="probe" id="probeC"><b>Node 5527</b> · rover_chassis floor<br>von Mises 2.71 MPa · |u| 0.071 mm</div>
+        <div class="vtools" style="left:calc(50% - 43px)"><span>↶</span><span>↷</span><span>⤢</span><span>▦</span><span>◧</span><span>ISO</span></div>
+      </main>
+
+      <aside class="insp">
+        <div class="dock-head">Results <small>docked, never modal</small></div>
+        <div class="insp-body">
+          <div class="card good">
+            <div class="h"><span>Source</span><span class="ok">solved model = current</span></div>
+            <div class="kv"><span>Run</span><span>Static · run 1</span><span>Solver</span><span>MYSTRAN 19.0.0</span><span>Model state</span><span>rev 312 · same as now</span><span>Matched</span><span>11,725 grids · 10,629 elements</span></div>
+          </div>
+          <div class="card">
+            <div class="row"><span class="k">Case</span><span class="v"><span class="inp wide">2 · Gravity + payload lateral ▾</span></span></div>
+            <div class="row"><span class="k">Family</span><span class="v"><span class="inp wide">Shell stress ▾</span></span></div>
+            <div class="row"><span class="k">Field</span><span class="v"><span class="inp wide">von Mises ▾</span></span></div>
+            <div class="row"><span class="k">Layer</span><span class="v"><span class="seg"><span>Z1</span><span>Z2</span><span class="on">Max</span></span></span></div>
+            <div class="row"><span class="k">Averaging</span><span class="v"><span class="seg"><span class="on">Nodal</span><span>Element</span></span></span></div>
+            <div class="row"><span class="k">Deformation</span><span class="v"><span class="inp">×100</span><span class="btn sm">▶ Animate</span></span></div>
+            <div class="small">Other families in this run: displacement, shell strain, bushing force, bushing stress (generalized), SPC force.</div>
+          </div>
+          <div class="card">
+            <div class="h"><span>Reactions · Contact patches</span><span class="ok">balanced</span></div>
+            <div class="kv">
+              <span>Σ reaction</span><span>(0.000, −4.903, 32.996) N</span>
+              <span>Σ applied</span><span>(0.000, 4.903, −32.996) N</span>
+              <span>Moment about</span><span>origin (0, 0, 0)</span>
+              <span>Residual</span><span class="ok">2e-5 N · 0.02 N·mm</span>
+            </div>
+          </div>
+        </div>
+        <div class="insp-foot"><span class="info">Max 3.20 MPa · node 5527</span><span class="btn">Save view</span><span class="btn">Probe</span></div>
+      </aside>
+
+      <section class="dock">
+        <div class="dtabs"><span class="dtab">Checks</span><span class="dtab">Log</span><span class="dtab on">Run · Static run 1</span><span class="dtab">Table</span></div>
+        <div class="dbody"><div class="log"><span class="dim">10:41:02</span>  Wrote rover.bdf with the MYSTRAN export profile (11,725 GRID · 10,615 CQUAD4 · 4 CBUSH · 6 CONM2)
+<span class="dim">10:41:02</span>  mystran rover.bdf   <span class="dim">(MYSTRAN plugin 19.0.0)</span>
+<span class="dim">10:41:09</span>  Subcase 1 GRAVITY · epsilon 1.77e-11 · Subcase 2 GRAVITY PLUS PAYLOAD LATERAL 0.5G · epsilon 1.84e-11
+<span class="dim">10:41:11</span>  <span class="ok">Normal termination · 0 fatal · 0 warnings</span>
+<span class="dim">10:41:12</span>  Read rover.F06: 2 subcases · 6 result families · attached to model rev 312</div></div>
+      </section>
+      <footer class="status"><span class="msg"><span class="dot"></span>Results current: no model changes since run 1</span><span class="sp"></span><span>GLOBAL · XYZ</span><span>WebMesh 3.0</span></footer>
+
+      <span class="num co" data-at=".caption" data-side="after">1</span>
+      <span class="num co" data-at=".legend" data-side="before">2</span>
+      <span class="num co" data-at=".insp .card:nth-child(2)" data-side="before">3</span>
+      <span class="num co" data-at=".insp .card:nth-child(3)" data-side="before">4</span>
+      <span class="num co" data-at=".dock .dtab:last-child" data-side="after">5</span>
+    </div></div>
+    <ol class="notes">
+      <li><span class="num">1</span><span><b>Caption:</b> run, solver, case label, family, field, units, layer, averaging and scale. Every screenshot explains itself (F15).</span></li>
+      <li><span class="num">2</span><span><b>The legend</b> sits in its own strip and never covers the model. "No data" has its own swatch, so grey can't be read as zero (F04, F15).</span></li>
+      <li><span class="num">3</span><span><b>Results are docked</b> and stay open while you pick. Fields are grouped by element family, so a bushing's generalized stress never mixes with shell von Mises (F04, F16).</span></li>
+      <li><span class="num">4</span><span><b>Reactions</b> sum the SPC forces over a support set and check them against the applied load and moment. The review needed external scripts for this.</span></li>
+      <li><span class="num">5</span><span><b>Run:</b> the solver plugin's log, the export profile it used, and the model state the result is attached to (F05, F10).</span></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ Screen D -->
+  <section class="screen">
+    <h2>D · Parts stage: Replace source, with one region to repair</h2>
+    <p>The chassis is replaced by a revised file in which the rear-right motor holes have moved 30 mm along the wall. This is scenario S3 in the rules. Nothing changes until commit. The preview shows each region's match outcome and what follows from it. The analyst can repair the one lost pattern now, or commit with its mount suspended.</p>
+    <div class="scaler"><div class="frame" id="frameD">
+      <div class="top">
+        <div class="brand"><span class="logo"><svg width="15" height="15"><use href="#i-part"/></svg></span>WebMesh <small>STUDIO</small></div>
+        <div class="proj">Rover with wheels</div>
+        <div class="sp"></div>
+        <span class="chip">mm · N · s · t</span>
+        <span class="chip"><span class="dot"></span>CAD <span class="dot"></span>Gmsh <span class="dot"></span>MYSTRAN <span class="dot"></span>Vibestran</span>
+        <span class="btn ghost">New</span><span class="btn ghost">Open</span><span class="btn">Save project</span><span class="btn primary">Export deck</span><span class="btn ghost">Help</span>
+      </div>
+      <div class="stages">
+        <span class="stage on">Parts</span><span class="stage">Mesh <span class="n ok">✓</span></span><span class="stage">Connect <span class="n ok">✓</span></span><span class="stage">Load <span class="n ok">✓</span></span><span class="stage">Solve <span class="n ok">✓</span></span><span class="stage">Results</span>
+        <span class="hint">Badges show the committed model; the preview is in the inspector</span>
+      </div>
+
+      <aside class="tree">
+        <div class="dock-head">Project <small>Rover with wheels</small></div>
+        <div class="search">Filter project</div>
+        <div class="nodes">
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-part"/></svg><span class="lbl">Parts</span><span class="meta">2</span></div>
+          <div class="t cand" style="padding-left:14px"><span class="car">▾</span><span class="st cand"></span><span class="lbl">rover_chassis · replacing</span><span class="meta"><span class="tag">shell</span></span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><svg class="ic"><use href="#i-sheet"/></svg><span class="lbl">Source: rover_chassis_v2.step</span><span class="meta">candidate</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><svg class="ic"><use href="#i-mesh"/></svg><span class="lbl">Shell · Paved 5</span><span class="meta">regenerates</span></div>
+          <div class="t" style="padding-left:14px"><span class="car">▸</span><span class="st"></span><span class="lbl">wheel</span><span class="meta"><span class="tag">shell</span>1,214 ×4</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-region"/></svg><span class="lbl">Regions</span><span class="meta">8</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Motor FL · FR patterns</span><span class="meta">exact</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st rev"></span><span class="lbl">Motor RL pattern</span><span class="meta">confident</span></div>
+          <div class="t sel" style="padding-left:30px"><span class="car"></span><span class="st bad"></span><span class="lbl">Motor RR pattern</span><span class="meta">no match</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Battery · payload · hubs · rim</span><span class="meta">exact</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-link"/></svg><span class="lbl">Connections</span><span class="meta">10</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st bad"></span><span class="lbl">Motor mount RR</span><span class="meta">would suspend</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">9 others</span><span class="meta">regenerate</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-load"/></svg><span class="lbl">Loads &amp; supports</span><span class="meta">3</span></div>
+          <div class="t sec"><span class="car">▾</span><svg class="ic"><use href="#i-run"/></svg><span class="lbl">Analyses</span><span class="meta">1</span></div>
+          <div class="t" style="padding-left:30px"><span class="car"></span><span class="st"></span><span class="lbl">Static · run 1 kept as solved</span><span class="meta">R27</span></div>
+          <div class="t sec"><span class="car">▸</span><svg class="ic"><use href="#i-deck"/></svg><span class="lbl">Deck</span><span class="meta">cards by type</span></div>
+        </div>
+      </aside>
+
+      <main class="view">
+        <div class="filters"><span class="g">Geometry</span><span class="f">Body</span><span class="f">Face</span><span class="f on">Edge loop</span><span class="f">Point</span><span class="div"></span><span class="g">Mesh</span><span class="f">Node</span><span class="f">Element</span><span class="div"></span><span class="chk"><i></i>Visible only</span></div>
+        <div class="caption"><span class="candtag">CANDIDATE</span><b>Replace source</b> · rover_chassis.step → rover_chassis_v2.step<div class="sub">Nothing changes until commit · right wall shown · old outline dashed, candidate solid</div></div>
+        <svg class="scene" id="sceneD"></svg>
+        <div class="vtools"><span>↶</span><span>↷</span><span>⤢</span><span>▦</span><span>◧</span><span>ISO</span></div>
+      </main>
+
+      <aside class="insp">
+        <div class="dock-head">Inspector <small>Change preview</small></div>
+        <div class="insp-body">
+          <div><div class="ey">Part · rover_chassis</div><div class="ttl">Replace source</div><div class="small" style="margin-top:3px">A new file has no lineage, so regions are matched by geometry and context (R22).</div></div>
+          <div class="card">
+            <div class="h"><span>Regions</span><span class="small">outcome · nodes</span></div>
+            <div class="rg">
+              <span>Motor FL pattern</span><span class="oc ex">exact</span><span class="c">48 → 48</span>
+              <span>Motor FR pattern</span><span class="oc ex">exact</span><span class="c">48 → 48</span>
+              <span>Motor RL pattern</span><span class="oc cf">confident</span><span class="c">48 → 48</span>
+              <span class="sub">hole radius 3.5 → 3.6 mm · will show as changed since verified</span>
+              <span>Motor RR pattern</span><span class="oc no">no match</span><span class="c">48 → –</span>
+              <span class="sub">nearest: the same 4 holes, 30 mm along the wall <span class="btn sm">Select these holes</span><span class="btn sm ghost">Pick…</span></span>
+              <span>Battery, payload, hubs, rim</span><span class="oc ex">exact</span><span class="c">4 regions</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="h"><span>What follows</span></div>
+            <div class="kv">
+              <span>Shell mesh</span><span>regenerates · 13 of 13 faces</span>
+              <span>Connections</span><span>9 regenerate · FL override kept</span>
+              <span class="bd">Motor mount RR</span><span class="bd">suspended unless repaired</span>
+              <span>Hand cards</span><span class="ok">none affected</span>
+              <span>Run 1</span><span>kept; from an earlier model</span>
+              <span>Deck diff</span><span class="ok">view 14 objects</span>
+            </div>
+          </div>
+        </div>
+        <div class="insp-foot"><span class="btn ghost">Discard</span><span class="btn primary">Replace and suspend RR</span></div>
+      </aside>
+
+      <section class="dock">
+        <div class="dtabs"><span class="dtab on">Checks · this change</span><span class="dtab">Log</span><span class="dtab">Run</span><span class="dtab">Table</span></div>
+        <div class="dbody">
+          <div class="chk-row bad"><span class="st bad"></span><span class="gate">Invalid</span>Motor RR pattern: no match within tolerance; the nearest group is 30 mm along the wall<a>Repair</a></div>
+          <div class="chk-row"><span class="st rev"></span><span class="gate">Changed</span>Motor RL pattern: confident match, hole radius 3.5 → 3.6 mm<a>Review</a></div>
+          <div class="chk-row"><span class="st"></span><span class="gate">Mesh</span>Candidate shell mesh covers 13 of 13 faces · min SJ 0.35<a>Show</a></div>
+          <div class="chk-row idle"><span class="st none"></span><span class="gate">Results</span>Run 1 stays as solved; it will be listed as from an earlier model</div>
+        </div>
+      </section>
+      <footer class="status"><span class="msg"><span class="dot warn"></span>Candidate: Replace source · 1 region needs a decision</span><span class="sp"></span><span>GLOBAL · XYZ</span><span>WebMesh 3.0</span></footer>
+
+      <span class="num co" data-at=".caption" data-side="after">1</span>
+      <span class="num co" data-at=".insp .card:nth-child(2)" data-side="before">2</span>
+      <span class="num co" data-at="#sceneD" data-side="point" id="coD3">3</span>
+      <span class="num co" data-at=".insp .card:nth-child(3)" data-side="before">4</span>
+      <span class="num co" data-at=".insp-foot .btn.primary" data-side="above">5</span>
+      <span class="num co" data-at=".dock .dtab:last-child" data-side="after">6</span>
+    </div></div>
+    <ol class="notes">
+      <li><span class="num">1</span><span><b>Replace source is a candidate.</b> Its effects on everything downstream are computed and shown before anything changes. Discard leaves no trace (R15).</span></li>
+      <li><span class="num">2</span><span><b>Match outcomes, one per region:</b> exact, confident, ambiguous or no match. Node counts are shown, but they never decide the outcome (R22–R23).</span></li>
+      <li><span class="num">3</span><span><b>The old intent stays visible.</b> The anchor's outline of the original holes is drawn dashed, beside the suggested candidate, so the repair is a comparison, not a guess (R21, R26).</span></li>
+      <li><span class="num">4</span><span><b>What follows</b> from the change, including the mount that would be suspended. FL's stiffness override is kept, run 1 is kept as it was solved, and no hand card is affected (R5, R9, R17, R27).</span></li>
+      <li><span class="num">5</span><span><b>Decide now or later.</b> Select the proposed holes or pick replacements to repair the region; after repair, the footer reads <b>Replace source</b>. In this unresolved state, <b>Replace and suspend RR</b> commits the source replacement and suspension together. A suspended mount blocks Solve and runnable export until repaired (R17).</span></li>
+      <li><span class="num">6</span><span><b>Checks for this change</b>, ordered by what blocks: invalid, then changed, then information (R19).</span></li>
+    </ol>
+  </section>
+</div>
+
+<script>
+// Schematic isometric drawings of the rover (mm). Camera from +X +Y +Z; nothing here is the real mesh.
+const NS = 'http://www.w3.org/2000/svg';
+const C30 = Math.cos(Math.PI / 6);
+function view(s, cx, cy, f = [0, 0, 0]) {
+  return p => [cx + ((p[0] - f[0]) - (p[1] - f[1])) * C30 * s, cy + ((p[0] - f[0]) + (p[1] - f[1])) * 0.5 * s - (p[2] - f[2]) * s];
+}
+function el(svg, tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; }
+const pts = (P, list) => list.map(p => P(p).map(v => v.toFixed(1)).join(',')).join(' ');
+const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+// A planar quad face (corners a, b, c, d in order) split into nu × nv cells.
+function quadCells(a, b, c, d, nu, nv) {
+  const at = (u, v) => lerp(lerp(a, b, u), lerp(d, c, u), v), cells = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++)
+    cells.push([at(i / nu, j / nv), at((i + 1) / nu, j / nv), at((i + 1) / nu, (j + 1) / nv), at(i / nu, (j + 1) / nv)]);
+  return cells;
+}
+function circle(center, r, u, v, n = 28) {
+  const out = [];
+  for (let k = 0; k < n; k++) { const t = 2 * Math.PI * k / n; out.push(center.map((c, i) => c + r * (Math.cos(t) * u[i] + Math.sin(t) * v[i]))); }
+  return out;
+}
+function colormap(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [[0, [34, 51, 200]], [0.25, [31, 182, 255]], [0.5, [59, 224, 122]], [0.75, [242, 227, 58]], [1, [242, 69, 58]]];
+  for (let k = 1; k < stops.length; k++) if (t <= stops[k][0]) {
+    const [t0, c0] = stops[k - 1], [t1, c1] = stops[k], w = (t - t0) / (t1 - t0);
+    return `rgb(${c0.map((c, i) => Math.round(c + (c1[i] - c) * w)).join(',')})`;
+  }
+  return 'rgb(242,69,58)';
+}
+
+const H = 93, FLOOR = 27, TOP = 95;
+const WALLS = {
+  back:  [[-H, -H, FLOOR], [H, -H, FLOOR], [H, -H, TOP], [-H, -H, TOP]],   // y = -93
+  left:  [[-H, -H, FLOOR], [-H, H, FLOOR], [-H, H, TOP], [-H, -H, TOP]],   // x = -93
+  right: [[H, -H, FLOOR], [H, H, FLOOR], [H, H, TOP], [H, -H, TOP]],       // x = +93
+  front: [[-H, H, FLOOR], [H, H, FLOOR], [H, H, TOP], [-H, H, TOP]],       // y = +93
+};
+const FLOORQ = [[-H, -H, FLOOR], [H, -H, FLOOR], [H, H, FLOOR], [-H, H, FLOOR]];
+const BRACES = [
+  [[-30, -H, FLOOR], [-30, -H, TOP - 8], [-30, -48, FLOOR]],
+  [[30, -H, FLOOR], [30, -H, TOP - 8], [30, -48, FLOOR]],
+  [[-H, -30, FLOOR], [-H, -30, TOP - 8], [-48, -30, FLOOR]],
+  [[-H, 30, FLOOR], [-H, 30, TOP - 8], [-48, 30, FLOOR]],
+];
+const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+// Holes: the motor patterns on the side walls, large lightening holes, floor slots and payload holes.
+function motorHoles(sx, sy) { const out = []; for (const dy of [-10, 10]) for (const dz of [-10, 10]) out.push({ c: [sx * H, sy * 68 + dy, 52 + dz], r: 3.5, u: Y, v: Z }); return out; }
+const WALL_HOLES = {
+  right: [...motorHoles(1, 1), ...motorHoles(1, -1), { c: [H, 0, 66], r: 13, u: Y, v: Z }],
+  left: [...motorHoles(-1, 1), ...motorHoles(-1, -1), { c: [-H, 0, 66], r: 13, u: Y, v: Z }],
+  front: [{ c: [-35, H, 62], r: 11, u: X, v: Z }, { c: [35, H, 62], r: 11, u: X, v: Z }],
+  back: [{ c: [-35, -H, 62], r: 11, u: X, v: Z }, { c: [35, -H, 62], r: 11, u: X, v: Z }],
+};
+const FLOOR_HOLES = [
+  ...[[40, 30], [40, -30], [-40, 30], [-40, -30]].map(([x, y]) => ({ c: [x, y, FLOOR], r: 4, u: X, v: Y })),
+  ...[-42.5, -71.5].map(x => ({ c: [x, 0, FLOOR], r: 4, u: X, v: [0, 3.2, 0] })),
+  { c: [30, 0, FLOOR], r: 9, u: X, v: Y },
+];
+
+// Paint one face: its cells, then its holes (each with a ring of paved quads around it).
+function face(svg, P, quad, holes, opt) {
+  const cells = quadCells(...quad, opt.nu, opt.nv);
+  for (const cell of cells) {
+    const mid = cell.reduce((s, p) => s.map((v, i) => v + p[i] / 4), [0, 0, 0]);
+    el(svg, 'polygon', { points: pts(P, cell), fill: opt.field ? colormap(opt.field(mid)) : opt.fill, 'fill-opacity': opt.alpha ?? 1, stroke: opt.line, 'stroke-width': opt.lw ?? 0.6, 'stroke-opacity': opt.lineAlpha ?? 0.7 });
+  }
+  for (const h of holes || []) {
+    for (const k of [2.2, 1.55]) el(svg, 'polygon', { points: pts(P, circle(h.c, h.r * k, h.u, h.v)), fill: 'none', stroke: opt.line, 'stroke-width': opt.lw ?? 0.6, 'stroke-opacity': opt.lineAlpha ?? 0.7 });
+    el(svg, 'polygon', { points: pts(P, circle(h.c, h.r, h.u, h.v)), fill: opt.holeFill || '#0f141b', stroke: opt.holeLine || opt.line, 'stroke-width': 0.9 });
+  }
+}
+function tri(svg, P, t, opt) {
+  el(svg, 'polygon', { points: pts(P, t), fill: opt.field ? colormap(opt.field(t[0])) : opt.fill, 'fill-opacity': opt.alpha ?? 1, stroke: opt.line, 'stroke-width': 0.8 });
+  for (let k = 1; k < 6; k++) { const a = lerp(t[0], t[1], k / 6), b = lerp(t[0], t[2], k / 6); el(svg, 'line', { x1: P(a)[0], y1: P(a)[1], x2: P(b)[0], y2: P(b)[1], stroke: opt.line, 'stroke-width': 0.6, 'stroke-opacity': opt.lineAlpha ?? 0.7 }); }
+}
+function chassis(svg, P, look) {
+  const o = k => ({ ...look[k], line: look.line, lineAlpha: look.lineAlpha, lw: look.lw, field: look.field });
+  face(svg, P, WALLS.back, WALL_HOLES.back, { ...o('wall'), nu: 18, nv: 7 });
+  face(svg, P, WALLS.left, WALL_HOLES.left, { ...o('wall'), nu: 18, nv: 7 });
+  face(svg, P, FLOORQ, FLOOR_HOLES, { ...o('floor'), nu: 18, nv: 18 });
+  for (const b of BRACES) tri(svg, P, b, o('brace'));
+  if (look.beforeFront) look.beforeFront(svg, P);
+  face(svg, P, WALLS.right, look.rightHoles || WALL_HOLES.right, { ...o('wall'), nu: 18, nv: 7 });
+  face(svg, P, WALLS.front, WALL_HOLES.front, { ...o('wall'), nu: 18, nv: 7 });
+}
+function wheel(svg, P, cx, cy, look) {
+  const R = 50, half = 12, n = 32, ring = [];
+  for (let k = 0; k < n; k++) {
+    const t0 = 2 * Math.PI * k / n, t1 = 2 * Math.PI * (k + 1) / n;
+    const q = [[cx - half, cy + R * Math.cos(t0), 52 + R * Math.sin(t0)], [cx - half, cy + R * Math.cos(t1), 52 + R * Math.sin(t1)],
+               [cx + half, cy + R * Math.cos(t1), 52 + R * Math.sin(t1)], [cx + half, cy + R * Math.cos(t0), 52 + R * Math.sin(t0)]];
+    ring.push({ q, depth: q.reduce((s, p) => s + p[0] + p[1] + p[2], 0) });
+  }
+  ring.sort((a, b) => a.depth - b.depth);
+  const web = circle([cx + half, cy, 52], R, Y, Z, 48);
+  for (const { q } of ring.slice(0, n / 2)) el(svg, 'polygon', { points: pts(P, q), fill: look.rim, stroke: look.line, 'stroke-width': 0.6, 'stroke-opacity': 0.7 });
+  el(svg, 'polygon', { points: pts(P, web), fill: look.web, stroke: look.line, 'stroke-width': 0.8 });
+  for (let k = 0; k < 3; k++) {
+    const t = 2 * Math.PI * k / 3 + 0.4, c = [cx + half, cy + 27 * Math.cos(t), 52 + 27 * Math.sin(t)];
+    el(svg, 'polygon', { points: pts(P, circle(c, 12, Y, Z, 20)), fill: '#0d1218', stroke: look.line, 'stroke-width': 0.8 });
+  }
+  for (const { q } of ring.slice(n / 2)) el(svg, 'polygon', { points: pts(P, q), fill: look.rim, stroke: look.line, 'stroke-width': 0.6, 'stroke-opacity': 0.7 });
+}
+
+// ---- Screen A: the candidate mesh, drawn with mint lines.
+(function () {
+  const svg = document.getElementById('sceneA'), w = 800, h = 610;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const P = view(1.62, w / 2, h / 2 + 30, [0, 0, 55]);
+  chassis(svg, P, { line: '#5cd9bb', lineAlpha: 0.55, lw: 0.55,
+    wall: { fill: '#3e4c6a' }, floor: { fill: '#6d7448' }, brace: { fill: '#6c3c58' } });
+  // The hidden reference solid's silhouette, faint, to show what is hidden.
+  el(svg, 'polygon', { points: pts(P, [[-H - 2, -H - 2, 0], [H + 2, -H - 2, 0], [H + 2, H + 2, 0], [-H - 2, H + 2, 0]]), fill: 'none', stroke: '#8594a7', 'stroke-dasharray': '3 4', 'stroke-opacity': 0.35 });
+  const hist = document.getElementById('histA');
+  [1, 2, 4, 9, 20, 46, 88, 160, 230, 150].forEach((n, i) => { const b = document.createElement('i'); b.style.height = `${Math.max(2, 30 * n / 230)}px`; b.style.background = colormap(0.15 + i / 11); hist.appendChild(b); });
+})();
+
+// ---- Screen B: close-up on the front-right wall's motor pattern, X-ray wall.
+(function () {
+  const svg = document.getElementById('sceneB'), w = 800, h = 610;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const P = view(5.4, w / 2 - 40, h / 2 + 10, [100, 68, 54]);
+  const look = { line: '#9fb0c4', lineAlpha: 0.32, lw: 0.6, wall: { fill: '#3e4c6a', alpha: 0.42 }, floor: { fill: '#565d3c', alpha: 0.85 }, brace: { fill: '#6c3c58', alpha: 0.6 },
+    beforeFront: (s, P) => {
+      // CONM2 inside the box, 20 mm inward from the mount point: seen through the X-ray wall.
+      const m = [73, 68, 52], c = P(m), r = P([93, 68, 52]);
+      el(s, 'line', { x1: r[0], y1: r[1], x2: c[0], y2: c[1], stroke: '#5cd9bb', 'stroke-dasharray': '4 3', 'stroke-width': 1.4 });
+      el(s, 'circle', { cx: c[0], cy: c[1], r: 9, fill: '#5cd9bb33', stroke: '#5cd9bb', 'stroke-width': 1.6 });
+      el(s, 'path', { d: `M${c[0] - 6} ${c[1]}h12M${c[0]} ${c[1] - 6}v12`, stroke: '#5cd9bb', 'stroke-width': 1.4 });
+      const t = el(s, 'text', { x: c[0] - 172, y: c[1] + 4, fill: '#5cd9bb', 'font-size': 12.5 }); t.textContent = 'CONM2 0.35 kg · 20 mm in';
+    } };
+  // Wheel FL ghost behind the spring: dashed rim circles and the hub spider on its bolt holes.
+  const ghost = (pts3) => el(svg, 'polygon', { points: pts(P, pts3), fill: 'none', stroke: '#8594a7', 'stroke-dasharray': '5 5', 'stroke-opacity': 0.55 });
+  chassis(svg, P, look);
+  ghost(circle([125 - 12, 68, 52], 50, Y, Z, 64));
+  ghost(circle([125 + 12, 68, 52], 50, Y, Z, 64));
+  const shaft = [113, 68, 52], S = P(shaft);
+  for (let k = 0; k < 4; k++) {
+    const t = Math.PI / 4 + k * Math.PI / 2, hc = [125 - 12, 68 + 9 * Math.cos(t), 52 + 9 * Math.sin(t)];
+    for (const q of circle(hc, 2.4, Y, Z, 8)) { const p = P(q); el(svg, 'line', { x1: S[0], y1: S[1], x2: p[0], y2: p[1], stroke: '#8594a7', 'stroke-opacity': 0.45, 'stroke-width': 0.8 }); }
+  }
+  // Region: the 4 hole loops, 12 nodes each, amber; RBE2 spider to the Motor FL point, mint.
+  const ref = [93, 68, 52], R = P(ref);
+  for (const hole of motorHoles(1, 1)) {
+    for (const q of circle(hole.c, hole.r, hole.u, hole.v, 12)) {
+      const p = P(q);
+      el(svg, 'line', { x1: R[0], y1: R[1], x2: p[0], y2: p[1], stroke: '#5cd9bb', 'stroke-width': 1.1, 'stroke-opacity': 0.9 });
+      el(svg, 'circle', { cx: p[0], cy: p[1], r: 2.6, fill: '#f0a94b' });
+    }
+  }
+  // CBUSH: a zigzag from Motor FL to Shaft FL.
+  const zig = []; for (let k = 0; k <= 12; k++) { const p = P(lerp(ref, shaft, k / 12)); zig.push([p[0], p[1] + (k > 1 && k < 11 ? (k % 2 ? -7 : 7) : 0)]); }
+  el(svg, 'polyline', { points: zig.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#5cd9bb', 'stroke-width': 2 });
+  for (const [p, label, dx, dy] of [[R, 'Motor FL', 12, -14], [S, 'Shaft FL', 14, -12]]) {
+    el(svg, 'path', { d: `M${p[0] - 8} ${p[1]}h16M${p[0]} ${p[1] - 8}v16`, stroke: '#eef5fb', 'stroke-width': 1.6 });
+    el(svg, 'circle', { cx: p[0], cy: p[1], r: 4.5, fill: 'none', stroke: '#eef5fb', 'stroke-width': 1.4 });
+    const t = el(svg, 'text', { x: p[0] + dx, y: p[1] + dy, fill: '#eef5fb', 'font-size': 13, 'font-weight': 600 }); t.textContent = label;
+  }
+  const t = el(svg, 'text', { x: S[0] - 60, y: S[1] + 42, fill: '#5cd9bb', 'font-size': 12.5 }); t.textContent = 'CBUSH · K 1e5 N/mm';
+  const a = P([93, 50, 74]), t2 = el(svg, 'text', { x: a[0] - 70, y: a[1] - 14, fill: '#f0a94b', 'font-size': 12.5 }); t2.textContent = 'Motor FL pattern · 48 nodes';
+  const g = P([125 + 12, 40, 52]), t3 = el(svg, 'text', { x: g[0] + 10, y: g[1], fill: '#8594a7', 'font-size': 12.5 }); t3.textContent = 'wheel FL (instance)';
+  // The viewport starts at (280, 88) in the frame and its viewBox is drawn 1:1.
+  const co = document.getElementById('coB3'); co.dataset.px = 280 + R[0] - 150; co.dataset.py = 88 + R[1] + 60;
+})();
+
+// ---- Screen C: von Mises contours on the shells, bushings grey, payload RBE3 lines.
+(function () {
+  const svg = document.getElementById('sceneC'), w = 714, h = 610;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const P = view(1.2, w / 2 + 10, h / 2 + 20, [0, 0, 80]);
+  const bump = (p, c, s) => Math.exp(-((p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2) / s);
+  const field = p => 0.06 + 0.9 * Math.max(...[[40, 30], [40, -30], [-40, 30], [-40, -30]].map(([x, y]) => bump(p, [x, y, FLOOR], 260)))
+    + 0.35 * Math.max(...BRACES.map(b => bump(p, b[0], 500))) + 0.22 * Math.max(bump(p, [H, 68, 52], 300), bump(p, [H, -68, 52], 300), bump(p, [-H, 68, 52], 300), bump(p, [-H, -68, 52], 300));
+  const look = { line: '#0c1118', lineAlpha: 0.55, lw: 0.4, field, wall: {}, floor: {}, brace: {} };
+  const wheelLook = { rim: colormap(0.05), web: colormap(0.1), line: '#0c1118' };
+  wheel(svg, P, -125, -68, wheelLook);
+  wheel(svg, P, -125, 68, wheelLook);
+  chassis(svg, P, look);
+  // CBUSH: no von Mises in this family, drawn grey.
+  for (const [x, y] of [[H, 68], [H, -68], [-H, 68], [-H, -68]]) {
+    const a = P([x, y, 52]), b = P([x + Math.sign(x) * 20, y, 52]);
+    el(svg, 'line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: '#8a94a3', 'stroke-width': 4, 'stroke-linecap': 'round' });
+  }
+  wheel(svg, P, 125, -68, wheelLook);
+  wheel(svg, P, 125, 68, wheelLook);
+  // Payload: RBE3 from four floor holes to the CONM2 200 mm above the floor.
+  const pay = P([0, 0, 227]);
+  for (const [x, y] of [[40, 30], [40, -30], [-40, 30], [-40, -30]]) { const p = P([x, y, FLOOR]); el(svg, 'line', { x1: p[0], y1: p[1], x2: pay[0], y2: pay[1], stroke: '#d9b25c', 'stroke-width': 1.6, 'stroke-opacity': 0.75 }); }
+  el(svg, 'circle', { cx: pay[0], cy: pay[1], r: 6, fill: '#d9b25c33', stroke: '#d9b25c', 'stroke-width': 1.6 });
+  const t = el(svg, 'text', { x: pay[0] + 12, y: pay[1] + 4, fill: '#d9b25c', 'font-size': 11.5 }); t.textContent = 'Payload 1 kg · RBE3';
+  const q = P([40, 30, FLOOR]); el(svg, 'circle', { cx: q[0], cy: q[1], r: 5, fill: 'none', stroke: '#fff', 'stroke-width': 1.5 });
+  const probe = document.getElementById('probeC'); probe.style.left = `${q[0] + 14}px`; probe.style.top = `${q[1] - 48}px`;
+})();
+
+// ---- Screen D: the revised chassis, its rear-right motor holes 30 mm along the wall; old outline dashed, candidate solid.
+(function () {
+  const svg = document.getElementById('sceneD'), w = 800, h = 610;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const P = view(2.6, w / 2, h / 2 + 20, [93, 0, 56]);
+  const moved = motorHoles(1, -1).map(hole => ({ ...hole, c: [hole.c[0], hole.c[1] + 30, hole.c[2]] }));
+  const rightHoles = [...motorHoles(1, 1), ...moved, { c: [H, 0, 66], r: 13, u: Y, v: Z }];
+  chassis(svg, P, { line: '#9fb0c4', lineAlpha: 0.3, lw: 0.55, rightHoles,
+    wall: { fill: '#3e4c6a' }, floor: { fill: '#565d3c' }, brace: { fill: '#6c3c58' } });
+  const ring = (hole, r, attrs) => el(svg, 'polygon', { points: pts(P, circle(hole.c, r, hole.u, hole.v, 32)), fill: 'none', ...attrs });
+  // Motor FL: exact.
+  for (const hole of motorHoles(1, 1)) ring(hole, hole.r + 1.6, { stroke: '#5cd9bb', 'stroke-width': 2 });
+  // Motor RR: the anchor's outline where the holes were, and the candidate where they are now.
+  for (const hole of motorHoles(1, -1)) ring(hole, hole.r, { stroke: '#f0a94b', 'stroke-width': 1.8, 'stroke-dasharray': '4 3' });
+  for (const hole of moved) ring(hole, hole.r + 1.6, { stroke: '#5cd9bb', 'stroke-width': 2.2 });
+  // An arrow from the old pattern centre to the candidate's, stopping short of both.
+  const from = P([H, -64, 52]), to = P([H, -42, 52]), dx = to[0] - from[0], dy = to[1] - from[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+  el(svg, 'line', { x1: from[0], y1: from[1], x2: to[0], y2: to[1], stroke: '#f0a94b', 'stroke-width': 1.6, 'stroke-dasharray': '3 3' });
+  el(svg, 'path', { d: `M${to[0] - 8 * ux - 5 * uy} ${to[1] - 8 * uy + 5 * ux}L${to[0]} ${to[1]}L${to[0] - 8 * ux + 5 * uy} ${to[1] - 8 * uy - 5 * ux}`, fill: 'none', stroke: '#f0a94b', 'stroke-width': 1.6 });
+  const label = (p, text, fill, dx, dy, weight = 500) => { const t = el(svg, 'text', { x: p[0] + dx, y: p[1] + dy, fill, 'font-size': 12.5, 'font-weight': weight }); t.textContent = text; };
+  const fl = P([H, 68, 40]); label(fl, 'Motor FL pattern · exact', '#5cd9bb', -80, 34, 600);
+  const rrOld = P([H, -78, 62]); label(rrOld, 'Motor RR · original outline (anchor)', '#f0a94b', -60, -22, 600);
+  const rrNew = P([H, -28, 42]); label(rrNew, 'candidate · same radius and spacing · 30 mm along', '#5cd9bb', -150, 34);
+  const co = document.getElementById('coD3'); co.dataset.px = 280 + rrOld[0] - 92; co.dataset.py = 88 + rrOld[1] - 40;
+})();
+
+// Number callouts sit beside what they describe: after it, straddling its left border, or at a tree row's end.
+function placeCallouts(frame) {
+  const fr = frame.getBoundingClientRect();
+  for (const co of frame.querySelectorAll('.co')) {
+    let x, y;
+    if (co.dataset.side === 'point') { x = +co.dataset.px; y = +co.dataset.py; }
+    else {
+      const a = frame.querySelector(co.dataset.at); if (!a) continue;
+      const r = a.getBoundingClientRect(), left = r.left - fr.left, top = r.top - fr.top, right = r.right - fr.left;
+      y = top + Math.min(r.height, 40) / 2 - 12;
+      if (co.dataset.side === 'after') x = right + 8;
+      else if (co.dataset.side === 'before') { x = left - 12; y = top + 8; }
+      else if (co.dataset.side === 'above') { x = left + r.width / 2 - 12; y = top - 30; }
+      else x = right + 6;
+    }
+    co.style.left = `${x}px`; co.style.top = `${y}px`;
+  }
+}
+const only = new URLSearchParams(location.search).get('only');
+if (only) {
+  document.body.classList.add('only');
+  for (const screen of document.querySelectorAll('.screen')) screen.hidden = !screen.querySelector(`#frame${only}`);
+}
+// Fit each 1440 × 900 frame to the page width.
+function fit() {
+  for (const frame of document.querySelectorAll('.frame')) {
+    const box = frame.parentElement, s = Math.min(1, box.clientWidth / 1440);
+    frame.style.transform = 'none'; placeCallouts(frame);
+    frame.style.transform = `scale(${s})`; box.style.height = `${900 * s}px`;
+  }
+}
+addEventListener('resize', fit); fit();
+</script>
+</body>
+</html>
