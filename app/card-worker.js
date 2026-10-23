@@ -8210,7 +8210,7 @@ function handleWriteRequest(msg) {
     const name = toUpper(cardName).replace(/\*$/, '');
     if (name === 'GRID') return 'nodes';
     if (name === 'CORD1R' || name === 'CORD1C' || name === 'CORD2R' || name === 'CORD2C' || name === 'CORD2S') return 'coords';
-    if (name === 'CTRIA3' || name === 'CQUAD4' || name === 'CTETRA' || name === 'CHEXA' || name === 'CPENTA' || name === 'CPYRAM' || name === 'CROD' || name === 'CBAR' || name === 'CBEAM' || name === 'CBUSH' || name === 'RBE2' || name === 'RBE3') return 'elements';
+    if (name === 'CTRIA3' || name === 'CTRIA6' || name === 'CQUAD4' || name === 'CQUAD8' || name === 'CTETRA' || name === 'CHEXA' || name === 'CPENTA' || name === 'CPYRAM' || name === 'CROD' || name === 'CBAR' || name === 'CBEAM' || name === 'CBUSH' || name === 'RBE2' || name === 'RBE3') return 'elements';
     if (name === 'PSHELL' || name === 'PSOLID' || name === 'PROD' || name === 'PBAR' || name === 'PBUSH' || name === 'PBEAM' || name === 'PCOMP') return 'properties';
     if (name === 'MAT1') return 'materials';
     if (name === 'CONM2') return 'masses';
@@ -9631,6 +9631,19 @@ function handleWriteRequest(msg) {
     return asIntToken(v);
   };
 
+  const tryWriteQuadraticShellFromIndexes = (rec) => {
+    const type = toUpper(rec.name), count = type === 'CTRIA6' ? 6 : type === 'CQUAD8' ? 8 : 0;
+    if (!count) return null;
+    const elem = getElementForRecord(rec, type);
+    if (!elem || !Array.isArray(elem.nids) || elem.nids.length !== count) return null;
+    const values = [elem.eid, elem.pid, ...elem.nids].map(parseNastranInt);
+    if (!values.every(Number.isFinite)) return null;
+    // Regenerate connectivity from authority, preserving optional shell fields
+    // in the synchronized source tokens until their semantic editor exists.
+    const tail = getHydrationTokens(rec).slice(3 + count);
+    return writeCardByTokensWithFormat(rec, [type, ...values.map(asIntToken), ...tail]);
+  };
+
   const tryWriteCtria3FromIndexes = (rec) => {
     const elem = getElementForRecord(rec, 'CTRIA3');
     if (!elem || !Array.isArray(elem.nids) || elem.nids.length !== 3) return null;
@@ -10418,6 +10431,9 @@ function handleWriteRequest(msg) {
           continue;
         }
 
+        const quadraticShellLines = tryWriteQuadraticShellFromIndexes(rec);
+        if (quadraticShellLines) { outLines.push(...quadraticShellLines); continue; }
+
         const ctria3Lines = tryWriteCtria3FromIndexes(rec);
         if (ctria3Lines) {
           outLines.push(...ctria3Lines);
@@ -10534,7 +10550,7 @@ function handleWriteRequest(msg) {
         const forceStrictWriterCards = new Set([
           'GRID', 'CORD1R', 'CORD1C', 'CORD2R', 'CORD2C', 'CORD2S',
           'PBAR', 'PBUSH', 'PBEAM', 'PCOMP', 'LOAD', 'FORCE', 'MOMENT', 'PLOAD2', 'PLOAD4', 'RBE2', 'RBE3',
-          'CROD', 'CBAR', 'CBEAM', 'CBUSH', 'CTETRA', 'CHEXA', 'CPENTA', 'CPYRAM', 'CTRIA3', 'CQUAD4',
+          'CROD', 'CBAR', 'CBEAM', 'CBUSH', 'CTETRA', 'CHEXA', 'CPENTA', 'CPYRAM', 'CTRIA3', 'CTRIA6', 'CQUAD4', 'CQUAD8',
           'PSHELL', 'PSOLID', 'PROD', 'MAT1', 'CONM2', 'SPC', 'SPC1'
         ]);
 

@@ -48,6 +48,7 @@
   const tool = (key,title,subtitle,name) => `<button class="wb-tool-card" data-tool="${key}">${icon(name)}<span><strong>${title}</strong><small>${subtitle}</small></span></button>`;
   let activeTab = 'build', primitive = 'block', patternKind = 'linear', preview = null, busy = false;
   let projectName = 'Untitled model', historyItems = [], moved = [], lastState = '', operationRevision = 0;
+  let editingPlate = null, pendingProject = null;
   const savedForms = new Map();
   const formKey = () => activeTab+':'+(activeTab==='build'?primitive:activeTab==='pattern'?patternKind:'');
   function rememberForm() {savedForms.set(formKey(),Object.fromEntries(Array.from($('wb-panel-body').querySelectorAll('[data-key]'),el=>[el.dataset.key,el.type==='checkbox'?el.checked:el.value])));}
@@ -143,9 +144,10 @@
     if(activeTab==='build') {
       const options=[['block','Block','cube'],['plate','Plate','plate'],['cylinder','Cylinder','cylinder'],['annulus','Annulus','ring']];
       html=section('Primitive',`<div class="wb-primitive-grid">${options.map(([id,label,name])=>`<button class="wb-primitive ${primitive===id?'active':''}" data-primitive="${id}">${icon(name)}${label}</button>`).join('')}</div>`);
+      if(primitive==='plate')html+=editingPlate?`<div class="wb-report">Editing an existing plate. Changes stay in this form until applied.</div>${button('wb-new-plate','Create another plate',null,'ghost')}${button('wb-convert-plate','Convert to plain cards',null,'ghost')}`:select('authoring','Authoring',[['editable','Editable project object'],['plain','Plain solver cards']],'editable');
       html+=section('Geometry',field('name','Name',`${primitive[0].toUpperCase()+primitive.slice(1)} ${historyItems.length+1}`,'text')+(['block','plate'].includes(primitive)?vector('size','Size',[100,60,primitive==='block'?20:0]):`${field('radius','Outer radius',30)}${primitive==='annulus'?field('innerRadius','Inner radius',15):field('length','Length',80)}${primitive==='annulus'?field('length','Depth',20):''}`)+vector('origin','Origin',[0,0,0]),'model units');
       html+=section('Mesh definition',select('topology','Element topology',topologyOptions(primitive),topologyOptions(primitive)[0][0])+select('order','Element order',[[1,'First order · linear'],[2,'Second order · quadratic']],1)+(['block','plate'].includes(primitive)?vector('divisions','Divisions',[10,6,primitive==='block'?2:1],['U','V','W']):`<div class="wb-two">${field('segments','Circumferential',24,'number','min="4" step="1"')}${field('radialDivisions','Radial divisions',3,'number','min="1" step="1"')}</div>${field('axialDivisions','Axial divisions (solid or cylinder)',8,'number','min="1" step="1"')}`));
-      html+=`<details class="wb-section"><summary class="wb-section-title">Material &amp; section</summary>${field('E','Young’s modulus',210000)}${field('nu','Poisson’s ratio',0.3)}${field('rho','Density',7.85e-9)}${field('thickness','Shell thickness',1)}<div class="wb-footnote">Creates a new property and material. Use consistent units.</div></details><div id="wb-report"></div>`;
+      html+=`<details class="wb-section"><summary class="wb-section-title">Material &amp; section</summary>${field('E','Young’s modulus',210000)}${field('nu','Poisson’s ratio',0.3)}${field('rho','Density',7.85e-9)}${field('thickness','Shell thickness',1)}<div class="wb-footnote">${editingPlate?'Edits this plate’s material and section.':'Creates a new property and material.'} Use consistent units.</div></details><div id="wb-report"></div>`;
       foot=`<div id="wb-preview-info" class="wb-preview-info">Conforming, connected elements</div>${button('wb-preview','Preview mesh','eye')}${button('wb-create','Add to model','plus','primary')}`;
     } else if(activeTab==='mesh') {
       const view=cadWorkspace.render();html=view.body;foot=view.foot;
@@ -179,6 +181,11 @@
     const saved=savedForms.get(formKey());if(saved){for(const el of $('wb-panel-body').querySelectorAll('[data-key]'))if(Object.hasOwn(saved,el.dataset.key))el.value=saved[el.dataset.key];}
     if(activeTab==='mesh')cadWorkspace.bind();
     if(activeTab==='pattern'&&patternKind==='bolts')boltWorkspace.bind();
+    if(activeTab==='build'&&primitive==='plate'){
+      if(editingPlate)$('wb-panel-head').innerHTML='<div class="wb-eyebrow">PROJECT OBJECT</div><h2>Edit plate</h2><p>Geometry, mesh, material and section.</p>';
+      for(const key of ['size2','divisions2'])$('wb-panel-body').querySelector(`[data-key="${key}"]`).readOnly=true;
+      updatePlateAction();
+    }
     bindPanel();
     if(activeTab==='mesh')checkBridge();
     syncUndoButtons();
@@ -199,11 +206,50 @@
     engine().previewMesh?.(mesh);return mesh;
   }
   async function addPrimitive() {
+    if(isEditablePlate()){const built=plateCandidate();await reviewProject(built.request,{mesh:built.mesh,newMeshIdentity:built.newMeshIdentity,owner:built.request.objects.at(-1).id});return;}
     const mesh=modeling().createPrimitive(primitiveOptions());mesh.name=get('name')||primitive;
     const ids=engine().getNextIds();
     await engine().appendMesh(mesh,{material:{id:ids.material,E:num('E'),nu:num('nu'),rho:num('rho')},thickness:num('thickness')});
     preview=null;engine().previewMesh?.(null);engine().fitView?.();
     logOperation(`Created ${mesh.name}`);message(`Added ${mesh.elements.length.toLocaleString()} elements to the model.`);
+  }
+  function isEditablePlate(){return primitive==='plate'&&(editingPlate||get('authoring')!=='plain');}
+  function updatePlateAction(){if($('wb-create'))$('wb-create').textContent=isEditablePlate()?'Review changes':'Add to model';}
+  function plateCandidate(){
+    return window.WebMeshPrimitiveProject.build({id:editingPlate||'plate-'+crypto.randomUUID(),name:get('name'),parameters:{size:vec('size'),origin:vec('origin'),divisions:vec('divisions'),topology:get('topology'),order:num('order')},thickness:num('thickness'),material:{E:num('E'),nu:num('nu'),rho:num('rho')}},engine().getProjectOwnership(),engine().getNextIds());
+  }
+  function checkBadge(check){return check?`<span class="wb-check ${esc(check.status)}" title="${esc(check.reason)}">${esc(check.status)}</span>`:'';}
+  function ownerButton(id){const object=engine().getProjectSummary().objects.find(o=>o.id===id);return `<button class="wb-owner-link" data-owner-edit="${esc(id)}">Edit owner: ${esc(object?.name||id)}</button>`;}
+  function bindOwnerButtons(container){container.querySelectorAll('[data-owner-edit]').forEach(el=>el.onclick=()=>openProjectOwner(el.dataset.ownerEdit));}
+  function selectionOwners(selection){
+    const found=new Map();for(const [ns,ids] of [['node',selection.nodes],['element',selection.elems||selection.elements],['property',selection.props]])for(const id of ids||[]){const owner=engine().getCardOwner?.(ns,id);if(owner)found.set(owner.id,owner);}return [...found.values()];
+  }
+  function checksHtml(checks){return `<ul class="wb-project-checks">${checks.map(c=>`<li>${checkBadge(c)} <strong>${esc(c.name)}</strong><p>${esc(c.reason)}</p>${c.status==='invalid'?ownerButton(c.id):''}</li>`).join('')}</ul>`;}
+  function openProjectOwner(id){
+    if(busy)return;
+    const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    const root=window.WebMeshPrimitiveProject.rootFor(state,id);
+    if(!root){dialog(object.name,`<p>${esc(object.kind)} · ${state.owners.filter(o=>o.owner===id).length} generated cards</p><p>Depends on: ${esc(object.dependsOn.map(dep=>state.project.objects.find(o=>o.id===dep)?.name||dep).join(', ')||'None')}</p>${checksHtml(engine().getProjectSummary().checks.filter(c=>c.id===id))}<p>This object has no parameter editor yet.</p>`);return;}
+    setTab('build');primitive='plate';editingPlate=root.id;
+    const input=window.WebMeshPrimitiveProject.inputs(state,id),values={name:input.name,thickness:input.thickness,...input.material,topology:input.parameters.topology,order:input.parameters.order};
+    for(const key of ['size','origin','divisions'])input.parameters[key].forEach((v,i)=>values[key+i]=v);
+    savedForms.set('build:plate',values);renderPanel();
+    if(id!==root.id){$('wb-panel-body').querySelector('details.wb-section').open=true;const el=$('wb-panel-body').querySelector(`[data-key="${id===root.definition.section?'thickness':'E'}"]`);el.focus();el.scrollIntoView({block:'center'});}
+  }
+  async function reviewProject(request,{mesh,newMeshIdentity=false,owner}={}){
+    const candidate=await engine().previewProjectChange(request),report=candidate.preview();
+    const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
+    const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
+    const affected=report.project.checks.filter(c=>report.project.affected.includes(c.id)),blocked=affected.some(c=>c.status==='invalid');
+    const value=v=>v===undefined?'—':JSON.stringify(v);
+    const diff=changes=>changes.map(c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<details class="wb-card-diff"><summary>${esc(c.key)} · ${esc(c.action)}</summary><table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table></details>`;}).join('');
+    dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?[...groups].map(([id,changes])=>`<details class="wb-owner-diff"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary>${diff(changes)}</details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?'<h3>Affected project checks</h3>'+checksHtml(affected):''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    pendingProject=candidate;bindOwnerButtons($('wb-dialog-body'));if(mesh)previewInfo(mesh);
+    $('wb-apply-project').disabled=blocked;
+    $('wb-discard-project').onclick=()=>{closeDialog();message('Changes discarded. The model is unchanged.');};
+    // The review is modal and commit is synchronous. Keep errors in the dialog,
+    // including a stale candidate after an intervening model operation.
+    $('wb-apply-project').onclick=()=>{if(busy||blocked)return;try{candidate.commit();pendingProject=null;closeDialog();invalidatePreview();engine().fitView?.();logOperation(request.label);message(report.changes.length||report.ownershipChanges.length?request.label+' applied.':'Already up to date.');if(owner)openProjectOwner(owner);else{editingPlate=null;savedForms.delete('build:plate');renderPanel();}refresh(true);}catch(error){$('wb-project-error').textContent=error.message;}};
   }
   function patternMesh() {
     const source=engine().getMesh({selectedOnly:get('scope')==='selected'});
@@ -218,9 +264,12 @@
   }
   function bindPanel() {
     $('wb-bolt-tool')?.addEventListener('click',()=>{if(!busy){patternKind='bolts';setTab('pattern');}});
-    document.querySelectorAll('[data-primitive]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();primitive=el.dataset.primitive;invalidatePreview();renderPanel();});
+    document.querySelectorAll('[data-primitive]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();if(editingPlate){savedForms.delete('build:plate');editingPlate=null;}primitive=el.dataset.primitive;invalidatePreview();renderPanel();});
     document.querySelectorAll('[data-pattern]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();patternKind=el.dataset.pattern;invalidatePreview();renderPanel();});
-    $('wb-preview')?.addEventListener('click',()=>run(()=>{preview=previewInfo(modeling().createPrimitive(primitiveOptions()));message('Mesh preview ready. Add it to commit the operation.');}));
+    $('wb-preview')?.addEventListener('click',()=>run(()=>{preview=previewInfo(isEditablePlate()?plateCandidate().mesh:modeling().createPrimitive(primitiveOptions()));message('Mesh preview ready. Add it to commit the operation.');}));
+    $('wb-new-plate')?.addEventListener('click',()=>{editingPlate=null;savedForms.delete('build:plate');invalidatePreview();renderPanel();});
+    $('wb-convert-plate')?.addEventListener('click',()=>run(()=>reviewProject(window.WebMeshPrimitiveProject.conversion(engine().getProjectOwnership(),editingPlate))));
+    $('wb-panel-body').querySelector('[data-key="authoring"]')?.addEventListener('change',updatePlateAction);
     $('wb-create')?.addEventListener('click',()=>run(addPrimitive));
     $('wb-preview-pattern')?.addEventListener('click',()=>run(()=>{preview=patternMesh();const info=$('wb-preview-info');if(info)info.textContent=`${preview.nodes.length} new nodes · ${preview.elements.length} new elements`;engine().previewMesh?.({...preview,nodes:[...engine().getMesh({selectedOnly:false}).nodes,...preview.nodes]});message('Pattern preview ready.');}));
     $('wb-apply-pattern')?.addEventListener('click',()=>run(async()=>{const mesh=patternMesh();await engine().appendMesh(mesh);engine().previewMesh?.(null);preview=null;engine().fitView?.();logOperation(`Created ${patternKind} pattern`);message(`Added ${mesh.elements.length.toLocaleString()} patterned elements.`);}));
@@ -260,6 +309,7 @@
   }
 
   function closeDialog() {
+    if(pendingProject){pendingProject.discard();pendingProject=null;invalidatePreview();}
     engine()?.closeTool?.();
     for(const {node,marker,classes} of moved){marker.replaceWith(node);node.className=classes;}moved=[];
     $('wb-dialog').close();if(activeTab==='mesh')cadWorkspace.activate(true);
@@ -277,7 +327,7 @@
     const cards={results:['resultsCard','Results & load contours'],selection:['selectionCard','Selection & entity details'],display:[['inspectDisplayCard','inspectVisibilityCard','inspectClippingCard','inspectLabelsCard'],'Display, visibility & section view'],measure:['inspectMeasureCard','Measurements'],file:['inspectFileCard','Open model & results'],transform:['transformToolsCard','Transform mesh'],csv:['selectionCard','Spreadsheet exchange']};
     const schema={material:'MAT1',property:'PSHELL',load:'FORCE',constraint:'SPC1',coordinate:'CORD2R',cards:'GRID',element:'CQUAD4'};
     if(schema[key]){mountLegacy('schemaCreateCardPanel',`${{material:'Material',property:'Property',load:'Load',constraint:'Constraint',coordinate:'Coordinate system',cards:'Node',element:'Element'}[key]}`);await engine()?.editCard?.(schema[key],'create');return;}
-    if(key==='modify'){const selected=engine().getMesh({selectedOnly:true});mountLegacy('schemaEditCardPanel','Modify entity');await engine()?.editCard?.(selected.elements[0]?.type||'GRID','modify');return;}
+    if(key==='modify'){const owners=selectionOwners(engine().getState().selection||{});if(owners.length){if(owners.length===1)openProjectOwner(owners[0].id);else{dialog('Selected project owners',owners.map(o=>ownerButton(o.id)).join(''));bindOwnerButtons($('wb-dialog-body'));}return;}const selected=engine().getMesh({selectedOnly:true});mountLegacy('schemaEditCardPanel','Modify entity');await engine()?.editCard?.(selected.elements[0]?.type||'GRID','modify');return;}
     const card=cards[key];if(card){
       if(!$(card[0])){
         const alternatives={measure:['measureCard'],transform:['meshToolsCard','modifyMeshCard','transformCard'],csv:['csvExchangeCard','inspectCsvCard','spreadsheetCard']};
@@ -294,14 +344,17 @@
     const properties=Array.isArray(state.properties)?state.properties:[],materials=Array.isArray(state.materials)?state.materials:[];
     const nodes=Number(counts.nodes)||0,elements=Number(counts.elements)||0;
     const selection=state.selection||{},selectedNodes=selection.nodes||[],selectedElements=selection.elems||selection.elements||[];
-    const key=JSON.stringify([nodes,elements,properties.length,materials.length,selectedNodes.length,selectedElements.length,state.history]);if(key===lastState&&!force)return;lastState=key;
+    const project=engine().getProjectSummary?.()||{objects:[],checks:[]};
+    const key=JSON.stringify([nodes,elements,properties,materials,selection,project,state.history]);if(key===lastState&&!force)return;lastState=key;
     $('wb-nodes').textContent=nodes.toLocaleString();$('wb-elements').textContent=elements.toLocaleString();$('wb-properties').textContent=properties.length;$('wb-materials').textContent=materials.length;
     $('wb-empty').style.display=nodes||elements||preview||cadWorkspace.hasGeometry()?'none':'flex';
     $('wb-selection-info').innerHTML=selectedNodes.length||selectedElements.length?`${selectedNodes.length.toLocaleString()} nodes · ${selectedElements.length.toLocaleString()} elements selected<br><span style="color:#5cd9bb">Ready to inspect or pattern.</span>`:'Click an entity to inspect it.<br>Alt + drag to select a region.';
+    $('wb-selection-info').innerHTML+=selectionOwners(selection).map(o=>ownerButton(o.id)).join('');bindOwnerButtons($('wb-selection-info'));
     const rows=[['cube','Elements',elements,'selection'],['node','Nodes',nodes,'selection'],['plate','Properties',properties.length,'property'],['material','Materials',materials.length,'material'],['load','Loads',counts.loads||0,'load'],['lock','Constraints',counts.constraints||0,'constraint']];
-    $('wb-tree').innerHTML=rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
+    $('wb-tree').innerHTML=(project.objects.length?'<div class="wb-tree-label">Project objects</div>'+project.objects.map(o=>`<button class="wb-tree-row wb-owner-row" data-owner-edit="${esc(o.id)}"><span>${esc(o.name)} <small>${esc(o.kind)} · ${o.cards} card${o.cards===1?'':'s'}</small></span>${checkBadge(project.checks.find(c=>c.id===o.id))}</button>`).join('')+'<div class="wb-tree-label">Solver cards</div>':'')+rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
+    bindOwnerButtons($('wb-tree'));filterTree();
     $('wb-tree').querySelectorAll('[data-outline-tool]').forEach(el=>el.onclick=()=>openTool(el.dataset.outlineTool));
-    $('wb-tree').querySelectorAll('[data-property-id]').forEach(el=>el.onclick=async()=>{if(busy)return;const id=Number(el.dataset.propertyId),property=properties.find(p=>Number(p.id??p.pid)===id);engine().select?.({props:[id],mode:'property'});mountLegacy('schemaEditCardPanel',`Property ${id}`);try{await engine().editCard(property.type,'modify');}catch(error){message(error.message,true);}});
+    $('wb-tree').querySelectorAll('[data-property-id]').forEach(el=>el.onclick=async()=>{if(busy)return;const id=Number(el.dataset.propertyId),property=properties.find(p=>Number(p.id??p.pid)===id);engine().select?.({props:[id],mode:'property'});const owner=engine().getCardOwner?.('property',id);if(owner){openProjectOwner(owner.id);return;}mountLegacy('schemaEditCardPanel',`Property ${id}`);try{await engine().editCard(property.type,'modify');}catch(error){message(error.message,true);}});
     syncUndoButtons();
   }
   function download(text,filename,type='text/plain') {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
@@ -338,9 +391,9 @@
   $('wb-dialog-body').addEventListener('click',event=>{
     if(busy)return;
     if(event.target.closest('#wb-save-before-new'))run(saveProject);
-    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();cadWorkspace.clear();historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');renderPanel();refresh(true);}
+    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();cadWorkspace.clear();editingPlate=null;savedForms.delete('build:plate');historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');renderPanel();refresh(true);}
   });
-  $('wb-export').onclick=()=>run(async()=>{download(await engine().exportDeck(),projectName.replace(/[^\w.-]+/g,'_')+'.bdf');message('Nastran deck exported.');});
+  $('wb-export').onclick=()=>run(async()=>{const checks=engine().getProjectSummary().checks.filter(c=>c.status==='invalid');if(checks.length){dialog('Resolve project checks before export',checksHtml(checks)+'<p>You can still save the editable project.</p>');bindOwnerButtons($('wb-dialog-body'));return;}download(await engine().exportDeck(),projectName.replace(/[^\w.-]+/g,'_')+'.bdf');message('Nastran deck exported.');});
   $('wb-save').onclick=()=>run(saveProject);
   $('wb-project-file').onchange=event=>run(async()=>{
     const file=event.target.files[0];event.target.value='';if(!file)return;
@@ -372,8 +425,9 @@
     if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)||$('wb-dialog').open)return;
     if(event.key.toLowerCase()==='f'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();$('btnReset').click();}
   });
-  window.addEventListener('webmesh:change',()=>{operationRevision++;refresh(true);});
-  $('wb-tree-filter').addEventListener('input',event=>{const term=event.target.value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));});
+  window.addEventListener('webmesh:change',event=>{operationRevision++;if(['load','undo','redo'].includes(event.detail?.reason)){editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
+  function filterTree(){const term=$('wb-tree-filter').value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));}
+  $('wb-tree-filter').addEventListener('input',filterTree);
   window.WebMeshWorkbench={setTab,openTool,refresh,cad:cadWorkspace,example:()=>run(example)};
   $('wb-panel-body').addEventListener('input',invalidatePreview);
   $('flyoutCloseBtn').click();nameProject('Untitled model');

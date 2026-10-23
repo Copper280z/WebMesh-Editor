@@ -57,6 +57,8 @@ Generated types are deliberately limited to validated fields of GRID, MAT1, PSHE
 
 ## Next milestone: an analyst-facing owned primitive
 
+Implemented in [Implementation 03: editable plate and owner inspector](implementation-03-owned-primitive.md). The scope below records the original handoff.
+
 1. Add a project-object tree and owner inspector for one primitive mesh, its material and section. Keep the existing tools available for hand cards.
 2. Adapt primitive generation to produce the supported specifications, allocating stable role blocks and retaining the original geometric parameters. Preview the card diff before commit. Reopening and regenerating an unchanged primitive must produce an empty diff.
 3. Route an owned-card selection to its inspector. Offer **Edit owner** and **Convert to plain cards**, with affected dependencies shown. Do not imply overrides/detachment exist until implemented.

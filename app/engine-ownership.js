@@ -8,7 +8,7 @@
   // Unknown hand-card references fail closed, rather than guessing from integers.
   const FORMAT = 'webmesh-engine-ownership';
   const families = { nodes: 'node', elems: 'element', masses: 'element', properties: 'property', materials: 'material', coords: 'coordinate' };
-  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri6', CQUAD4: 'quad', CQUAD8: 'quad8', CTETRA: 'tet', CHEXA: 'hex', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2' };
+  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2' };
   const known = new Set(('GRID CORD1R CORD1C CORD2R CORD2C CORD2S CTRIA3 CTRIA6 CQUAD4 CQUAD8 CTETRA CHEXA CPENTA CPYRAM CROD CBAR CBEAM CBUSH RBE2 RBE3 CONM2 PSHELL PSOLID PROD PBAR PBEAM PCOMP PBUSH MAT1 MAT8 FORCE MOMENT PLOAD2 PLOAD4 LOAD SPC SPC1 TEMP TEMPD ENDDATA').split(' '));
   known.add('CEND'); known.add('BEGIN BULK');
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -138,11 +138,34 @@
     }
     return { cards, refs, unsupported: [...unsupported].sort(), missing: refs.filter(ref => !cards.has(ref.to)) };
   }
+  function validateRigidDependents(semantic, owners) {
+    const occupied = new Map();
+    const occupy = (nid, components, label, reject) => {
+      for (const c of String(components || "")) {
+        const k = nid + ":" + c;
+        if (reject && occupied.has(k)) fail(label + ': GRID ' + nid + ' component ' + c + ' is already constrained or dependent (' + occupied.get(k) + ').');
+        occupied.set(k, label);
+      }
+    };
+    for (const [nid, n] of semantic.nodes) occupy(nid, n.ps, 'permanent GRID constraint', false);
+    for (const s of semantic.spc || []) occupy(s.g ?? s.nid, s.c ?? s.components, 'SPC ' + s.sid, false);
+    for (const s of semantic.spc1 || []) for (const nid of s.nodes) occupy(nid, s.components ?? s.c, 'SPC1 ' + s.sid, false);
+    const elements = Object.values(semantic.elems).flat();
+    for (const e of elements) {
+      if (e.type === 'RBE2' && !owners.has('element:' + e.eid)) for (const nid of e.deps || []) occupy(nid, e.cm, 'RBE2 ' + e.eid, false);
+      if (e.type === 'RBE3') {
+        if (e.um?.length) for (const pair of e.um) occupy(pair.gm, pair.cm, 'RBE3 ' + e.eid, false);
+        else occupy(e.refgrid ?? e.gn, e.refc ?? e.cm, 'RBE3 ' + e.eid, false);
+      }
+    }
+    for (const e of elements) if (e.type === 'RBE2' && owners.has('element:' + e.eid)) for (const nid of e.deps || []) occupy(nid, e.cm, 'RBE2 ' + e.eid, true);
+  }
   function empty() { return { format: FORMAT, version: 1, project: Project.create().snapshot(), owners: [] }; }
   function validate(state, semantic) {
     const s = state || empty();
     if (s.format !== FORMAT || s.version !== 1 || !Array.isArray(s.owners)) fail('Unsupported ownership snapshot.');
     const project = Project.restore(s.project), objects = new Map(project.snapshot().objects.map(o => [o.id, o]));
+    const definitions = new Map([...objects].map(([id,o]) => [id, new Map((o.definition.cards || []).map(c => [c.role,c]))]));
     const used = new Set(), roles = new Set(), all = semantic && rows(semantic);
     for (const entry of s.owners) {
       const object = objects.get(entry.owner); if (!object) fail('Unknown card owner: ' + entry.owner);
@@ -151,10 +174,10 @@
       roles.add(role); used.add(entry.key);
       const card = validateGenerated(entry.card, object.kind);
       if (entry.key !== key(card.family, card.id)) fail('Ownership key mismatch.');
-      const allocation = s.project.reservations.find(r => r.owner === entry.owner && r.role === entry.role && r.namespace === families[card.family]);
+      const allocation = s.project.reservations.find(r => r.owner === entry.owner && r.role === (entry.allocationRole || entry.role) && r.namespace === families[card.family]);
       if (!allocation || card.id < allocation.start || card.id > allocation.end) fail('Owned card has no matching ID reservation: ' + entry.key);
-      const definition = (object.definition.cards || []).find(c => c.role === entry.role);
-      if (!definition || !equal(validateGenerated(definition, object.kind), card)) fail('Generated card disagrees with owner definition: ' + entry.key);
+      const definition = definitions.get(object.id).get(entry.role);
+      if (!definition || definition.allocationRole !== entry.allocationRole || !equal(validateGenerated(definition, object.kind), card)) fail('Generated card disagrees with owner definition: ' + entry.key);
       if (all && !equal(all.get(entry.key), card)) fail(entry.key + ' is owned by ' + object.name + ' (' + entry.role + '). Edit its owner or explicitly convert the object to plain cards.');
     }
     for (const object of objects.values()) {
@@ -172,6 +195,7 @@
   function guard(state, before, after, opaque = []) {
     if (!state) return;
     validate(state, after);
+    validateRigidDependents(after, new Map(state.owners.map(e => [e.key,e])));
     const a = references(before, opaque), b = references(after, opaque);
     const removed = [...a.cards.keys()].filter(k => !b.cards.has(k));
     if (removed.length && b.unsupported.length) fail('Cannot prove references for ' + b.unsupported.join(', ') + '; removal is blocked.');
@@ -183,26 +207,42 @@
   }
   function preview(semantic, previous, request, opaque = []) {
     const state = copy(previous || empty()), project = validate(state, semantic);
-    const before = rows(semantic), after = copy(semantic), owners = new Map(state.owners.map(e => [e.key, e]));
+    const before = rows(semantic), after = copy(semantic), nextCards = new Map(before), owners = new Map(state.owners.map(e => [e.key, e]));
+    const previousByKey = new Map(owners), previousByRole = new Map(state.owners.map(e => [JSON.stringify([e.owner,e.role]),e]));
     const objects = request.objects || [], removed = request.removeObjects || [], converted = request.convertToPlain || [];
     const touched = [...objects.map(o => o.id), ...removed, ...converted];
     if (new Set(touched).size !== touched.length) fail('An object may be changed only once per transaction.');
     const tx = project.begin(request.label || 'Change project cards');
     for (const object of objects) tx.putObject(object);
+    for (const block of request.reservations || []) tx.reserveIds(block.owner, block.namespace, block.role, block.count, { start: block.start });
     for (const owner of [...removed, ...converted]) { if (!project.getObject(owner)) fail('Unknown owner: ' + owner); tx.removeObject(owner); }
-    for (const [k, entry] of owners) if (touched.includes(entry.owner)) { owners.delete(k); if (!converted.includes(entry.owner)) remove(after, k); }
+    for (const [k, entry] of owners) if (touched.includes(entry.owner)) { owners.delete(k); if (!converted.includes(entry.owner)) nextCards.delete(k); }
     for (const object of objects) {
       const roles = new Set();
       for (const spec of object.facts?.suspendedReason ? [] : object.definition?.cards || []) {
         const role = nonempty(spec.role); if (roles.has(role)) fail('Duplicate role: ' + role); roles.add(role);
-        const card = validateGenerated(spec, object.kind), k = key(card.family, card.id), old = state.owners.find(e => e.key === k);
+        const card = validateGenerated(spec, object.kind), k = key(card.family, card.id), old = previousByKey.get(k);
         if (owners.has(k) || before.has(k) && (!old || old.owner !== object.id || old.role !== role)) fail('Cannot replace or adopt another owner or hand card: ' + k);
-        const previousRole = state.owners.find(e => e.owner === object.id && e.role === role);
+        const previousRole = previousByRole.get(JSON.stringify([object.id,role]));
         if (previousRole && (previousRole.key !== k || previousRole.card.value.type !== card.value.type)) fail('Stable role cannot change card identity: ' + role);
-        tx.reserveIds(object.id, families[card.family], role, 1, { start: card.id });
-        put(after, card); owners.set(k, { key: k, owner: object.id, role, card });
+        if (spec.allocationRole) {
+          const block = (request.reservations || []).find(r => r.owner === object.id && r.namespace === families[card.family] && r.role === spec.allocationRole);
+          const previousBlock = state.project.reservations.find(r => r.owner === object.id && r.namespace === families[card.family] && r.role === spec.allocationRole);
+          const start = block?.start ?? previousBlock?.start, end = block ? block.start + block.count - 1 : previousBlock?.end;
+          if (!start || card.id < start || card.id > end) fail('Card is outside its reserved block: ' + k);
+        } else tx.reserveIds(object.id, families[card.family], role, 1, { start: card.id });
+        nextCards.set(k, card); owners.set(k, { key: k, owner: object.id, role, card, ...(spec.allocationRole ? { allocationRole: spec.allocationRole } : {}) });
       }
     }
+    for (const family of Object.keys(families)) {
+      if (family === 'elems') for (const bucket of Object.keys(after.elems)) after.elems[bucket] = [];
+      else after[family] = [];
+    }
+    for (const card of nextCards.values()) {
+      if (card.family === 'elems') (after.elems[card.bucket] ||= []).push(copy(card.value));
+      else after[card.family].push([card.id,copy(card.value)]);
+    }
+    for (const family of Object.keys(families)) if (family !== 'elems') after[family].sort((a,b)=>a[0]-b[0]);
     const affected = new Set(tx.preview().affected);
     for (const object of objects) if (affected.has(object.id)) tx.revalidate(object.id);
     const corePreview = tx.preview(); tx.commit();
@@ -211,12 +251,13 @@
     const index = references(after, opaque);
     if (index.unsupported.length) fail('Cannot prove references for ' + index.unsupported.join(', ') + '; project generation is blocked.');
     if (index.missing.length) fail('Dangling reference: ' + index.missing.map(r => r.from + ' → ' + r.to).join(', '));
+    validateRigidDependents(after, owners);
     for (const ref of index.refs) {
       const from = owners.get(ref.from), to = owners.get(ref.to);
       if (from && to && from.owner !== to.owner && !project.getObject(from.owner).dependsOn.includes(to.owner)) fail(from.owner + ' must declare dependency on ' + to.owner + '.');
     }
     const nextRows = rows(after), changes = [];
-    for (const k of new Set([...before.keys(), ...nextRows.keys()])) if (!equal(before.get(k), nextRows.get(k))) changes.push({ key: k, action: !before.has(k) ? 'add' : !nextRows.has(k) ? 'remove' : 'update', owner: owners.get(k)?.owner || state.owners.find(e => e.key === k)?.owner || null, before: before.get(k) || null, after: nextRows.get(k) || null });
+    for (const k of new Set([...before.keys(), ...nextRows.keys()])) if (!equal(before.get(k), nextRows.get(k))) changes.push({ key: k, action: !before.has(k) ? 'add' : !nextRows.has(k) ? 'remove' : 'update', owner: owners.get(k)?.owner || previousByKey.get(k)?.owner || null, before: before.get(k) || null, after: nextRows.get(k) || null });
     const previousOwners = new Map(state.owners.map(e => [e.key, { owner: e.owner, role: e.role }]));
     const nextOwners = new Map(next.owners.map(e => [e.key, { owner: e.owner, role: e.role }]));
     const ownershipChanges = [...new Set([...previousOwners.keys(), ...nextOwners.keys()])].filter(k => !equal(previousOwners.get(k), nextOwners.get(k))).map(k => ({ key: k, before: previousOwners.get(k) || null, after: nextOwners.get(k) || null }));

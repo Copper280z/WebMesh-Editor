@@ -28429,6 +28429,25 @@ ${formatRanges(v.ranges, 500)}`;
     }
   }
   // Project ownership adapter. Candidates keep detached data, never live model references.
+  var projectSummarySource = null, projectSummaryCache = { objects: [], checks: [] }, projectOwnerIndex = new Map();
+  function workbenchProjectSummary() {
+    if (!model.projectOwnership) return { objects: [], checks: [] };
+    if (projectSummarySource !== model.projectOwnership) {
+      projectSummarySource = model.projectOwnership;
+      const project = window.WebMeshProject.restore(model.projectOwnership.project);
+      projectOwnerIndex = new Map(model.projectOwnership.owners.map(entry => [entry.key, entry]));
+      const counts = new Map();
+      for (const entry of model.projectOwnership.owners) counts.set(entry.owner, (counts.get(entry.owner) || 0) + 1);
+      projectSummaryCache = { checks: project.checks(), objects: model.projectOwnership.project.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, dependsOn: o.dependsOn, generator: o.definition.generator || null, cards: counts.get(o.id) || 0 })) };
+    }
+    return structuredClone(projectSummaryCache);
+  }
+  function workbenchCardOwner(namespace, id) {
+    if (!model.projectOwnership) return null;
+    if (projectSummarySource !== model.projectOwnership) workbenchProjectSummary();
+    const entry = projectOwnerIndex.get(namespace + ":" + Number(id));
+    return entry ? { id: entry.owner, role: entry.role, key: entry.key } : null;
+  }
   function projectModelSignature() {
     return window.WebMeshOwnership.canonical({ semantic: window.WebMeshOwnership.snapshot(model), ownership: model.projectOwnership || null, revision: runtime.protocol.revision });
   }
@@ -28460,7 +28479,17 @@ ${formatRanges(v.ranges, 500)}`;
             syncWorkerFromEditorModel(w => warnings.push(w));
             if (warnings.length) throw Error("Card generation failed: " + warnings.map(w => typeof w === "string" ? w : w.message || JSON.stringify(w)).join("; "));
             adapter.validate(model.projectOwnership, adapter.snapshot(model));
+            // Retired mesh IDs must leave selection/visibility with the same
+            // undo entry, rather than presenting nonexistent entities to tools.
+            const elementIds = new Set(Object.values(model.elems).flat().map(e => e.eid));
+            for (const [field, ids] of [["nodes", model.nodes], ["elems", elementIds], ["props", model.properties]]) {
+              for (const id of selection[field] || []) if (!ids.has(id)) selection[field].delete(id);
+              for (const id of hidden[field] || []) if (!ids.has(id)) hidden[field].delete(id);
+            }
+            if (candidate.changes.some(c => c.action === "remove") && selectionManager.virtual) { selectionManager.virtual.elems = null; selectionManager.virtual.nodeSource = null; }
+            if (selectionManager.touch) selectionManager.touch();
             buildGeometries(true); refreshCounts(); populateModelTree();
+            updateSelectionVisual(); highlightSelectedElementVisual(); updateSelectionUI();
           }, { kind: "project-change", family: "mixed", summary: request.label || "Change project cards" });
           closed = true;
           return structuredClone({ changes: candidate.changes, ownershipChanges: candidate.ownershipChanges, project: candidate.project });
@@ -28540,10 +28569,11 @@ ${formatRanges(v.ranges, 500)}`;
     };
   }
   function workbenchNextIds() {
+    const reserved = namespace => (model.projectOwnership && model.projectOwnership.project.reservations || []).filter(r => r.namespace === namespace).map(r => r.end);
     const next = (ids) => { let max = 0; for (const id of ids) max = Math.max(max, Number(id) || 0); return max + 1; };
     return {
-      node: next(model.nodes.keys()), element: next([...getAllElementIds(), ...model.masses.keys()]),
-      property: next(model.properties.keys()), material: next(model.materials.keys())
+      node: next([...model.nodes.keys(), ...reserved("node")]), element: next([...getAllElementIds(), ...model.masses.keys(), ...reserved("element")]),
+      property: next([...model.properties.keys(), ...reserved("property")]), material: next([...model.materials.keys(), ...reserved("material")])
     };
   }
   function workbenchGetMesh({ selectedOnly = false } = {}) {
@@ -28872,6 +28902,8 @@ ${formatRanges(v.ranges, 500)}`;
   window.WebMeshAPI = Object.freeze({
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
     previewProjectChange: (request) => previewProjectChange(request),
+    getProjectSummary: () => workbenchProjectSummary(),
+    getCardOwner: (namespace, id) => workbenchCardOwner(namespace, id),
     getProjectOwnership: () => model.projectOwnership ? structuredClone(model.projectOwnership) : null,
     saveProjectModel: () => saveProjectModel(), loadProjectModel: (data, name) => loadProjectModel(data, name),
     bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner, removeMeshOwner: workbenchRemoveMeshOwner,

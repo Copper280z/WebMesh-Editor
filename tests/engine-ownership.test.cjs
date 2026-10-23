@@ -23,6 +23,7 @@ function fixture() {
     hidden: {}, selection: {}, selectionManager: {}, selectMode: 'node', currentElemInput: null,
     ensureRichEditableSemanticElementAuthority: async () => {},
     invalidateElementLookup() {}, buildGeometries() {}, refreshCounts() {}, rebuildLabels() {}, populateModelTree() {},
+    updateSelectionVisual() {}, highlightSelectedElementVisual() {}, updateSelectionUI() {},
     refreshTemperatureLoadSelector() {}, refreshContourFieldOptions() {}, statusMsg() {}, updateUndoRedoButtons() {},
     emitWorkbenchChange() {}, postSemanticWorkerSnapshot() {}, workbenchState() { return {}; }
   });
@@ -35,11 +36,11 @@ function fixture() {
   vm.runInContext(source.slice(bridge, source.indexOf('  // Small public bridge:', bridge)), c);
   return c;
 }
-async function exportParsed(c) {
+async function exportParsed(c, format='free') {
   const messages = [];
   const worker = vm.createContext({ Map, Set, self: { postMessage: m => messages.push(m) }, console, TextEncoder, TextDecoder, performance, setTimeout, clearTimeout });
   vm.runInContext(require('./helpers/worker-source.cjs'), worker);
-  worker.handleWriteRequest({ model: c.workerModel, options: { writeFormat: 'free' } });
+  worker.handleWriteRequest({ model: c.workerModel, options: { writeFormat: format } });
   const deck = messages.find(m => m.type === 'WRITE_COMPLETE').text;
   const result = await worker.parseDeckToCardStream(deck, 'ownership.bdf', {}, { strictMode: true, retainParseSession: true, retainSourceSession: false });
   assert.deepEqual(copy(result.errors), []);
@@ -238,4 +239,135 @@ test('legacy project loading retains the existing empty/invalid deck safeguard',
   const c=fixture();let loaded=false;c.loadFromText=async()=>{loaded=true;};
   await assert.rejects(c.loadProjectModel({deck:'not a deck'}),/no recognizable/);
   assert.equal(loaded,false);assert.equal(c.model.nodes.size,1);
+});
+
+const Plate = require('../app/primitive-project.js');
+const plateInput = () => ({ id:'plate', name:'Chassis', parameters:{size:[100,60,0],origin:[0,0,0],divisions:[4,3,1],topology:'quad',order:1}, thickness:2, material:{E:3500,nu:.36,rho:1.24e-9} });
+const nextPlateIds = {node:101,element:1,material:1,property:1};
+function platePreview(input=plateInput(), previous=null, semantic=O.snapshot(model())) {
+  return O.preview(semantic, previous, Plate.build(input,previous,nextPlateIds).request);
+}
+test('editable plate reserves exact blocks, restores inputs, and regenerates without changes', () => {
+  const a=platePreview();
+  assert.equal(a.ownership.project.reservations.length,4);
+  const block=a.ownership.project.reservations.find(r=>r.namespace==='node');assert.equal(block.end-block.start+1,20);
+  assert.equal(a.ownership.owners.length,34);
+  assert.deepEqual(Plate.inputs(a.ownership,'plate/section'),plateInput());
+  const b=platePreview(Plate.inputs(a.ownership,'plate'),a.ownership,a.semantic);
+  assert.deepEqual(b.changes,[]); assert.deepEqual(b.project.changes,[]);
+});
+test('plate geometry and material updates preserve mesh identity; section diff is explicit', () => {
+  const a=platePreview(), input=Plate.inputs(a.ownership,'plate');input.parameters.size[0]=130;input.thickness=3;input.material.E=4000;
+  const b=platePreview(input,a.ownership,a.semantic);
+  assert.deepEqual(b.ownership.owners.map(o=>o.key),a.ownership.owners.map(o=>o.key));
+  assert.equal(b.changes.find(c=>c.key==='property:1').before.value.t,2);
+  assert.equal(b.changes.find(c=>c.key==='property:1').after.value.t,3);
+  assert.ok(b.project.checks.every(c=>['ok','changed'].includes(c.status)));
+});
+for(const change of ['divisions','topology','order'])test('changing plate '+change+' creates fresh identities and protects existing node loads',()=>{
+  const a=platePreview(), input=Plate.inputs(a.ownership,'plate');
+  if(change==='divisions')input.parameters.divisions[0]=6;else input.parameters[change]=change==='topology'?'tri':2;
+  const b=platePreview(input,a.ownership,a.semantic);
+  const oldKeys=new Set(a.ownership.owners.filter(o=>o.owner==='plate').map(o=>o.key));
+  assert.ok(b.ownership.owners.filter(o=>o.owner==='plate').every(o=>!oldKeys.has(o.key)));
+  a.semantic.loads.force.push({sid:1,nid:101,mag:1,dir:[0,0,1],cid:0});
+  assert.throws(()=>platePreview(input,a.ownership,a.semantic),/Dangling reference/);
+});
+test('quadratic triangles round trip through actual writer/parser and project history',async()=>{
+  const c=fixture(), input=plateInput();input.parameters.topology='tri';input.parameters.order=2;
+  (await c.previewProjectChange(Plate.build(input,null,nextPlateIds).request)).commit();
+  const before=copy(c.model.projectOwnership), parsed=await exportParsed(c);
+  assert.equal(parsed.indexes.elements.size,24);
+  assert.ok([...parsed.indexes.elements.values()].every(e=>e.type==='CTRIA6'&&e.nids.length===6));
+  assert.equal(parsed.indexes.properties.get(1).t,2);
+  c.historyManager.undo();assert.equal(c.model.nodes.size,1);
+  c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),before);
+  const noop=await c.previewProjectChange(Plate.build(Plate.inputs(before,'plate'),before,nextPlateIds).request);
+  noop.commit();assert.equal(c.historyManager.stack.length,1);
+});
+test('plate bundle conversion keeps all cards and reservations, prevents reuse, and rejects external dependents',()=>{
+  const a=platePreview(), converted=O.preview(a.semantic,a.ownership,Plate.conversion(a.ownership,'plate/material'));
+  assert.deepEqual(converted.semantic,a.semantic);assert.equal(converted.ownership.owners.length,0);
+  assert.equal(converted.ownership.project.reservations.length,4);
+  const input=plateInput();input.id='another';
+  const built=Plate.build(input,converted.ownership,nextPlateIds);
+  assert.equal(built.mesh.nodes[0].id,121);
+  a.ownership.project.objects.push({id:'uses-section',name:'External mesh',dependsOn:['plate/section'],definition:{}});
+  assert.throws(()=>Plate.conversion(a.ownership,'plate'),/External mesh/);
+});
+test('plate rejects invalid geometry, discretization, material and thickness before changing the model',()=>{
+  for(const mutate of [i=>i.parameters.size[2]=1,i=>i.parameters.size[0]=0,i=>i.parameters.divisions[0]=1.5,i=>i.parameters.order=3,i=>i.thickness=0,i=>i.material.rho=-1]){
+    const i=plateInput();mutate(i);assert.throws(()=>platePreview(i));
+  }
+});
+function motorsRequest(){
+  const points=definition('shafts','point',[node(121),node(122),node(123),node(124)]);
+  const template=definition('motor-template','template',[{family:'properties',id:2,role:'stiffness',value:{type:'PBUSH',pid:2,K:'K',K1:1000,K2:1000,K3:1000,K4:100,K5:100,K6:100}}]);
+  const motors=[0,1].map(i=>definition('motor-'+i,'connection',[
+    {family:'elems',bucket:'rbe2',id:13+i*2,role:'mount',value:{type:'RBE2',eid:13+i*2,gn:121+i*2,cm:'123',deps:[101+i*2,102+i*2]}},
+    {family:'elems',bucket:'bush',id:14+i*2,role:'shaft',value:{type:'CBUSH',eid:14+i*2,pid:2,n:[121+i*2,122+i*2],orient:{kind:'x',x:[1,0,0]}}}
+  ],['plate','shafts','motor-template']));
+  return {objects:[points,template,...motors]};
+}
+test('plate with two motor attachments shares a single PBUSH and exports real rigids/bushes',async()=>{
+  const c=fixture();(await c.previewProjectChange(Plate.build(plateInput(),null,nextPlateIds).request)).commit();
+  (await c.previewProjectChange(motorsRequest())).commit();
+  const {indexes,deck}=await exportParsed(c);
+  assert.equal(indexes.properties.size,2);assert.equal(indexes.elements.size,16);
+  assert.equal((deck.match(/^PBUSH,/gm)||[]).length,1);assert.equal((deck.match(/^RBE2,/gm)||[]).length,2);assert.equal((deck.match(/^CBUSH,/gm)||[]).length,2);
+  const edited=Plate.inputs(c.model.projectOwnership,'plate');edited.thickness=3;
+  const candidate=await c.previewProjectChange(Plate.build(edited,c.model.projectOwnership,nextPlateIds).request);
+  assert.ok(candidate.preview().project.checks.some(c=>c.id==='motor-0'&&c.status==='invalid'));
+  candidate.discard();assert.equal(c.model.properties.get(1).t,2);
+});
+for(const [name,mutate] of [
+  ['SPC',s=>s.spc.push({sid:1,g:101,c:'1',d:0})],
+  ['SPC1',s=>s.spc1.push({sid:1,nodes:[101],components:'1'})],
+  ['GRID PS',s=>s.nodes.find(([id])=>id===101)[1].ps='1'],
+  ['hand RBE2',s=>s.elems.rbe2.push({type:'RBE2',eid:90,gn:100,cm:'1',deps:[101]})],
+  ['RBE3 reference',s=>s.elems.rbe3.push({type:'RBE3',eid:90,gn:101,refc:'1',groups:[{wt:1,c:'123',gids:[100]}],um:[]})],
+  ['RBE3 UM',s=>s.elems.rbe3.push({type:'RBE3',eid:90,gn:100,refc:'123',groups:[{wt:1,c:'123',gids:[102]}],um:[{gm:101,cm:'1'}]})]
+])test('generated motor RBE2 rejects dependent DOF conflict with '+name,()=>{
+  const a=platePreview();mutate(a.semantic);
+  // Permanent constraints on a generated GRID are defined by its owner.
+  if(name==='GRID PS'){const card=a.ownership.owners.find(o=>o.key==='node:101');card.card.value.ps='1';a.ownership.project.objects.find(o=>o.id==='plate').definition.cards.find(c=>c.id===101&&c.family==='nodes').value.ps='1';}
+  assert.throws(()=>O.preview(a.semantic,a.ownership,motorsRequest()),/dependent|already constrained/i);
+});
+test('generated motor RBE2 rejects overlapping generated dependents',()=>{
+  const a=platePreview(),r=motorsRequest();r.objects[3].definition.cards[0].value.deps=[101,104];
+  assert.throws(()=>O.preview(a.semantic,a.ownership,r),/dependent|already constrained/i);
+});
+for(const topology of ['tri','quad'])for(const format of ['source','free','small','large'])test('generated quadratic '+topology+' plate survives '+format+' export with all midsides',async()=>{
+  const c=fixture(),input=plateInput();input.parameters.topology=topology;input.parameters.order=2;
+  const built=Plate.build(input,null,nextPlateIds);(await c.previewProjectChange(built.request)).commit();
+  const {indexes,deck}=await exportParsed(c,format);
+  assert.doesNotMatch(deck,/unwritable/);
+  assert.equal(indexes.elements.size,built.mesh.elements.length);
+  for(const e of built.mesh.elements)assert.deepEqual(copy(indexes.elements.get(e.id).nids),e.nodes);
+});
+test('hand constraints added after motor generation cannot invalidate owned dependent DOFs',()=>{
+  const plate=platePreview(),motors=O.preview(plate.semantic,plate.ownership,motorsRequest()),after=copy(motors.semantic);
+  after.spc1.push({sid:9,nodes:[101],components:'123'});
+  assert.throws(()=>O.guard(motors.ownership,motors.semantic,after),/already constrained or dependent/);
+});
+test('owner summary and lookup update through undo, redo and conversion; next IDs skip retired blocks',async()=>{
+  const c=fixture();c.getAllElementIds=()=>Object.values(c.model.elems).flat().map(e=>e.eid);
+  (await c.previewProjectChange(Plate.build(plateInput(),null,nextPlateIds).request)).commit();
+  assert.equal(c.workbenchProjectSummary().objects.length,3);
+  assert.equal(c.workbenchCardOwner('node',101).id,'plate');
+  (await c.previewProjectChange(Plate.conversion(c.model.projectOwnership,'plate'))).commit();
+  assert.equal(c.workbenchProjectSummary().objects.length,0);assert.equal(c.workbenchCardOwner('node',101),null);
+  c.historyManager.undo();assert.equal(c.workbenchCardOwner('node',101).id,'plate');
+  c.historyManager.redo();c.model.nodes.clear();c.model.elems.quad=[];
+  vm.runInContext(source.slice(source.indexOf('  function workbenchNextIds()'),source.indexOf('  function workbenchGetMesh(')),c);
+  assert.equal(c.workbenchNextIds().node,121);assert.equal(c.workbenchNextIds().element,13);
+});
+
+ test('plate remeshing removes retired IDs from selection in the same undo entry',async()=>{
+  const c=fixture();(await c.previewProjectChange(Plate.build(plateInput(),null,nextPlateIds).request)).commit();
+  c.selection.nodes=new Set([100,101]);c.selection.elems=new Set([1]);c.hidden.nodes=new Set([101]);
+  const input=Plate.inputs(c.model.projectOwnership,'plate');input.parameters.order=2;
+  (await c.previewProjectChange(Plate.build(input,c.model.projectOwnership,nextPlateIds).request)).commit();
+  assert.deepEqual([...c.selection.nodes],[100]);assert.equal(c.selection.elems.size,0);assert.equal(c.hidden.nodes.size,0);
+  const history=c.historyManager.stack.at(-1);assert.ok(history);
 });

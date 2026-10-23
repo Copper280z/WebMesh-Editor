@@ -1,6 +1,6 @@
 # Design: a project workspace built around the analysis model
 
-*Design revised after both reviews, 22 October 2026. The isolated project core is the first implementation milestone; the redesigned workspace is not built yet. See [the implementation plan](implementation-01-project-core.md).*
+*Design revised after both reviews, 22 October 2026. The project core and engine ownership are implemented. [The editable plate milestone](implementation-03-owned-primitive.md) delivers the first object inspector and change review in the existing workspace; the broader redesign remains planned.*
 
 This document describes what the analyst sees. How the model behaves when it changes is defined in [model-rules.md](model-rules.md): ownership, change propagation, overrides, region matching, runs and recovery. Rule numbers such as R8 refer to that document. Where the two disagree, the rules win.
 
@@ -449,4 +449,4 @@ The first version of this document delivered the layout first and the statuses l
 
 ## Implementation progress
 
-The [project core milestone](implementation-01-project-core.md) is implemented. [Engine ownership integration](implementation-02-engine-ownership.md) connects explicit generated cards to guarded transactions, undo/redo, project persistence and the export gate. Legacy tools still create hand cards; the next milestone adds an owned primitive and its inspector before broader CAD/assembly authoring.
+The [project core milestone](implementation-01-project-core.md) is implemented. [Engine ownership integration](implementation-02-engine-ownership.md) connects explicit generated cards to guarded transactions, undo/redo, project persistence and the export gate. [Editable plates and their inspector](implementation-03-owned-primitive.md) now provide the first analyst-facing ownership workflow, including exact change review, conversion and project checks. Other legacy tools still create hand cards. CAD ownership and region identity are next, before broader assembly authoring.
