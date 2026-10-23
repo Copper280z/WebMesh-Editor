@@ -125,7 +125,7 @@
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
   const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
-  const selectionWorkspace=window.WebMeshSelectionWorkspace.create({engine,run,dialog,review:reviewProject,close:closeDialog});
+  const selectionWorkspace=window.WebMeshSelectionWorkspace.create({engine,run,dialog,review:reviewProject,close:closeDialog,dock:()=>{cadWorkspace.activate(false);$('wb-dialog').close();$('wb-dialog').classList.add('docked');$('wb-dialog').show();}});
   const massWorkspace=window.WebMeshMassWorkspace.create({engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
   let restoringAnalysisProject=false;
   const analysisRequest=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||'Solver request failed.');return value;};
@@ -185,7 +185,7 @@
       html=section('Analysis',`<button class="wb-tool-card" id="wb-analysis-tool"><span><strong>Analysis cases &amp; runs</strong><small>Supports · accelerations · SOL 101 · solver snapshots</small></span></button>`)+section('Physical definitions',`<div class="wb-tool-list">${tool('material','Materials','Isotropic elasticity, density and material IDs','material')}${tool('property','Element properties','Shell thickness, solid regions and beam sections','plate')}</div>`);
       html+=section('Boundary conditions',`<div class="wb-tool-list">${tool('load','Loads','Forces, moments, pressure and load combinations','load')}${tool('constraint','Constraints','Single-point constraints and constrained DOFs','lock')}${tool('coordinate','Coordinate systems','Define local rectangular or cylindrical frames','cube')}</div>`);
       html+=section('Mesh authoring',`<button class="wb-tool-card" id="wb-mesh-actions"><span><strong>Mesh actions</strong><small>Create from nodes · faces · extrude shells or solids · analysis inclusion</small></span></button>`);
-      html+=section('Selections & directions',`<button class="wb-tool-card" id="wb-selection-repair"><span><strong>Selections & repair</strong><small>Inspect selectors · replace inputs · review dependent changes</small></span></button><button class="wb-tool-card" id="wb-frame-tool"><span><strong>Reusable coordinate frames</strong><small>CORD2R · load/stiffness axes · GRID support directions</small></span></button>`);
+      html+=section('Selections & directions',`<button class="wb-tool-card" id="wb-selection-repair"><span><strong>Selections & repair</strong><small>Named mesh regions · pick proposed nodes/elements · repair</small></span></button><button class="wb-tool-card" id="wb-frame-tool"><span><strong>Reusable coordinate frames</strong><small>CORD2R · load/stiffness axes · GRID support directions</small></span></button>`);
       html+=section('Connections',`<button class="wb-tool-card" id="wb-mass-tool"><span><strong>Masses & payloads</strong><small>COM · CONM2 · weighted RBE3 · direct connection actions</small></span></button><button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>RBE3 distributed tie or conforming embedded shells</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
       html+=section('Model editing',`<div class="wb-tool-list">${tool('cards','Create nodes','Individual GRID cards and coordinate references','node')}${tool('element','Create elements','Shells, solids, beams, rods and rigid elements','mesh')}${tool('modify','Modify entities','Edit existing cards with schema-driven forms','setup')}${tool('selection','Selection & inspection','Pick, select by ID, filter and edit node coordinates','select')}${tool('transform','Transform mesh','Move, rotate, reflect and merge nodes','rotate')}</div>`)+`<div id="wb-report"></div>`;
       foot=button('wb-check-mesh','Check mesh connectivity','check','primary');
@@ -273,6 +273,7 @@
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
     if([window.WebMeshAnalysisProject.SET,window.WebMeshAnalysisProject.CASE].includes(object.definition.generator)){run(()=>analysisWorkspace.open(id));return;}
+    if(window.WebMeshRegions.isRegion(object)){run(()=>selectionWorkspace.open(id));return;}
     if(coordinateWorkspace.open(id))return;
     if(actionWorkspace.open(id))return;
     if(interfaceWorkspace.open(id))return;
@@ -308,9 +309,10 @@
     request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshInterfaceProject.rebuild(state,request,engine().getNextIds());
     if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(request,options);
+    request=window.WebMeshRegions.rebuild(state,window.WebMeshSelections.project(state,semantic,request).semantic,request);
     request=window.WebMeshAttachmentProject.rebuild(state,request);
     request=window.WebMeshMassProject.rebuild(state,request);
-    request=window.WebMeshActionProject.rebuild(state,request);
+    request=window.WebMeshActionProject.rebuild(state,request,window.WebMeshSelections.project(state,semantic,request).semantic);
     request=window.WebMeshAnalysisProject.rebuild(state,request);
     request=window.WebMeshCoordinates.rebuild(state,request);
     } catch(error){return selectionWorkspace.list(original,options,error.message);}
@@ -409,6 +411,7 @@
   }
 
   function closeDialog() {
+    engine()?.endMeshSelection?.();
     if(pendingProject){pendingProject.discard();pendingProject=null;invalidatePreview();}
     engine()?.closeTool?.();
     for(const {node,marker,classes} of moved){marker.replaceWith(node);node.className=classes;}moved=[];

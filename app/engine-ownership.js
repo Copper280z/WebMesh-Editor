@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'), require('./mesh-region-project.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates, root.WebMeshRegions);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates, Regions) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
@@ -206,6 +206,7 @@
       if (all && !equal(all.get(entry.key), card)) fail(entry.key + ' is owned by ' + object.name + ' (' + entry.role + '). Edit its owner or explicitly convert the object to plain cards.');
     }
     for (const object of objects.values()) {
+      if(Regions.isRegion(object))Regions.validate(object,objects,semantic);
       const frameRoles=new Set();
       for(const b of object.definition.nodeFrames||[]){const c=object.definition.cards?.find(c=>c.family==='nodes'&&c.role===b.role);if(frameRoles.has(b.role)||!c||(c.value.cd||0)!==Coordinates.frame(s,b.frame).cid||b.frame&&!object.dependsOn.includes(b.frame))fail(object.name+': invalid GRID displacement-frame assignment.');frameRoles.add(b.role);}
       if (object.definition.embeddedBy) {

@@ -29,8 +29,10 @@
     if(!Array.isArray(p.supports)||!p.supports.length)throw Error('Select one or more named mounting regions.');
     const groups=p.supports.map(s=>{
       if(regions.has(s.region))throw Error('Select each mounting region once.');regions.add(s.region);
-      const region=map.get(s.region);if(region?.definition.generator!==Mount.REGION||region.facts?.suspendedReason)throw Error(object.name+': a mounting region is missing or suspended.');
+      const region=map.get(s.region);if(![Mount.REGION,'mesh-region-v1'].includes(region?.definition.generator)||region.facts?.suspendedReason)throw Error(object.name+': a mounting region is missing or suspended.');
       if(!Number.isFinite(s.weight)||s.weight<=0)throw Error('Each region influence must be positive.');
+      if(region.definition.generator==='mesh-region-v1'&&region.definition.entity!=='node')throw Error('Payloads require node regions.');
+      for(const b of region.definition.bindings||[])if(b.kind==='node'&&!b.owner)index.set(b.id,{owner:null,value:b.shape});
       const nodes=region.definition.resolved.nodes.slice();
       for(const n of nodes){if(seen.has(n))throw Error('Selected regions overlap at GRID '+n+'. Use disjoint regions or one combined region.');seen.add(n);if(!index.has(n))throw Error('Region support GRID '+n+' is missing.');}
       resolved.push({region:region.id,name:region.name,nodes,weight:s.weight,perNode:s.weight/nodes.length});
@@ -41,13 +43,13 @@
     const source=[...index].filter(([id])=>id!==node).map(([id,g])=>({id,...g.value})),result=A.execute(source,steps);
     const point={id:d.point,kind:'point',name:object.name+' · Center of mass',definition:{generator:'payload-point-v1',payload:object.id,cards:result.cards.filter(c=>c.family==='nodes')}};
     const deps=[d.point,...regions,...[...seen].map(n=>index.get(n).owner)];
-    return [point,{...copy(object),dependsOn:[...new Set(deps)],definition:{...copy(d),resolved:{com,regions:resolved,nodes:[...seen]},actions:result.actions,cards:result.cards.filter(c=>c.family!=='nodes')}}];
+    return [point,{...copy(object),dependsOn:[...new Set(deps.filter(Boolean))],definition:{...copy(d),resolved:{com,regions:resolved,nodes:[...seen]},actions:result.actions,cards:result.cards.filter(c=>c.family!=='nodes')}}];
   }
   function payload(input,state,ids){
     const old=oldObject(input,state,PAYLOAD),p=parseValues(input,state),map=catalog(state),eid=next(state,ids,'element');
     const identities=old?.definition.identities||{node:next(state,ids,'node'),mass:eid,distribution:eid+1},point=old?.definition.point||input.id+'/com';
     if(!old&&map.has(point))throw Error('The COM point identity is already in use.');
-    for(const s of input.supports||[]){const r=map.get(s.region);if(r?.definition.generator===Mount.REGION)map.set(r.id,Mount.resolveRegion(r,map));}
+    for(const s of input.supports||[]){const r=map.get(s.region);if([Mount.REGION,'mesh-region-v1'].includes(r?.definition.generator))map.set(r.id,Mount.resolveRegion(r,map));}
     const object={id:input.id,name:input.name.trim(),kind:'connection',definition:{generator:PAYLOAD,point,identities,parameters:{mass:p.mass,reference:p.reference,offset:p.offset||[0,0,0],inertia:p.inertia,supports:copy(input.supports)}}};
     return {label:(old?'Update ':'Create ')+object.name,objects:payloadResolution(object,map)};
   }

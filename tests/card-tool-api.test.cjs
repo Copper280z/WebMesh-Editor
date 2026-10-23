@@ -17,6 +17,7 @@ function fixture() {
     window: {}, workbenchState: noop, workbenchNextIds: noop, workbenchGetMesh: noop,
     workbenchBindMeshOwner: noop, workbenchGetMeshOwner: noop, workbenchRemoveMeshOwner: noop,
     workbenchAppendMesh: noop, workbenchPreviewMesh: noop, fitView: noop,
+    beginWorkbenchMeshSelection: noop, endWorkbenchMeshSelection: noop, workbenchMeshSelection: null,
     workbenchSetView: noop, workbenchSetTheme: noop,
     schemaCreateReady: Promise.resolve(), schemaEditReady: Promise.resolve(),
     createTab: tab(), modifyTab: tab(), inspectTab: tab(true), currentElemInput: { id: 'old-node-pick' },

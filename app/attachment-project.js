@@ -1,8 +1,8 @@
 (function(root,factory){
   'use strict';
-  if(typeof module==='object'&&module.exports)module.exports=factory(require('./coordinate-project.js'));
-  else root.WebMeshAttachmentProject=factory(root.WebMeshCoordinates);
-}(typeof globalThis!=='undefined'?globalThis:this,function(F){
+  if(typeof module==='object'&&module.exports)module.exports=factory(require('./coordinate-project.js'),require('./mesh-region-project.js'));
+  else root.WebMeshAttachmentProject=factory(root.WebMeshCoordinates,root.WebMeshRegions);
+}(typeof globalThis!=='undefined'?globalThis:this,function(F,R){
   'use strict';
   const REGION='cad-mount-region-v1', ATTACHMENT='rbe2-cbush-v1', TEMPLATE='pbush-basic-v1';
   const copy=v=>JSON.parse(JSON.stringify(v));
@@ -11,8 +11,9 @@
   function vector(v,label){if(!Array.isArray(v)||v.length!==3||!v.every(Number.isFinite))throw Error(label+' requires three finite basic XYZ coordinates.');return v.slice();}
   function next(state,ids,ns){return Math.max(ids[ns]||1,...(state?.project.reservations||[]).filter(r=>r.namespace===ns).map(r=>r.end+1));}
   function existing(map,id,generator){const o=map.get(id);if(o&&o.definition.generator!==generator)throw Error('This identity belongs to another project object.');return o;}
-  function get(map,id,generator,label){const o=map.get(id);if(!o||o.definition.generator!==generator)throw Error('Select a valid '+label+'.');if(o.facts?.suspendedReason)throw Error(o.name+' is suspended.');return o;}
+  function get(map,id,generator,label){const o=map.get(id);if(!o||o.definition.generator!==generator&&!(generator===REGION&&R.isNodeRegion(o)))throw Error('Select a valid '+label+'.');if(o.facts?.suspendedReason)throw Error(o.name+' is suspended.');return o;}
   function resolveRegion(object,map){
+    if(R.isNodeRegion(object))return R.resolve(object,map);
     const d=object.definition,s=d.selector,mesh=map.get(s.mesh),source=map.get(mesh?.definition.source);
     if(!mesh||!['cad-mapped-v1','cad-shell-v1'].includes(mesh.definition.generator)||mesh.facts?.suspendedReason)throw Error('Select an active committed CAD mesh.');
     const fail=reason=>{throw Error('Mounting region “'+object.name+'”: '+reason);};
@@ -54,7 +55,7 @@
     if(!/^[1-3]+$/.test(d.components)||new Set(d.components).size!==d.components.length)throw Error('Mounting regions support dependent translations 1, 2 and 3 (normally 123).');
     const coordinate=F.frame({project:{objects:[...map.values()]}},d.frame);
     const rbe=object.definition.cards.find(c=>c.role==='mount'),bush=object.definition.cards.find(c=>c.role==='bush');
-    return {...copy(object),dependsOn:[...new Set([...(d.frame?[d.frame]:[]),region.id,region.definition.selector.mesh,points.id,t.id,...[...map.values()].filter(o=>(o.definition.cards||[]).some(c=>c.family==='nodes'&&region.definition.resolved.nodes.includes(c.id))).map(o=>o.id)])],definition:{...copy(d),cards:[
+    return {...copy(object),dependsOn:[...new Set([...(d.frame?[d.frame]:[]),region.id,...region.dependsOn,points.id,t.id,...[...map.values()].filter(o=>(o.definition.cards||[]).some(c=>c.family==='nodes'&&region.definition.resolved.nodes.includes(c.id))).map(o=>o.id)])],definition:{...copy(d),cards:[
       {family:'elems',bucket:'rbe2',id:rbe.id,role:'mount',value:{type:'RBE2',eid:rbe.id,gn:mount.id,cm:d.components,deps:region.definition.resolved.nodes.slice()}},
       // The explicit CID defines the six PBUSH stiffness directions.
       {family:'elems',bucket:'bush',id:bush.id,role:'bush',value:{type:'CBUSH',eid:bush.id,pid:t.definition.cards[0].id,n:[mount.id,shaft.id],cid:coordinate.cid,orient:{kind:'x',x:[0,1,0]}}}

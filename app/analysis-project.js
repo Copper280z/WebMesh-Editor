@@ -7,7 +7,7 @@
     if(d.frame)dependsOn.push(d.frame);
     if(a.action!=='support')a.cid=F.frame({project:{objects:[...catalog.values()]}},d.frame).cid;
     if(a.action==='support'||a.action==='force'){
-      if(d.region){const region=catalog.get(d.region);if(region?.definition.generator!==Mount.REGION)throw Error(o.name+': mounting region is missing.');const r=Mount.resolveRegion(region,catalog);a.nodes=r.definition.resolved.nodes;dependsOn.push(d.region,...r.dependsOn);}
+      if(d.region){const region=catalog.get(d.region);if(region?.definition.generator!==Mount.REGION&&!(region?.definition.generator==='mesh-region-v1'&&region.definition.entity==='node'))throw Error(o.name+': mounting region is missing.');const r=Mount.resolveRegion(region,catalog);a.nodes=r.definition.resolved.nodes;dependsOn.push(d.region,...r.dependsOn);}
       else for(const source of d.sources||[]){const owner=catalog.get(source.owner),card=owner?.definition.cards.find(c=>c.family==='nodes'&&c.id===source.id&&c.role===source.role);if(!card)throw Error(o.name+': selected GRID '+source.id+' was replaced. Repair this GRID selection first.');dependsOn.push(source.owner);}
       for(const parent of catalog.values())if((parent.definition.cards||[]).some(c=>c.family==='nodes'&&(a.action==='force'?[a.node]:a.nodes).includes(c.id)))dependsOn.push(parent.id);
     }

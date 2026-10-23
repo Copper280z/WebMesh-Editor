@@ -28905,6 +28905,14 @@ ${formatRanges(v.ranges, 500)}`;
     return { ...workbenchState(), operation: { addedNodes: Array.from(newNodes.keys()), addedElements: records.map(e => e.eid), replacedElements: removedElements.map(e => e.eid), removedNodes: Array.from(orphanNodes), ownerTag } };
   }
   var workbenchPreview = null;
+  var workbenchMeshSelection = null;
+  function endWorkbenchMeshSelection() { workbenchMeshSelection?.dispose(); workbenchMeshSelection = null; document.getElementById("viewport")?.classList.remove("wb-proposal-selection"); }
+  function beginWorkbenchMeshSelection(options) {
+    endWorkbenchMeshSelection(); workbenchPreviewMesh(null);
+    workbenchMeshSelection = window.WebMeshMeshSelection.create({ ...options, THREE: window.WebMeshThree, scene, canvas, getCamera: () => camera, getControls: () => controls });
+    document.getElementById("viewport")?.classList.add("wb-proposal-selection");
+    return workbenchMeshSelection;
+  }
   function workbenchPreviewMesh(mesh) {
     if (workbenchPreview) {
       scene.remove(workbenchPreview);
@@ -28978,7 +28986,7 @@ ${formatRanges(v.ranges, 500)}`;
     getProjectOwnership: () => model.projectOwnership ? structuredClone(model.projectOwnership) : null,
     saveProjectModel: () => saveProjectModel(), loadProjectModel: (data, name) => loadProjectModel(data, name),
     bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner, removeMeshOwner: workbenchRemoveMeshOwner,
-    appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, fitView,
+    appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, beginMeshSelection: beginWorkbenchMeshSelection, endMeshSelection: endWorkbenchMeshSelection, fitView: () => workbenchMeshSelection ? workbenchMeshSelection.fit() : fitView(),
     setView: workbenchSetView, setTheme: workbenchSetTheme,
     setCadGeometry: (preview, options = {}) => {
       if (!cadViewport) throw new Error("CAD renderer unavailable. Restore app/cad-viewport.js and reload.");

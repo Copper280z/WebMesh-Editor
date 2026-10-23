@@ -1008,3 +1008,75 @@ test('standalone GRID frame selections require explicit repair after their sourc
  const replacement=r.objects.find(o=>o.id==='cad').definition.cards.find(c=>c.family==='nodes').id;
  const b=apply10(a,Selections.repair(a.ownership,a.semantic,r,{id:'cad',nodes:[[selected,replacement]]},nextPlateIds));assert.equal(new Map(b.semantic.nodes).get(replacement).cd,7);
 });
+
+const Regions=require('../app/mesh-region-project.js'),ActionRegions=require('../app/mesh-action-project.js');
+function rebuild11(a,r){
+ r=Embedded.rebuild(a.ownership,r,nextPlateIds);r=Interface.rebuild(a.ownership,r,nextPlateIds);
+ const projected=()=>Selections.project(a.ownership,a.semantic,r).semantic;
+ r=Regions.rebuild(a.ownership,projected(),r);r=Mount.rebuild(a.ownership,r);r=Mass.rebuild(a.ownership,r);r=ActionRegions.rebuild(a.ownership,r,projected());r=Analysis.rebuild(a.ownership,r);return Frames.rebuild(a.ownership,r);
+}
+function apply11(a,r){return O.preview(a.semantic,a.ownership,rebuild11(a,r));}
+test('node regions are reused by independent support sets and retain bindings through local frame edits',async()=>{
+ let a=await cadPreview();const nodes=a.semantic.elems.hex[0].n.slice(0,4);
+ a=apply11(a,Regions.build({id:'mesh-root',name:'Picked root nodes',entity:'node',ids:nodes},a.ownership,a.semantic));
+ for(const [id,components]of [['sx','1'],['syz','23']])a=apply11(a,Analysis.set({id,name:id,action:'support',region:'mesh-root',components},a.ownership,a.semantic));
+ a=apply11(a,Frames.build(rotatedFrame,a.ownership,{coordinate:17}));a=apply11(a,Frames.assign({nodes,frame:'motor-frame'},a.ownership));
+ assert.equal(a.semantic.spc1.length,2);for(const s of a.semantic.spc1)assert.deepEqual(s.nodes,nodes.slice().sort((x,y)=>x-y));
+ assert.throws(()=>Regions.remove(a.ownership,'mesh-root'),/sx.*syz/);
+ const old=a.ownership.project.objects.find(o=>o.id==='mesh-root');
+ const b=apply11(a,Regions.build({id:old.id,name:'Smaller root',entity:'node',ids:nodes.slice(0,2)},a.ownership,a.semantic));
+ assert.deepEqual(b.semantic.spc1.map(s=>s.sid),a.semantic.spc1.map(s=>s.sid));for(const s of b.semantic.spc1)assert.deepEqual(s.nodes,nodes.slice(0,2).sort((x,y)=>x-y));
+ assert.ok(b.project.checks.every(c=>c.status!=='invalid'));
+});
+test('graphical region replacement repairs all dependent support sets in one detached remesh',async()=>{
+ let a=await cadPreview();const beforeNodes=a.semantic.elems.hex[0].n.slice(0,4);
+ a=apply11(a,Regions.build({id:'mesh-root',name:'Picked root',entity:'node',ids:beforeNodes},a.ownership,a.semantic));
+ a=apply11(a,Analysis.set({id:'spc',name:'Root support',action:'support',region:'mesh-root',components:'123'},a.ownership,a.semantic));
+ const before=copy(a),r=(await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds)).request;
+ assert.match(Selections.inspect(a.ownership,a.semantic,r).find(e=>e.id==='mesh-root').issues.join(' '),/identity|missing/);
+ assert.throws(()=>apply11(a,r),/Region/);
+ const selected=r.objects.find(o=>o.id==='cad').definition.cards.filter(c=>c.family==='nodes').slice(0,6).map(c=>c.id);
+ const repaired=Selections.repair(a.ownership,a.semantic,r,{id:'mesh-root',selectedNodes:selected},nextPlateIds),b=apply11(a,repaired);
+ assert.deepEqual(a,before);assert.equal(b.semantic.spc1[0].sid,a.semantic.spc1[0].sid);assert.deepEqual(b.semantic.spc1[0].nodes,selected.sort((x,y)=>x-y));
+ assert.equal(Selections.inspect(b.ownership,b.semantic).flatMap(e=>e.issues).length,0);O.validate(copy(b.ownership),copy(b.semantic));
+});
+test('element regions drive analysis exclusion and reject changed connectivity or recycled layout identities',async()=>{
+ let a=await cadPreview();const selected=a.semantic.elems.hex.slice(0,2).map(e=>e.eid);
+ a=apply11(a,Regions.build({id:'excluded-region',name:'Reference elements',entity:'element',ids:selected},a.ownership,a.semantic));
+ a=apply11(a,ActionRegions.participation({id:'exclude-region',name:'Omit references',region:'excluded-region'},a.ownership,a.semantic));
+ const b=apply11(a,Regions.build({id:'excluded-region',name:'Reference elements',entity:'element',ids:[selected[1]]},a.ownership,a.semantic));
+ assert.deepEqual(b.ownership.project.objects.find(o=>o.id==='exclude-region').definition.analysisExcluded.map(e=>e.id),[selected[1]]);
+ assert.deepEqual(Selections.inspect(b.ownership,b.semantic).find(o=>o.id==='exclude-region').elements,[selected[1]]);
+ const remesh=(await Cad.build(cadInput({size:2,order:2}),b.ownership,nextPlateIds)).request,newIds=remesh.objects.find(o=>o.id==='cad').definition.cards.filter(c=>c.family==='elems').slice(0,3).map(c=>c.id);
+ const repaired=Selections.repair(b.ownership,b.semantic,remesh,{id:'excluded-region',selectedElements:newIds},nextPlateIds),after=apply11(b,repaired);
+ assert.deepEqual(after.ownership.project.objects.find(o=>o.id==='exclude-region').definition.analysisExcluded.map(e=>e.id),newIds);
+ assert.equal(Selections.inspect(after.ownership,after.semantic).flatMap(o=>o.issues).length,0);
+ const owner=copy(b.ownership.project.objects.find(o=>o.id==='cad'));owner.definition.layout.key+='-new';
+ assert.throws(()=>apply11(b,{objects:[owner]}),/mesh identity/);
+ const tampered=copy(b.ownership),region=tampered.project.objects.find(o=>o.id==='excluded-region');region.definition.resolved.elements=[selected[0]];
+ assert.throws(()=>O.validate(tampered,b.semantic),/inconsistent saved region/);
+});
+test('plain mesh regions protect geometry and cannot acquire an owned identity by accepting reused numbers',()=>{
+ const semantic=O.snapshot(model()),a=O.preview(semantic,null,Regions.build({id:'plain-region',name:'Imported point',entity:'node',ids:[100]},null,semantic));
+ const moved=copy(a.semantic);moved.nodes.find(([id])=>id===100)[1].x=9;
+ assert.throws(()=>O.validate(a.ownership,moved),/changed geometry/);
+ const missing=copy(a.semantic);missing.nodes=[];assert.throws(()=>O.validate(a.ownership,missing),/missing/);
+ const s=copy(a.ownership);s.project.objects.find(o=>o.id==='plain-region').definition.bindings[0].owner='fiction';assert.throws(()=>O.validate(s,a.semantic),/identity/);
+});
+test('node regions feed motor and payload guides including plain imported support nodes',async()=>{
+ let a=await cadPreview();const nodes=a.semantic.elems.hex[0].n.slice(0,4);
+ a=apply11(a,Regions.build({id:'motor-nodes',name:'Motor nodes',entity:'node',ids:nodes},a.ownership,a.semantic));
+ a=apply11(a,Mount.attachment({id:'mesh-motor',name:'Mesh motor',region:'motor-nodes',mount:[0,3,2],shaft:[-20,3,2],components:'123',newTemplate:{id:'mesh-stiffness',name:'Stiffness',stiffness:[1e5,1e5,1e5,1e4,1e4,1e4]}},a.ownership,nextPlateIds));
+ assert.deepEqual(a.semantic.elems.rbe2[0].deps,nodes.slice().sort((x,y)=>x-y));
+ let plain=O.snapshot(model());plain.loads={};plain.nodes=[[101,{x:0,y:0,z:0}],[102,{x:5,y:0,z:0}],[103,{x:0,y:5,z:0}]];
+ let b=O.preview(plain,null,Regions.build({id:'plain-mount',name:'Plain mounting nodes',entity:'node',ids:[101,102,103]},null,plain));
+ b=apply11(b,Mass.payload({id:'plain-payload',name:'Payload',mass:'500 g',reference:[0,0,0],offset:[0,0,20],supports:[{region:'plain-mount',weight:1}]},b.ownership,{node:104,element:1}));
+ assert.equal(b.semantic.elems.rbe3.length,1);assert.deepEqual(b.semantic.elems.rbe3[0].inds,[101,102,103]);
+});
+test('mesh regions and dependent supports persist through real formats and atomic history',async()=>{
+ const c=fixture();let a=await cadPreview();a=apply11(a,Regions.build({id:'history-region',name:'Root region',entity:'node',ids:a.semantic.elems.hex[0].n.slice(0,4)},a.ownership,a.semantic));
+ a=apply11(a,Analysis.set({id:'region-spc',name:'Root support',action:'support',region:'history-region',components:'123'},a.ownership,a.semantic));
+ (await c.previewProjectChange({objects:a.ownership.project.objects,reservations:a.ownership.project.reservations.map(r=>({...r,count:r.end-r.start+1}))})).commit();
+ const saved=copy(c.model.projectOwnership);for(const format of ['source','free','small','large']){const r=await exportParsed(c,format);assert.ok(r.cards.some(c=>c.name==='SPC1'));}
+ const before=O.snapshot(c.model);c.historyManager.undo();assert.equal(c.model.projectOwnership,null);c.historyManager.redo();assert.deepEqual(O.snapshot(c.model),before);O.validate(saved,before);
+});

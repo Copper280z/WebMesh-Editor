@@ -46,6 +46,8 @@ Each run retains its exact deck, model snapshot, units, case labels, solver bina
 
 The service runs at most two jobs concurrently, retains up to 20 jobs per server session, and limits each job to five minutes and 64 MiB per output file. Jobs use isolated temporary directories. Scope and evidence: [analysis cases and runs](docs/design/implementation-09-analysis-runs.md), [selection repair and reusable local frames](docs/design/implementation-10-selection-frames.md). In Model setup, use **Selections & repair** to replace invalidated inputs within a pending remesh review, and **Reusable coordinate frames** for shared CORD2R load/stiffness/support directions.
 
+[Graphical proposed-mesh selection and reusable node/element regions](docs/design/implementation-11-graphical-regions.md): detached picking, explicit identity repair and shared support/connection/participation selections.
+
 ## Modeling workflow
 
 | Workspace | Tools |

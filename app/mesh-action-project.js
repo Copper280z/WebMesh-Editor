@@ -1,10 +1,10 @@
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./mesh-actions.js'));else root.WebMeshActionProject=factory(root.WebMeshActions);}(typeof globalThis!=='undefined'?globalThis:this,function(A){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./mesh-actions.js'),require('./mesh-region-project.js'));else root.WebMeshActionProject=factory(root.WebMeshActions,root.WebMeshRegions);}(typeof globalThis!=='undefined'?globalThis:this,function(A,R){
   'use strict';
   const GENERATOR='mesh-actions-v1',copy=x=>JSON.parse(JSON.stringify(x));
   const meshOf=semantic=>({nodes:(semantic.nodes||[]).map(([id,n])=>({id,...n})),elements:Object.values(semantic.elems||{}).flat().map(e=>({id:e.eid,type:e.type,pid:e.pid,nodes:e.n||[],...(e.zoffs!=null?{zoffs:e.zoffs}:{})}))});
   const buckets={CTRIA3:'tri',CQUAD4:'quad',CHEXA:'hex',CTETRA:'tet',CPENTA:'penta'};
   function cardsOf(result){return [...result.nodes.map(n=>({family:'nodes',id:n.id,role:'grid-'+n.id,value:{x:n.x,y:n.y,z:n.z,cp:0,cd:0,ps:''}})),...result.elements.map(e=>({family:'elems',bucket:buckets[e.type],id:e.id,role:'element-'+e.id,value:{type:e.type,eid:e.id,pid:e.pid,n:e.nodes}}))];}
-  function dependencies(state,cards,sourceKeys=[]){const owners=new Map((state?.owners||[]).map(e=>[e.key,e.owner]));return [...new Set([...sourceKeys,...cards.flatMap(c=>c.family==='elems'?['property:'+c.value.pid,...c.value.n.map(n=>'node:'+n)]:[])].map(k=>owners.get(k)).filter(Boolean))];}
+  function dependencies(state,cards,sourceKeys=[]){const owners=new Map((state?.project.objects||[]).flatMap(o=>(o.definition.cards||[]).map(c=>[({nodes:'node',elems:'element',properties:'property',materials:'material'}[c.family]||c.family)+':'+c.id,o.id])));return [...new Set([...sourceKeys,...cards.flatMap(c=>c.family==='elems'?['property:'+c.value.pid,...c.value.n.map(n=>'node:'+n)]:[])].map(k=>owners.get(k)).filter(Boolean))];}
   function build(input,state,semantic,ids){
     if(!input.id||!input.name?.trim())throw Error('Enter an action name.');
     if(state?.project.objects.some(o=>o.id===input.id))throw Error('Create a new action identity. Remove/recreate a manual action to change its inputs.');
@@ -50,14 +50,16 @@
   }
   function participation(input,state,semantic){
     const id=input.id,old=state?.project.objects.find(o=>o.id===id);if(old&&old.definition.generator!=='analysis-participation-v1')throw Error('Wrong participation identity.');
-    const elements=Object.values(semantic.elems).flat(),selected=[...new Set(input.elements)];if(!selected.length)throw Error('Select elements to exclude.');
+    const elements=Object.values(semantic.elems).flat(),region=input.region?state?.project.objects.find(o=>o.id===input.region):null;if(input.region&&(!R.isRegion(region)||region.definition.entity!=='element'))throw Error('Select an element region.');
+    const selected=[...new Set(region?R.resolve(region,new Map(state.project.objects.map(o=>[o.id,o])),semantic).definition.resolved.elements:input.elements)];if(!selected.length)throw Error('Select elements to exclude.');
     const excluded=selected.map(id=>{const e=elements.find(e=>e.eid===id);if(!e||!e.n)throw Error('Select structural elements with explicit connectivity.');return{id,type:e.type,n:e.n};});
-    return{label:'Exclude elements from analysis',objects:[{id,name:input.name||'Excluded reference elements',kind:'selection',dependsOn:dependencies(state,[],selected.map(id=>'element:'+id)),definition:{generator:'analysis-participation-v1',analysisExcluded:excluded,cards:[]}}]};
+    return{label:'Exclude elements from analysis',objects:[{id,name:input.name||'Excluded reference elements',kind:'selection',dependsOn:[...dependencies(state,[],selected.map(id=>'element:'+id)),...(region?[region.id]:[])],definition:{generator:'analysis-participation-v1',region:region?.id||null,analysisExcluded:excluded,cards:[]}}]};
   }
-  function rebuild(state,request){
+  function rebuild(state,request,semantic){
     const changed=new Map((request.objects||[]).map(o=>[o.id,copy(o)])),removed=new Set([...(request.removeObjects||[]),...(request.convertToPlain||[])]),affected=new Set([...changed.keys(),...removed]);
     let more=true;while(more){more=false;for(const o of state?.project.objects||[])if(!removed.has(o.id)&&!affected.has(o.id)&&o.dependsOn.some(id=>affected.has(id))){affected.add(o.id);more=true;}}
     for(const o of state?.project.objects||[])if(!removed.has(o.id)&&affected.has(o.id)&&!changed.has(o.id)&&[GENERATOR,'analysis-participation-v1'].includes(o.definition.generator))changed.set(o.id,copy(o));
+    if(semantic){const s={project:{objects:[...(state?.project.objects||[]).filter(o=>!changed.has(o.id)&&!removed.has(o.id)),...changed.values()]}};for(const o of changed.values())if(o.definition.generator==='analysis-participation-v1'&&o.definition.region)changed.set(o.id,participation({id:o.id,name:o.name,region:o.definition.region},s,semantic).objects[0]);}
     return{...copy(request),objects:[...changed.values()]};
   }
   function removal(state,id){
