@@ -15,7 +15,7 @@ function element(id) {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) };
 }
 
-function setup({ imported = 'box', prepared = 'split-box', gmsh = true } = {}) {
+function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectReview = false } = {}) {
   const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [] };
   const listeners = new Map(), elements = new Map();
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
@@ -38,7 +38,7 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true } = {}) {
     addEventListener() {}, createElement: () => element('created'), activeElement: null
   };
   const window = { addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); } };
-  const context = { window, document, location: { protocol: 'http:' }, File, btoa, atob, structuredClone, AbortController, setTimeout, clearTimeout, performance, console,
+  const context = { window, document, location: { protocol: 'http:' }, File, btoa, atob, structuredClone, AbortController, setTimeout, clearTimeout, performance, console, crypto: require('node:crypto').webcrypto,
     async fetch(url, request) {
       // The service reports which optional plugins it has (the Gmsh plugin may be missing).
       if (url === '/api/health') return { ok: true, json: async () => ({ cad: { available: true }, plugins: { gmsh: { available: gmsh } } }) };
@@ -90,6 +90,14 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true } = {}) {
       return { elements: elements.slice(), properties: [5] };
     },
     async removeMesh(tag) { calls.removed.push(tag); owners.delete(tag); }
+  };
+  let projectState=null,semantic={nodes:[],elems:{hex:[]},materials:[],properties:[],masses:[],coords:[],loads:{},spc:[],spc1:[],temperatures:[]};
+  const O=require('../app/engine-ownership.js'),Cad=require('../app/cad-project.js');
+  engine.getProjectOwnership=()=>projectState;
+  if(projectReview)hooks.reviewMappedMesh=async(input,callbacks)=>{
+    const built=await Cad.build(plain(input),projectState,{node:1,element:1,property:1,material:1});
+    const candidate=O.preview(semantic,projectState,built.request);
+    calls.review={input:plain(input),candidate,apply(){callbacks.beforeCommit();projectState=candidate.ownership;semantic=candidate.semantic;callbacks.onApplied();}};
   };
   const workspace = window.WebMeshCadWorkspace.create(hooks);
   workspace.bind();
@@ -675,4 +683,38 @@ test('history steps can be undone, redone and returned to, and Apply leaves noth
   await f.workspace.api.history('redo');
   assert.equal(f.calls.requests.at(-1).action, 'redo');
   assert.match(f.workspace.render().body, /cad-history-list/);
+});
+
+test('owned mapped meshes wait for Apply, persist source/settings and never bind legacy tags',async()=>{
+  const f=await imported({projectReview:true});f.workspace.api.step('mesh');f.workspace.api.setSize(3);
+  await f.workspace.api.addMesh();assert.equal(f.calls.appends.length,0);
+  const draft=await f.workspace.serialize();assert.equal(draft.meshes,undefined);
+  assert.equal(f.calls.review.input.snapshot.prepared.format,'brep');
+  f.calls.review.apply();const saved=await f.workspace.serialize();
+  assert.ok(saved.meshes[0].projectOwner);assert.ok(saved.meshes[0].elements.length>0);
+  const staged=await f.workspace.stageRestore(saved);assert.deepEqual(plain(f.workspace.savedOwners(staged)),[]);
+  f.workspace.commitRestore(staged);await f.workspace.api.addMesh();
+  assert.equal(f.calls.review.candidate.changes.length,0);
+  f.workspace.api.setSize(2);await f.workspace.api.addMesh();
+  assert.ok(f.calls.review.candidate.changes.some(c=>c.action==='remove'));
+  const before=await f.workspace.serialize();assert.deepEqual(plain(before.meshes[0].elements),plain(saved.meshes[0].elements));
+  assert.match(f.workspace.render().body,/committed mesh retained/);
+  f.calls.review.apply();assert.notDeepEqual(plain((await f.workspace.serialize()).meshes[0].elements),plain(saved.meshes[0].elements));
+});
+test('a mapped CAD review rejects a changed sizing draft before applying',async()=>{
+  const f=await imported({projectReview:true});f.workspace.api.step('mesh');f.workspace.api.setSize(3);
+  await f.workspace.api.addMesh();f.workspace.api.setSize(2);
+  assert.throws(()=>f.calls.review.apply(),/CAD draft changed/);
+  assert.equal((await f.workspace.serialize()).meshes,undefined);
+});
+
+test('selected mapped solid targets survive save/reopen and selection edits invalidate cached previews',async()=>{
+  const f=await imported({projectReview:true,imported:'split-box'});f.workspace.api.step('mesh');f.workspace.api.setSize(3);
+  f.workspace.api.select('solid',[1]);f.click('mesh-scope',{value:'selected'});
+  await f.workspace.api.addMesh();assert.deepEqual(f.calls.review.input.volumes,[1]);f.calls.review.apply();
+  const saved=await f.workspace.serialize();assert.deepEqual(plain(saved.settings.mesh.selectedVolumes),[1]);
+  f.workspace.commitRestore(await f.workspace.stageRestore(saved));await f.workspace.api.addMesh();
+  assert.equal(f.calls.review.candidate.changes.length,0);
+  f.workspace.api.select('solid',[2]);await f.workspace.api.addMesh();assert.deepEqual(f.calls.review.input.volumes,[2]);
+  assert.ok(f.calls.review.candidate.changes.some(c=>c.action==='remove'));
 });

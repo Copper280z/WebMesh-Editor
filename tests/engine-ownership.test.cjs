@@ -36,15 +36,17 @@ function fixture() {
   vm.runInContext(source.slice(bridge, source.indexOf('  // Small public bridge:', bridge)), c);
   return c;
 }
-async function exportParsed(c, format='free') {
+async function exportParsed(c, format='free', retainedDeck=null) {
   const messages = [];
   const worker = vm.createContext({ Map, Set, self: { postMessage: m => messages.push(m) }, console, TextEncoder, TextDecoder, performance, setTimeout, clearTimeout });
   vm.runInContext(require('./helpers/worker-source.cjs'), worker);
-  worker.handleWriteRequest({ model: c.workerModel, options: { writeFormat: format } });
+  let writeModel=c.workerModel;
+  if(retainedDeck){const retained=await worker.parseDeckToCardStream(retainedDeck,'reopened.bdf',{}, {strictMode:true,retainParseSession:true,retainSourceSession:true});writeModel={...writeModel,parseSessionId:retained.model.parseSessionId};}
+  worker.handleWriteRequest({ model: writeModel, options: { writeFormat: format } });
   const deck = messages.find(m => m.type === 'WRITE_COMPLETE').text;
   const result = await worker.parseDeckToCardStream(deck, 'ownership.bdf', {}, { strictMode: true, retainParseSession: true, retainSourceSession: false });
   assert.deepEqual(copy(result.errors), []);
-  return { deck, indexes: worker.getParseSession(result.model.parseSessionId).indexes };
+  return { deck, indexes: worker.getParseSession(result.model.parseSessionId).indexes, cards: copy(worker.getParseSession(result.model.parseSessionId).cardStream) };
 }
 
 test('preview creates complete owner/role metadata, preserves hand cards, and consumes no live IDs', () => {
@@ -370,4 +372,94 @@ test('owner summary and lookup update through undo, redo and conversion; next ID
   (await c.previewProjectChange(Plate.build(input,c.model.projectOwnership,nextPlateIds).request)).commit();
   assert.deepEqual([...c.selection.nodes],[100]);assert.equal(c.selection.elems.size,0);assert.equal(c.hidden.nodes.size,0);
   const history=c.historyManager.stack.at(-1);assert.ok(history);
+});
+
+const Cad = require('../app/cad-project.js');
+function cadInput({ name='box', size=3, order=1, perSolid=false }={}) {
+  const H=require('../app/hex-mapping.js'),data=JSON.parse(fs.readFileSync(require.resolve('./fixtures/mapping/'+name+'.json'),'utf8'));
+  const analysis=H.analyze(data.topology),intervals=H.solveIntervals(analysis,{size});
+  const mesh=H.generateMesh(analysis,intervals,H.createGeometry(data.topology,data.preview),{order});
+  return {id:'cad',name:'CAD part',snapshot:{filename:'part.step',content:btoa('STEP'),prepared:{filename:'part.brep',format:'brep',content:btoa('BREP')}},topology:data.topology,mesh,volumes:data.topology.volumes.map(v=>v.id),perSolid,settings:{version:2,step:'mesh',mesh:{method:'mapped',order,pidPerSolid:perSolid},sizing:{size,minCount:1,edges:[]}}};
+}
+async function cadPreview(input=cadInput(),previous=null,semantic=O.snapshot(model())) {
+  return O.preview(semantic,previous,(await Cad.build(input,previous,nextPlateIds)).request);
+}
+test('mapped CAD owns explicit source/solid regions and unchanged generation is a no-op',async()=>{
+  const input=cadInput({name:'split-box',perSolid:true}),a=await cadPreview(input);
+  assert.equal(a.ownership.project.objects.filter(o=>o.kind==='source').length,1);
+  assert.equal(a.ownership.project.objects.filter(o=>o.kind==='section').length,2);
+  const b=await cadPreview(input,a.ownership,a.semantic);
+  assert.deepEqual(b.changes,[]);assert.deepEqual(b.project.changes,[]);
+  const restored=Cad.restoreData(a.ownership,'cad/material');
+  assert.deepEqual(restored.settings,input.settings);assert.deepEqual(restored.prepared,input.snapshot.prepared);
+  assert.equal(restored.meshes[0].projectOwner,'cad');assert.deepEqual(restored.meshes[0].elements,a.semantic.elems.hex.map(e=>e.eid));
+});
+for(const changed of [{size:2},{order:2},{name:'split-box',perSolid:true}])test('mapped CAD remesh '+JSON.stringify(changed)+' allocates fresh mesh IDs and protects hand loads',async()=>{
+  const a=await cadPreview(),input=cadInput(changed),b=await cadPreview(input,a.ownership,a.semantic);
+  const oldIds=new Set(a.ownership.owners.filter(o=>o.owner==='cad').map(o=>o.key));
+  assert.ok(b.ownership.owners.filter(o=>o.owner==='cad').every(o=>!oldIds.has(o.key)));
+  assert.ok(b.semantic.nodes.some(([id])=>id===100));
+  if(!changed.name)assert.equal(b.semantic.elems.hex[0].pid,a.semantic.elems.hex[0].pid);
+  else assert.notEqual(b.semantic.elems.hex[0].pid,a.semantic.elems.hex[0].pid);
+  a.semantic.loads.force.push({sid:1,nid:101,mag:10,dir:[0,0,1],cid:0});
+  await assert.rejects(cadPreview(input,a.ownership,a.semantic),/Dangling reference/);
+});
+test('CAD material review invalidates an external connection and removal/conversion require resolution',async()=>{
+  const a=await cadPreview();
+  const r=definition('mount','connection',[{family:'elems',bucket:'rbe2',id:10000,role:'mount',value:{type:'RBE2',eid:10000,gn:100,cm:'123',deps:[101,102]}}],['cad']);
+  const b=O.preview(a.semantic,a.ownership,{objects:[r]});
+  const edited=O.preview(b.semantic,b.ownership,Cad.materialChange(b.ownership,'cad/material',{E:3500,nu:.36,rho:1.24e-9}));
+  assert.ok(edited.project.checks.some(c=>c.id==='mount'&&c.status==='invalid'));
+  for(const convert of [false,true])assert.throws(()=>Cad.removal(b.ownership,'cad',convert),/Resolve dependent/);
+  const converted=O.preview(a.semantic,a.ownership,Cad.removal(a.ownership,'cad',true));
+  assert.deepEqual(converted.semantic,a.semantic);assert.equal(converted.ownership.owners.length,0);
+  assert.equal(converted.ownership.project.objects.length,0);
+});
+for(const order of [1,2])test('mapped HEX'+(order===2?20:8)+' actual writer/parser, history and saved ownership round trip',async()=>{
+  const c=fixture(),input=cadInput({order}),built=await Cad.build(input,null,nextPlateIds);
+  (await c.previewProjectChange(built.request)).commit();
+  const before=copy(c.model.projectOwnership);
+  for(const format of ['free','small','large']){
+    const {indexes}=await exportParsed(c,format);
+    assert.equal(indexes.elements.size,built.mesh.elements.length);
+    for(const e of built.mesh.elements)assert.deepEqual(copy(indexes.elements.get(e.id).nids),e.nodes);
+  }
+  c.historyManager.undo();assert.equal(c.model.elems.hex.length,0);
+  c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),before);
+  (await c.previewProjectChange((await Cad.build(input,before,nextPlateIds)).request)).commit();
+  assert.equal(c.historyManager.stack.length,1);
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;
+  const saved=await c.saveProjectModel();let loaded=false;c.loadFromText=async()=>{loaded=true;};
+  await c.loadProjectModel(saved);assert.equal(loaded,true);
+  assert.deepEqual(copy(O.validate(c.model.projectOwnership,O.snapshot(c.model)).snapshot()),before.project);
+});
+
+test('returning to a retired CAD region allocates a new section identity',async()=>{
+  const a=await cadPreview(cadInput({name:'split-box'}));
+  const b=await cadPreview(cadInput({name:'split-box',perSolid:true}),a.ownership,a.semantic);
+  const c=await cadPreview(cadInput({name:'split-box'}),b.ownership,b.semantic);
+  assert.notEqual(c.semantic.elems.hex[0].pid,a.semantic.elems.hex[0].pid);
+  const original=Cad.rootFor(a.ownership,'cad').definition.sections[0].id;
+  assert.notEqual(Cad.rootFor(c.ownership,'cad').definition.sections[0].id,original);
+});
+
+test('remeshing a reopened CAD deck retires old source properties; removal and undo still export',async()=>{
+  const c=fixture();(await c.previewProjectChange((await Cad.build(cadInput(),null,nextPlateIds)).request)).commit();
+  const original=await exportParsed(c);
+  c.Int32Array=Int32Array;c.model.coreSoa={active:false,elemIds:new Int32Array([...original.indexes.elements.keys()])};
+  vm.runInContext(source.slice(source.indexOf('  function getTotalElementCount()'),source.indexOf('  function onResize()',source.indexOf('  function getTotalElementCount()'))),c);
+  // Reopened projects carry parsed source cards as well as semantic indexes.
+  c.workerModel.cardStream=original.cards;c.indexWorkerCardStream(c.workerModel.cardStream);
+  const built=await Cad.build(cadInput({name:'split-box',order:2,perSolid:true}),c.model.projectOwnership,nextPlateIds);
+  (await c.previewProjectChange(built.request)).commit();
+  for(const format of ['source','free']){
+    const parsed=await exportParsed(c,format,original.deck);
+    assert.deepEqual([...parsed.indexes.properties.keys()].sort(),[2,3]);
+    assert.equal(parsed.indexes.elements.size,built.mesh.elements.length);
+    for(const e of built.mesh.elements)assert.deepEqual(copy(parsed.indexes.elements.get(e.id).nids),e.nodes);
+  }
+  (await c.previewProjectChange(Cad.removal(c.model.projectOwnership,'cad'))).commit();
+  assert.equal(c.getTotalElementCount(),0,'removed elements cannot reappear through inactive compact counts');
+  const empty=await exportParsed(c,'free',original.deck);assert.equal(empty.indexes.properties.size,0);assert.equal(empty.indexes.materials.size,0);assert.equal(empty.indexes.elements.size,0);assert.equal(empty.indexes.nodes.size,1);
+  c.historyManager.undo();const undone=await exportParsed(c,'free',original.deck);assert.deepEqual([...undone.indexes.properties.keys()].sort(),[2,3]);assert.equal(undone.indexes.elements.size,built.mesh.elements.length);
 });

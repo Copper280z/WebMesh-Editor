@@ -5421,6 +5421,7 @@ This will also delete any elements that reference them.`);
     const cord2cIds = new Set(Array.from(model.coords.entries()).filter(([, cs]) => cs && String(cs.type || "").toUpperCase() === "CORD2C").map(([cid]) => Number(cid)));
     const cord2sIds = new Set(Array.from(model.coords.entries()).filter(([, cs]) => cs && String(cs.type || "").toUpperCase() === "CORD2S").map(([cid]) => Number(cid)));
     const cardStream = Array.isArray(workerModel.cardStream) ? workerModel.cardStream : [];
+    const semanticPropertyTypes = new Set(["PSHELL", "PSOLID", "PROD", "PBAR", "PBUSH", "PBEAM", "PCOMP"]);
     workerModel.cardStream = cardStream.filter((rec) => {
       if (!rec || rec.kind !== "card") return true;
       const name = String(rec.name || "").toUpperCase();
@@ -5428,6 +5429,10 @@ This will also delete any elements that reference them.`);
       if (!Array.isArray(t) || t.length < 2) return true;
       const id = Number.parseInt(t[1], 10);
       if (!Number.isFinite(id)) return true;
+      // A remesh can retire sections/materials as well as nodes/elements.
+      // Remove their retained source records before the strict writer runs.
+      if (semanticPropertyTypes.has(name)) return String(model.properties.get(id)?.type || "").toUpperCase() === name;
+      if (name === "MAT1") return String(model.materials.get(id)?.type || "").toUpperCase() === name;
       if (name === "GRID") return nodeIds.has(id);
       if (name === "CTRIA3") return triIds.has(id);
       if (name === "CTRIA6") return tri6Ids.has(id);
@@ -28091,7 +28096,7 @@ ${formatRanges(v.ranges, 500)}`;
     const aosCount = Object.values(model.elems).reduce((sum, arr) => sum + arr.length, 0);
     if (aosCount > 0) return aosCount;
     const core = model && model.coreSoa ? model.coreSoa : null;
-    if (core && core.elemIds instanceof Int32Array) return core.elemIds.length;
+    if (core && core.active && core.elemIds instanceof Int32Array) return core.elemIds.length;
     return 0;
   }
   function onResize() {

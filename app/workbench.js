@@ -118,7 +118,9 @@
     try {await fn(revision);refresh(true);}catch(err){message(err.message||String(err),true);const report=$('wb-report');if(report){report.textContent=err.message||String(err);report.className='wb-report bad';}}
     finally{setBusy(false);refresh(true);}
   }
-  const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy});
+  const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy,
+    reviewMappedMesh: reviewCadMesh,
+    reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
   function setTab(tab) {
@@ -225,9 +227,22 @@
     const found=new Map();for(const [ns,ids] of [['node',selection.nodes],['element',selection.elems||selection.elements],['property',selection.props]])for(const id of ids||[]){const owner=engine().getCardOwner?.(ns,id);if(owner)found.set(owner.id,owner);}return [...found.values()];
   }
   function checksHtml(checks){return `<ul class="wb-project-checks">${checks.map(c=>`<li>${checkBadge(c)} <strong>${esc(c.name)}</strong><p>${esc(c.reason)}</p>${c.status==='invalid'?ownerButton(c.id):''}</li>`).join('')}</ul>`;}
+  async function reviewCadMesh(input,callbacks){
+    const state=engine().getProjectOwnership(),old=window.WebMeshCadProject.rootFor(state,input.id);
+    const built=await window.WebMeshCadProject.build(input,state,engine().getNextIds());
+    const oldSource=old&&state.project.objects.find(o=>o.id===old.definition.source);
+    const source=built.request.objects.find(o=>o.kind==='source');
+    const note=(old?'This replaces the complete mapped mesh for this CAD source. ':'This creates an editable mapped CAD mesh. ')+
+      'Source: '+input.snapshot.filename+'. '+(oldSource?(oldSource.definition.geometryKey===source.definition.geometryKey?'Source geometry is unchanged. ':'Source geometry changed; the committed snapshot will be replaced. '):'The original and prepared CAD snapshots will be saved. ')+
+      'Solids: '+(old?old.definition.targets.join(', ')+' → ':'')+input.volumes.join(', ')+'. '+
+      'Order: '+(old?(old.definition.settings.mesh.order===2?'HEX20':'HEX8')+' → ':'')+(input.settings.mesh.order===2?'HEX20':'HEX8')+'. '+
+      'Target size: '+(old?old.definition.settings.sizing.size+' → ':'')+input.settings.sizing.size+'. Source, settings and mesh are committed together.';
+    return reviewProject(built.request,{...built,...callbacks,note});
+  }
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    const cadRoot=window.WebMeshCadProject.rootFor(state,id);if(cadRoot){openCadOwner(state,cadRoot);return;}
     const root=window.WebMeshPrimitiveProject.rootFor(state,id);
     if(!root){dialog(object.name,`<p>${esc(object.kind)} · ${state.owners.filter(o=>o.owner===id).length} generated cards</p><p>Depends on: ${esc(object.dependsOn.map(dep=>state.project.objects.find(o=>o.id===dep)?.name||dep).join(', ')||'None')}</p>${checksHtml(engine().getProjectSummary().checks.filter(c=>c.id===id))}<p>This object has no parameter editor yet.</p>`);return;}
     setTab('build');primitive='plate';editingPlate=root.id;
@@ -236,7 +251,18 @@
     savedForms.set('build:plate',values);renderPanel();
     if(id!==root.id){$('wb-panel-body').querySelector('details.wb-section').open=true;const el=$('wb-panel-body').querySelector(`[data-key="${id===root.definition.section?'thickness':'E'}"]`);el.focus();el.scrollIntoView({block:'center'});}
   }
-  async function reviewProject(request,{mesh,newMeshIdentity=false,owner}={}){
+  function openCadOwner(state,root){
+    const d=root.definition,source=state.project.objects.find(o=>o.id===d.source),material=state.project.objects.find(o=>o.id===d.material).definition.cards[0].value;
+    const count=family=>state.owners.filter(o=>o.owner===root.id&&o.card.family===family).length;
+    dialog(root.name,`<p>Mapped CAD mesh · ${count('nodes')} nodes · ${count('elems')} elements</p><p>Source: ${esc(source.definition.snapshot.filename)}. This saved snapshot produced the committed mesh. CAD preparation and sizing stay in a separate draft until Apply.</p><p>Solids: ${esc(d.targets.join(', '))} · ${d.settings.mesh.order===2?'HEX20':'HEX8'} · target size ${esc(d.settings.sizing.size)} · generation ${d.layout.generation}</p><p>Regions: ${d.sections.map(s=>'PSOLID '+s.pid+' (solid'+(s.volumes.length===1?' ':'s ')+esc(s.volumes.join(', '))+')').join('; ')}</p><p id="wb-cad-owner-error" role="alert"></p><details><summary>Project checks</summary>${checksHtml(engine().getProjectSummary().checks.filter(c=>window.WebMeshCadProject.bundle(state,root.id).includes(c.id)))}</details><details open><summary>Material · consistent model units</summary>${['E','nu','rho'].map((key,i)=>`<label class="wb-field"><span>${['Young’s modulus','Poisson’s ratio','Density'][i]}</span><input data-cad-material="${key}" type="number" step="any" value="${esc(material[key])}"></label>`).join('')}${button('wb-cad-material','Review material changes',null)}</details><div class="wb-owner-actions">${button('wb-cad-draft','Open active CAD draft',null)}${button('wb-cad-restore','Reopen committed CAD snapshot',null)}</div><p>Reopening the committed snapshot replaces the active CAD draft. Save the project first to retain that draft.</p><div class="wb-review-actions">${button('wb-cad-convert','Convert to plain cards',null)}${button('wb-cad-remove','Review removal',null)}</div>`);
+    const runOwnerAction=fn=>run(async()=>{try{await fn();}catch(error){const el=$('wb-cad-owner-error');if(el)el.textContent=error.message;else throw error;}});
+    $('wb-cad-material').onclick=()=>runOwnerAction(()=>{const values={};for(const el of $('wb-dialog-body').querySelectorAll('[data-cad-material]')){if(el.value.trim()===''||!Number.isFinite(Number(el.value)))throw Error('Enter finite material values.');values[el.dataset.cadMaterial]=Number(el.value);}return reviewProject(window.WebMeshCadProject.materialChange(engine().getProjectOwnership(),root.id,values),{owner:root.id});});
+    $('wb-cad-draft').onclick=()=>setTab('mesh');
+    $('wb-cad-restore').onclick=()=>runOwnerAction(async()=>{const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),root.id));cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed CAD snapshot reopened. Changes remain a draft until applied.');});
+    $('wb-cad-convert').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id,true)));
+    $('wb-cad-remove').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id)));
+  }
+  async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,note}={}){
     const candidate=await engine().previewProjectChange(request),report=candidate.preview();
     const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
     const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
@@ -244,12 +270,13 @@
     const value=v=>v===undefined?'—':JSON.stringify(v);
     const diff=changes=>changes.map(c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<details class="wb-card-diff"><summary>${esc(c.key)} · ${esc(c.action)}</summary><table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table></details>`;}).join('');
     dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?[...groups].map(([id,changes])=>`<details class="wb-owner-diff"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary>${diff(changes)}</details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?'<h3>Affected project checks</h3>'+checksHtml(affected):''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    if(note){const p=document.createElement('p');p.textContent=note;$('wb-dialog-body').prepend(p);}
     pendingProject=candidate;bindOwnerButtons($('wb-dialog-body'));if(mesh)previewInfo(mesh);
     $('wb-apply-project').disabled=blocked;
     $('wb-discard-project').onclick=()=>{closeDialog();message('Changes discarded. The model is unchanged.');};
     // The review is modal and commit is synchronous. Keep errors in the dialog,
     // including a stale candidate after an intervening model operation.
-    $('wb-apply-project').onclick=()=>{if(busy||blocked)return;try{candidate.commit();pendingProject=null;closeDialog();invalidatePreview();engine().fitView?.();logOperation(request.label);message(report.changes.length||report.ownershipChanges.length?request.label+' applied.':'Already up to date.');if(owner)openProjectOwner(owner);else{editingPlate=null;savedForms.delete('build:plate');renderPanel();}refresh(true);}catch(error){$('wb-project-error').textContent=error.message;}};
+    $('wb-apply-project').onclick=()=>{if(busy||blocked)return;try{beforeCommit?.();candidate.commit();pendingProject=null;closeDialog();invalidatePreview();onApplied?.();engine().fitView?.();logOperation(request.label);message(report.changes.length||report.ownershipChanges.length?request.label+' applied.':'Already up to date.');if(owner)openProjectOwner(owner);else{editingPlate=null;savedForms.delete('build:plate');renderPanel();}refresh(true);}catch(error){$('wb-project-error').textContent=error.message;}};
   }
   function patternMesh() {
     const source=engine().getMesh({selectedOnly:get('scope')==='selected'});

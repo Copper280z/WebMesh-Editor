@@ -207,14 +207,24 @@
     function markStale() { for (const m of meshes) m.stale = true; }
     const freshMeshes = () => meshes.filter(m => !m.stale && m.inModel !== false);
     const covering = target => meshes.filter(m => m.all || (target.volumes?.length && (m.volumes || []).some(v => target.volumes.includes(v))) || (target.faces?.length && (m.faces || []).some(f => target.faces.includes(f))));
+    const reviewMapped = volumes => hooks.reviewMappedMesh && !covering({ volumes }).some(m => !m.projectOwner && m.inModel !== false);
+    function meshOwnership(m) {
+      if (!m.projectOwner) return engine().getMeshOwner(meshOwner(m));
+      const state = engine().getProjectOwnership(), root = state?.project.objects.find(o => o.id === m.projectOwner);
+      if (!root) return { elements: [], properties: [] };
+      return { elements: state.owners.filter(o => o.owner === root.id && o.card.family === 'elems').map(o => o.card.id), properties: root.definition.sections.map(s => s.pid), volumes: root.definition.targets };
+    }
     function ownedMatches(m) {
-      const owned = engine().getMeshOwner(meshOwner(m)), expected = new Set((m.elements || []).map(Number));
+      const owned = meshOwnership(m), expected = new Set((m.elements || []).map(Number));
       m.inModel = owned.elements.length > 0;
-      return expected.size > 0 && expected.size === owned.elements.length && owned.elements.every(id => expected.has(Number(id)));
+      const matches = expected.size > 0 && expected.size === owned.elements.length && owned.elements.every(id => expected.has(Number(id)));
+      if (m.projectOwner && m.inModel) Object.assign(m, owned);
+      return matches;
     }
     /** Add a mesh of `target` (its solids or faces) to the model, replacing the meshes it covers in one undo step. */
     async function commitMesh(target, result, options, label) {
       const replaced = covering(target), keep = replaced[0];
+      if (replaced.some(m => m.projectOwner && m.inModel !== false)) throw Error('This region has an editable mapped CAD mesh. Remove it or convert it to plain cards from its project owner before using another mesher.');
       const record = { id: keep?.id ?? ++meshCounter, kind: target.kind, label, volumes: target.volumes || [], faces: target.faces || [], stale: false, inModel: true };
       committingMesh = true;
       try { Object.assign(record, await hooks.appendMesh(result, source.name, { ...options, previousMesh: keep || null, ownerTag: meshOwner(record), replaceOwners: replaced.slice(1).map(meshOwner) })); }
@@ -224,6 +234,10 @@
     }
     async function removeMesh(id) {
       const m = meshes.find(x => x.id === id); if (!m) return;
+      if (m.projectOwner && m.inModel !== false) {
+        await hooks.reviewRemoveMesh(m.projectOwner, () => { m.inModel = false; m.stale = true; hooks.render(); });
+        return true;
+      }
       committingMesh = true;
       try { if (m.inModel !== false) await hooks.removeMesh(meshOwner(m)); }
       finally { committingMesh = false; }
@@ -234,11 +248,11 @@
       if (!meshes.length) return '';
       const rows = meshes.map(m => {
         const confirm = removing === m.id, gone = m.inModel === false;
-        return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? 'Not in the model (undone)' : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? ' · out of date: the geometry or sizing changed' : ''}`}</small></div>
-          ${m.stale && !gone ? chip('Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
+        return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? (m.projectOwner ? 'Owner absent (undone, removed or converted)' : 'Not in the model (undone)') : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? (m.projectOwner ? ' · draft differs or needs review; committed mesh retained' : ' · out of date: the geometry or sizing changed') : ''}`}</small></div>
+          ${m.stale && !gone ? chip(m.projectOwner ? 'Draft changed' : 'Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
       }).join('');
       return `<section class="cad-card"><div class="cad-card-title">Meshes in the model <small>${meshes.length}</small></div>${rows}
-        <p class="cad-note">Each set of bodies keeps its own mesh: a new mesh replaces only the one covering the same solids or faces.</p></section>`;
+        <p class="cad-note">${meshes.some(m => m.projectOwner) ? 'Mapped CAD changes replace the complete owned mesh after review. The committed source and mesh remain available for export while you edit the draft.' : 'Each set of bodies keeps its own mesh: a new mesh replaces only the one covering the same solids or faces.'}</p></section>`;
     }
     /* ------------------------------------------------------------ sheets -- */
     const sheetRecords = () => session?.topology?.sheets || [];
@@ -328,7 +342,7 @@
       const ids = list => Array.isArray(list) ? list.filter(Number.isSafeInteger).slice(0, 2000000) : [];
       if (Array.isArray(data?.meshes)) return data.meshes.filter(m => m && Number.isSafeInteger(m.id) && m.id > 0 && Array.isArray(m.elements)).slice(0, 200)
         .map(m => ({ id: m.id, kind: typeof m.kind === 'string' ? m.kind.slice(0, 20) : 'mesh', label: typeof m.label === 'string' ? m.label.slice(0, 200) : 'Mesh', volumes: ids(m.volumes), faces: ids(m.faces),
-          elements: ids(m.elements), properties: ids(m.properties), material: Number.isSafeInteger(m.material) ? m.material : undefined, stale: !!m.stale }));
+          elements: ids(m.elements), properties: ids(m.properties), material: Number.isSafeInteger(m.material) ? m.material : undefined, stale: !!m.stale, ...(typeof m.projectOwner === 'string' ? { projectOwner: m.projectOwner } : {}) }));
       if (data?.mesh && Array.isArray(data.mesh.elements)) return [{ id: 1, kind: 'mesh', label: 'Mesh', all: true, volumes: [], faces: [], elements: ids(data.mesh.elements), properties: ids(data.mesh.properties), material: data.mesh.material, stale: !!data.mesh.stale }];
       return [];
     }
@@ -647,7 +661,7 @@
       if (step === 'mesh' && meshSettings.method === 'shell') renderPart('cad-shell', shellBody);
       if (step === 'prepare') { updateIssueOverlay(); if (tool === 'features') renderPart('cad-tool', toolCard); }
       document.querySelectorAll('[data-solid-row]').forEach(el => el.classList.toggle('selected', selection.kind === 'solid' && selection.ids.includes(Number(el.dataset.solidRow))));
-      if (step === 'mesh' && meshSettings.scope === 'selected') scheduleMesh();
+      if (step === 'mesh' && meshSettings.scope === 'selected') { invalidateMesh(); scheduleMesh(); }
     }
 
     /* ------------------------------------------------------------- render -- */
@@ -727,7 +741,7 @@
       if (step === 'size') return `<div class="cad-foot-row">${btn('step', 'Back', { cls: 'ghost', data: { value: 'prepare' } })}${btn('step', 'Next: Mesh', { cls: 'primary', data: { value: 'mesh' }, iconName: 'arrow' })}</div>`;
       if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh', disabled: !gmshReady(), title: gmshReady() ? '' : GMSH_MISSING })}</div>`;
       if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell', disabled: shell.element === 'tri' && !gmshReady(), title: shell.element === 'tri' && !gmshReady() ? GMSH_MISSING : '' })}</div>`;
-      return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', covering({ volumes: mappedTarget() }).length ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
+      return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', reviewMapped(mappedTarget()) ? 'Review mesh changes' : covering({ volumes: mappedTarget() }).length ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
     }
 
     /* ----------------------------------------------------- context (infer) -- */
@@ -1124,7 +1138,7 @@
         html += `<section id="cad-mesh-report">${meshReportCard()}</section>`;
       } else html += legacyBody();
       if (report) html += `<div class="cad-card ${report.error ? 'bad' : 'good'}"><pre class="cad-report">${esc(report.text)}</pre></div>`;
-      if (meshes.some(m => m.stale && m.inModel !== false)) html += `<p class="cad-note warn">${icon('warn')} Geometry, sizing or the model changed since a mesh was added. Mesh those bodies again to update it.</p>`;
+      if (meshes.some(m => m.stale && m.inModel !== false)) html += `<p class="cad-note warn">${icon('warn')} ${meshes.some(m => m.projectOwner && m.stale && m.inModel !== false) ? 'The CAD draft or mesh history changed. Review a new mesh to reconcile it; export retains the committed model.' : 'Geometry, sizing or the model changed since a mesh was added. Mesh those bodies again to update it.'}</p>`;
       return html;
     }
     function meshReportCard() {
@@ -1424,7 +1438,7 @@
     /* ------------------------------------------------------------- sizing -- */
     function resolve({ rerender = true } = {}) {
       solve();
-      markStale();
+      invalidateMesh();
       updateDisplay();
       if (rerender) {
         renderPart('cad-edge-editor', edgeEditor); renderPart('cad-equations', equationsCard); renderPart('cad-context', contextCard);
@@ -1503,18 +1517,44 @@
       }
       return { faces, colors, edges };
     }
+    function savedSettings() {
+      return { version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
+        mesh: { ...meshSettings, ...(meshSettings.scope === 'selected' ? { selectedVolumes: meshVolumes() } : {}) }, legacy: JSON.parse(JSON.stringify(legacy)), shell: JSON.parse(JSON.stringify(shell)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups } };
+    }
+    function finishMappedMesh(result) {
+      const q = result.quality;
+      report = { text: `${result.nodes.length.toLocaleString()} nodes · ${result.elements.length.toLocaleString()} ${meshSettings.order === 2 ? 'HEX20' : 'HEX8'} elements\n${q.perVolume.length} mapped block${q.perVolume.length === 1 ? '' : 's'} · min scaled Jacobian ${q.minScaledJacobian.toFixed(4)} · max aspect ${fmt(q.maxAspect, 3)}\nNative transfinite mapping; shared CAD edges and faces give conforming interfaces.` };
+      meshPreview = null; viewport()?.clearOverlays('mesh'); setBaseVisible(true);
+      engine().setCadVisible(false); engine().setCadSelectionMode('none');
+      hooks.render();
+    }
     async function addMesh() {
       if (!meshPreview) buildMeshPreview();
       if (!meshPreview) throw Error(meshError || 'The mapped mesh could not be generated.');
       const result = meshPreview.result, q = result.quality;
       if (q.inverted) throw Error(`${q.inverted} elements are inverted. Change edge counts or slice the solids before adding the mesh.`);
       const volumes = [...new Set(result.elements.map(e => e.volume))].sort((a, b) => a - b);
+      if (reviewMapped(volumes)) {
+        const draft = JSON.stringify({ token: token(), settings: savedSettings(), target: mappedTarget() }), file = source;
+        const beforeCommit = () => { if (source !== file || draft !== JSON.stringify({ token: token(), settings: savedSettings(), target: mappedTarget() })) throw Error('The CAD draft changed. Discard this review and generate a new mesh review.'); };
+        const previous = meshes.find(m => m.projectOwner && m.inModel !== false), id = previous?.projectOwner || 'cad-' + crypto.randomUUID();
+        const snapshot = { filename: source.name, content: base64(await source.arrayBuffer()), prepared: await api('export', token()) };
+        snapshot.prepared.history = [...auditHistory, ...(snapshot.prepared.history || [])];
+        beforeCommit();
+        await hooks.reviewMappedMesh({ id, name: source.name + ' · Mapped mesh', snapshot, topology: topology(), settings: savedSettings(), perSolid: meshSettings.pidPerSolid, volumes, mesh: { nodes: result.nodes, elements: result.elements } }, {
+          beforeCommit,
+          onApplied() {
+            const record = { id: previous?.id ?? ++meshCounter, kind: 'hex', label: source.name + ' · Mapped mesh', projectOwner: id, volumes, faces: [], stale: false, inModel: true };
+            Object.assign(record, meshOwnership(record));
+            meshes = [...meshes.filter(m => m !== previous), record];
+            finishMappedMesh(result);
+          }
+        });
+        return;
+      }
       await commitMesh({ kind: 'hex', volumes }, { mesh: { nodes: result.nodes, elements: result.elements.map(({ volume, ...e }) => e) }, log: '' }, { topology: 'hex', order: meshSettings.order },
         `Mapped ${meshSettings.order === 2 ? 'HEX20' : 'HEX8'} · ${volumes.length} solid${volumes.length === 1 ? '' : 's'}`);
-      report = { text: `${result.nodes.length.toLocaleString()} nodes · ${result.elements.length.toLocaleString()} ${meshSettings.order === 2 ? 'HEX20' : 'HEX8'} elements\n${q.perVolume.length} mapped block${q.perVolume.length === 1 ? '' : 's'} · min scaled Jacobian ${q.minScaledJacobian.toFixed(4)} · max aspect ${fmt(q.maxAspect, 3)}\nNative transfinite mapping; shared CAD edges and faces give conforming interfaces.` };
-      meshPreview = null; viewport()?.clearOverlays('mesh'); setBaseVisible(true);
-      engine().setCadVisible(false); engine().setCadSelectionMode('none');
-      hooks.render();
+      finishMappedMesh(result);
     }
     async function gmshMesh() {
       if (!gmshReady()) throw Error(GMSH_MISSING);
@@ -1724,7 +1764,7 @@
             const id = Number(value), m = meshes.find(x => x.id === id);
             if (m && m.inModel !== false && removing !== id) { removing = id; renderPart('cad-meshes', meshesCard); break; }
             removing = null;
-            hooks.run(async () => { await removeMesh(id); hooks.render(); hooks.message(m?.inModel === false ? 'Dropped the mesh from the list.' : 'Removed the mesh from the model.'); });
+            hooks.run(async () => { const pending = await removeMesh(id); hooks.render(); if (!pending) hooks.message(m?.inModel === false ? 'Dropped the mesh from the list.' : 'Removed the mesh from the model.'); });
             break;
           }
           case 'shell-pad-clear': shell.pads = []; hooks.render(); break;
@@ -2006,17 +2046,14 @@
       },
       clear() { clearAll(); },
       /** [owner tag, element IDs] of each mesh a project saved, for the restored CAD session. */
-      savedOwners(staged) { return staged ? savedMeshes(staged.data).map(m => [`${staged.imported.cadId}#${m.id}`, m.elements]) : []; },
+      savedOwners(staged) { return staged ? savedMeshes(staged.data).filter(m => !m.projectOwner).map(m => [`${staged.imported.cadId}#${m.id}`, m.elements]) : []; },
       async serialize() {
         if (!source) return null;
         for (const m of meshes) if (!ownedMatches(m) && !m.stale) { m.stale = true; report = null; }
-        const settings = {
-          version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
-          mesh: { ...meshSettings }, legacy: JSON.parse(JSON.stringify(legacy)), shell: JSON.parse(JSON.stringify(shell)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups }
-        };
+        const settings = savedSettings();
         const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report };
         if (session) { original.prepared = await api('export', token()); original.prepared.history = [...auditHistory, ...(original.prepared.history || [])]; }
-        const saved = meshes.filter(m => m.inModel !== false).map(m => { const owned = engine().getMeshOwner(meshOwner(m)); return { ...m, elements: owned.elements, properties: owned.properties }; });
+        const saved = meshes.filter(m => m.inModel !== false).map(m => { const owned = meshOwnership(m); return { ...m, elements: owned.elements, properties: owned.properties }; });
         if (saved.length) original.meshes = saved;
         return original;
       },
@@ -2071,6 +2108,13 @@
           if (!ok) { invalid = true; continue; }
           const entry = {}; if (control.count != null) entry.count = control.count; if (control.size != null) entry.size = control.size;
           if (Object.keys(entry).length) sizing.edges.set(control.id, entry);
+        }
+        if (s.mesh?.scope === 'selected') {
+          const targets = Array.isArray(s.mesh.selectedVolumes) ? s.mesh.selectedVolumes : [];
+          const availableSolids = new Set(session.topology.volumes.map(v => v.id));
+          selection = { kind: 'solid', ids: targets.filter(id => Number.isSafeInteger(id) && availableSolids.has(id)) };
+          if (!selection.ids.length || selection.ids.length !== targets.length) invalid = true;
+          engine().selectCad({ faces: [], edges: [], vertices: [], volumes: selection.ids });
         }
         solve(); updateDisplay();
         meshes = savedMeshes(data); meshCounter = Math.max(0, ...meshes.map(m => m.id));

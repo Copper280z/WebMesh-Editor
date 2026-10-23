@@ -379,3 +379,5 @@ button:disabled{opacity:.42;cursor:not-allowed}
 .wb-card-diff{margin:6px 0;padding:4px 0}.wb-card-diff summary{cursor:pointer;color:#b1c9e0}.wb-card-diff table{border-collapse:collapse;table-layout:fixed;width:100%;margin-top:8px;font-size:11px}.wb-card-diff th,.wb-card-diff td{border:1px solid #3b5067;padding:5px;text-align:left;overflow-wrap:anywhere;vertical-align:top}
 .wb-review-actions{display:flex;justify-content:flex-end;gap:10px;position:sticky;bottom:-18px;background:#171f2b;padding:14px 0;margin-top:16px;border-top:1px solid #3b5067}
 #wb-project-error{color:#ffacaa;white-space:pre-wrap}
+
+.wb-owner-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
