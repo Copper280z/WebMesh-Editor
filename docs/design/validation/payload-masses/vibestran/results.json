@@ -1,0 +1,93 @@
+{
+  "solver": "/Users/bob/Documents/vibe-tran/build/vibestran",
+  "passed": false,
+  "errors": [
+    "Solver relative residual exceeds 1e-8",
+    "Case 1: force/moment equilibrium differs by more than 0.02 N or N mm",
+    "Case 2: force/moment equilibrium differs by more than 0.02 N or N mm"
+  ],
+  "epsilon_estimates": [],
+  "total_mass_t": 0.0026304,
+  "payload_mass_t": 0.0015,
+  "relative_residuals": [
+    3.749e-08,
+    2.547e-10
+  ],
+  "cases": [
+    {
+      "expected_reaction": [
+        0.0,
+        0.0,
+        25.795412160000012,
+        773.8628814284344,
+        -1117.7980936536321,
+        0.0
+      ],
+      "actual_reaction": [
+        0.2867433100000101,
+        3.791993203883237e-07,
+        24.275668,
+        728.2700632107067,
+        -1112.0663269000001,
+        -8.602301899999873
+      ]
+    },
+    {
+      "expected_reaction": [
+        0.0,
+        -12.897706080000006,
+        0.0,
+        1170.933623299999,
+        0.0,
+        -558.8990468268161
+      ],
+      "actual_reaction": [
+        1.429699969524023e-07,
+        -11.246355900000001,
+        9.088000285650821e-08,
+        978.3606607263999,
+        4.2350000484248085e-07,
+        -536.6571142890999
+      ]
+    }
+  ],
+  "payload_displacements": [
+    {
+      "1 kg payload \u00b7 200 mm COM": [
+        0.0006476965,
+        -3.384621e-08,
+        -0.0001772297,
+        1.727995e-10,
+        3.328723e-06,
+        -1.548562e-11
+      ],
+      "500 g battery": [
+        2.408944e-05,
+        3.525535e-10,
+        -1.175838e-05,
+        -1.602103e-11,
+        1.186344e-06,
+        -5.574982e-12
+      ]
+    },
+    {
+      "1 kg payload \u00b7 200 mm COM": [
+        -3.830614e-08,
+        0.0002133408,
+        9.260004e-09,
+        -1.04484e-06,
+        -1.977505e-10,
+        1.826714e-07
+      ],
+      "500 g battery": [
+        1.936128e-11,
+        8.229409e-06,
+        -2.630913e-11,
+        -3.169835e-07,
+        1.875664e-12,
+        -3.544832e-08
+      ]
+    }
+  ],
+  "scope": "Workflow and equilibrium validation of the browser-authored fixture; not a converged engineering prediction."
+}

@@ -83,4 +83,4 @@ Final isolated JavaScript suite: **417/417 passed** in 44.6 seconds. The clean c
 
 ## Follow-on work
 
-Add editable parameters and selection repair for analyst action objects, extend conforming actions to quadratic topology, and support multiple disjoint interfaces on one region. Continue applying the composition rule to CAD preparation, attachment authoring and analysis setup as those workflows are changed. Payload/mass authoring remains the next domain workflow: explicit center of mass, CONM2, RBE3 distribution and analysis/run provenance.
+Add editable parameters and selection repair for analyst action objects, extend conforming actions to quadratic topology, and support multiple disjoint interfaces on one region. Continue applying the composition rule to CAD preparation, attachment authoring and analysis setup as those workflows are changed. [Implementation 08](implementation-08-payload-masses.md) now provides editable point/CONM2/RBE3 actions and a distributed-payload guide with explicit COM and remesh-aware named regions. Analysis cases and run provenance are the next domain workflow.

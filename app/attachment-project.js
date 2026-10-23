@@ -13,14 +13,16 @@
   function existing(map,id,generator){const o=map.get(id);if(o&&o.definition.generator!==generator)throw Error('This identity belongs to another project object.');return o;}
   function get(map,id,generator,label){const o=map.get(id);if(!o||o.definition.generator!==generator)throw Error('Select a valid '+label+'.');if(o.facts?.suspendedReason)throw Error(o.name+' is suspended.');return o;}
   function resolveRegion(object,map){
-    const d=object.definition,s=d.selector,mesh=get(map,s.mesh,'cad-mapped-v1','committed mapped CAD mesh'),source=map.get(mesh.definition.source);
+    const d=object.definition,s=d.selector,mesh=map.get(s.mesh),source=map.get(mesh?.definition.source);
+    if(!mesh||!['cad-mapped-v1','cad-shell-v1'].includes(mesh.definition.generator)||mesh.facts?.suspendedReason)throw Error('Select an active committed CAD mesh.');
     const fail=reason=>{throw Error('Mounting region “'+object.name+'”: '+reason);};
     if(source?.definition.geometryKey!==s.geometryKey)fail('the CAD geometry changed. Remove this region and its attachments before replacing the topology, then define it on the new mesh.');
     if(!Array.isArray(s.faces)||!s.faces.length||s.faces.some(id=>!Number.isSafeInteger(id)||id<1)||new Set(s.faces).size!==s.faces.length)fail('select one or more distinct CAD faces.');
-    const faces=s.faces.map(id=>mesh.definition.faces?.find(f=>f.id===id));
-    if(faces.some(f=>!f?.nodes.length))fail('a selected face is not meshed. Restore its solid to the mesh scope or redefine the region. Older projects need one reviewed mesh regeneration.');
+    const kind=s.kind||'face';if(!['face','edge'].includes(kind)||kind==='edge'&&mesh.definition.generator!=='cad-shell-v1')fail('edge regions require a committed shell mesh.');
+    const faces=s.faces.map(id=>mesh.definition[kind==='edge'?'edges':'faces']?.find(f=>f.id===id));
+    if(faces.some(f=>!f?.nodes.length))fail('a selected face/edge is not meshed. Restore its solid to the mesh scope or redefine the region. Older projects need one reviewed mesh regeneration.');
     const nodes=[...new Set(faces.flatMap(f=>f.nodes))].sort((a,b)=>a-b);
-    const grids=new Map(mesh.definition.cards.filter(c=>c.family==='nodes').map(c=>[c.id,c.value]));
+    const grids=new Map([...map.values()].filter(o=>!o.facts?.suspendedReason).flatMap(o=>(o.definition.cards||[]).filter(c=>c.family==='nodes').map(c=>[c.id,c.value])));
     const points=nodes.map(id=>{const n=grids.get(id);if(!n||n.cp||n.cd)fail('node '+id+' has no basic-coordinate mesh resolution.');return vector([n.x,n.y,n.z],'Resolved node');});
     if(nodes.length<3)fail('at least three support nodes are required.');
     const a=points[0],delta=p=>p.map((x,i)=>x-a[i]),v=points.map(delta),span=v.reduce((m,p)=>Math.max(m,Math.hypot(...p)),0);
@@ -30,9 +32,10 @@
     return {...copy(object),dependsOn:[mesh.id,mesh.definition.source],definition:{...copy(d),resolved:{meshKey:mesh.definition.layout.key,nodes,centroid:[0,1,2].map(i=>points.reduce((sum,p)=>sum+p[i],0)/points.length)},cards:[]}};
   }
   function region(input,state){
-    const map=catalog(state),old=existing(map,input.id,REGION),mesh=get(map,input.mesh,'cad-mapped-v1','committed mapped CAD mesh');
+    const map=catalog(state),old=existing(map,input.id,REGION),mesh=map.get(input.mesh);
+    if(!mesh||!['cad-mapped-v1','cad-shell-v1'].includes(mesh.definition.generator))throw Error('Select a committed CAD shell or solid mesh.');
     const geometryKey=map.get(mesh.definition.source).definition.geometryKey;
-    const object=resolveRegion({id:input.id,kind:'region',name:named(input.name),definition:{generator:REGION,selector:{mesh:mesh.id,geometryKey,faces:[...new Set(input.faces)].sort((a,b)=>a-b)}}},map);
+    const object=resolveRegion({id:input.id,kind:'region',name:named(input.name),definition:{generator:REGION,selector:{mesh:mesh.id,geometryKey,...(input.kind?{kind:input.kind}:{}),faces:[...new Set(input.faces)].sort((a,b)=>a-b)}}},map);
     return {label:(old?'Update ':'Create ')+object.name,objects:[object]};
   }
   function template(input,state,ids){
@@ -48,9 +51,9 @@
     const mount=points.definition.cards.find(c=>c.role==='mount'),shaft=points.definition.cards.find(c=>c.role==='shaft');
     const xyz=c=>vector(c&&[c.value.x,c.value.y,c.value.z],'Mount and shaft');
     const m=xyz(mount),s=xyz(shaft);if(!Math.hypot(...s.map((x,i)=>x-m[i])))throw Error('Mount and shaft points must be distinct.');
-    if(!/^[1-3]+$/.test(d.components)||new Set(d.components).size!==d.components.length)throw Error('Solid mounting regions support dependent translations 1, 2 and 3 (normally 123).');
+    if(!/^[1-3]+$/.test(d.components)||new Set(d.components).size!==d.components.length)throw Error('Mounting regions support dependent translations 1, 2 and 3 (normally 123).');
     const rbe=object.definition.cards.find(c=>c.role==='mount'),bush=object.definition.cards.find(c=>c.role==='bush');
-    return {...copy(object),dependsOn:[region.id,region.definition.selector.mesh,points.id,t.id],definition:{...copy(d),cards:[
+    return {...copy(object),dependsOn:[...new Set([region.id,region.definition.selector.mesh,points.id,t.id,...[...map.values()].filter(o=>(o.definition.cards||[]).some(c=>c.family==='nodes'&&region.definition.resolved.nodes.includes(c.id))).map(o=>o.id)])],definition:{...copy(d),cards:[
       {family:'elems',bucket:'rbe2',id:rbe.id,role:'mount',value:{type:'RBE2',eid:rbe.id,gn:mount.id,cm:d.components,deps:region.definition.resolved.nodes.slice()}},
       // CID=0 explicitly defines all six stiffness directions in basic XYZ.
       {family:'elems',bucket:'bush',id:bush.id,role:'bush',value:{type:'CBUSH',eid:bush.id,pid:t.definition.cards[0].id,n:[mount.id,shaft.id],cid:0,orient:{kind:'x',x:[0,1,0]}}}
@@ -98,12 +101,12 @@
   function describe(state,request){
     const map=catalog(state),notes=[];
     for(const o of request.objects||[]){const old=map.get(o.id),d=o.definition;
-      if(d.generator===REGION)notes.push(o.name+': CAD faces '+d.selector.faces.join(', ')+'; '+(old?old.definition.resolved.nodes.length+' → ':'')+d.resolved.nodes.length+' support nodes.');
+      if(d.generator===REGION)notes.push(o.name+': CAD '+(d.selector.kind==='edge'?'edges ':'faces ')+d.selector.faces.join(', ')+'; '+(old?old.definition.resolved.nodes.length+' → ':'')+d.resolved.nodes.length+' support nodes.');
       if(d.generator===ATTACHMENT){const r=d.cards.find(c=>c.role==='mount').value,b=d.cards.find(c=>c.role==='bush').value;
         notes.push(o.name+': RBE2 '+r.eid+', dependent DOFs '+(old?old.definition.components+' → ':'')+r.cm+', mount GRID '+r.gn+'; CBUSH '+b.eid+' → shaft GRID '+b.n[1]+', PBUSH '+b.pid+' in basic XYZ.');}
       if(d.generator===TEMPLATE){const users=[...map.values()].filter(c=>c.definition.generator===ATTACHMENT&&c.definition.template===o.id);notes.push(o.name+': shared PBUSH '+d.cards[0].id+(users.length?' used by '+users.map(u=>u.name).join(', '):'')+'.');}
     }
     return notes.join(' ');
   }
-  return Object.freeze({REGION,ATTACHMENT,TEMPLATE,region,template,attachment,rebuild,removal,rootFor,describe});
+  return Object.freeze({REGION,ATTACHMENT,TEMPLATE,resolveRegion,region,template,attachment,rebuild,removal,rootFor,describe});
 }));

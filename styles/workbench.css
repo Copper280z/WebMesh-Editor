@@ -388,6 +388,9 @@ button:disabled{opacity:.42;cursor:not-allowed}
 [data-mount-error] { color: #ffb0a5; white-space: pre-wrap; }
 /* Let analysts see highlighted support nodes while editing their region. */
 @media (min-width: 900px) {
-  .wb-dialog:has([data-mount-editor]) { margin-left: 12px; width: 420px; }
-  .wb-dialog:has([data-mount-editor])::backdrop { background: rgb(0 0 0 / 8%); backdrop-filter: none; }
+  .wb-dialog:has([data-mount-editor], [data-mass-editor]) { margin-left: 12px; width: 420px; }
+  .wb-dialog:has([data-mount-editor], [data-mass-editor])::backdrop { background: rgb(0 0 0 / 8%); backdrop-filter: none; }
 }
+
+[data-mass-editor] textarea { width: 100%; box-sizing: border-box; background: #101925; color: #d9e5f2; border: 1px solid #35485e; padding: 8px; }
+[data-mass-weight] { width: 95px; }

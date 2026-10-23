@@ -5387,6 +5387,16 @@ This will also delete any elements that reference them.`);
       ];
       upsertSimpleIdCardTokens("MAT1", mid, tokens);
     }
+    for (const [eid, mass] of model.masses || []) {
+      if (!mass || String(mass.type || "").toUpperCase() !== "CONM2") continue;
+      const x = Array.isArray(mass.x) ? mass.x : [];
+      const inertia = Array.isArray(mass.inertia) ? mass.inertia : [];
+      upsertSimpleIdCardTokens("CONM2", eid, [
+        "CONM2", asIntToken(eid), asIntToken(mass.g), asIntToken(mass.cid ?? 0), asFloatToken(mass.m),
+        ...[0, 1, 2].map(i => asFloatToken(x[i] ?? 0)), "",
+        ...[0, 1, 2, 3, 4, 5].map(i => asFloatToken(inertia[i] ?? 0))
+      ]);
+    }
     const semanticIndexes = ensureSemanticRelationshipIndexes("sync-worker-cardstream-filter");
     const semanticElementRefsForFilter = semanticIndexes && semanticIndexes.elementRefsByEid instanceof Map ? semanticIndexes.elementRefsByEid : null;
     const semanticElementIdSetForType = (typeName) => {

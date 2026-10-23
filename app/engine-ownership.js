@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
@@ -57,17 +57,21 @@
       MAT1: ['type', 'mid', 'E', 'G', 'nu', 'rho'],
       PSHELL: ['type', 'pid', 'mid1', 'mid2', 'mid3', 'mid4', 't'], PSOLID: ['type', 'pid', 'mid'], PROD: ['type', 'pid', 'mid', 'A'],
       PBUSH: ['type', 'pid', 'K', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6'],
+      CONM2: ['type', 'eid', 'g', 'cid', 'm', 'x', 'inertia'],
       RBE3: ['type', 'eid', 'gn', 'cm', 'weight', 'inds', 'groups'], RBE2: ['type', 'eid', 'gn', 'cm', 'deps'], CBUSH: ['type', 'eid', 'pid', 'n', 'orient', 'cid', 's', 'ocid', 'si']
     };
     const fields = allowed[type] || (buckets[type] ? ['type', 'eid', 'pid', 'n', 'zoffs'] : null);
     if (!fields || Object.keys(v).some(field => !fields.includes(field))) fail(k + ': unsupported generated card or field.');
-    const expected = type === 'GRID' ? 'nodes' : type === 'MAT1' ? 'materials' : type.startsWith('P') ? 'properties' : 'elems';
+    const expected = type === 'GRID' ? 'nodes' : type === 'MAT1' ? 'materials' : type === 'CONM2' ? 'masses' : type.startsWith('P') ? 'properties' : 'elems';
     if (card.family !== expected || card.family === 'elems' && card.bucket !== buckets[type]) fail(k + ': wrong card family or bucket.');
-    const ownerKinds = { nodes: ['mesh', 'point'], elems: ['mesh', 'connection'], properties: ['section', 'template'], materials: ['material'] };
+    const ownerKinds = { nodes: ['mesh', 'point'], elems: ['mesh', 'connection'], properties: ['section', 'template'], materials: ['material'], masses: ['connection'] };
     if (!ownerKinds[card.family]?.includes(kind)) fail(k + ': ' + kind + ' cannot own this family.');
     if (type !== 'GRID' && v[expected === 'materials' ? 'mid' : expected === 'properties' ? 'pid' : 'eid'] !== card.id) fail(k + ': card ID disagrees with its values.');
     const finite = (value, label) => { if (typeof value !== 'number' || !Number.isFinite(value)) fail(k + ': ' + label + ' must be finite.'); return value; };
     if (type === 'GRID') { for (const f of ['x', 'y', 'z']) finite(v[f], f); for (const f of ['cp', 'cd']) if (v[f] != null && v[f] !== 0) id(v[f]); }
+    if (type === 'CONM2') {
+      if (v.cid !== 0 || !equal(v, Connections.massValue({id:card.id,node:v.g,mass:v.m,offset:v.x,inertia:v.inertia}))) fail(k + ': owned CONM2 requires explicit basic offsets and inertia.');
+    }
     if (type === 'MAT1' && v.G != null && !(finite(v.G, 'G') > 0)) fail(k + ': G must be positive.');
     if (type === 'PSHELL') { id(v.mid1); for (const f of ['mid2', 'mid3', 'mid4']) if (v[f] != null) id(v[f]); }
     if (type === 'PSOLID' || type === 'PROD') id(v.mid);
@@ -86,7 +90,7 @@
       if (!Array.isArray(ns) || (['RBE2','RBE3'].includes(type) ? ns.length < 2 : !counts[type].includes(ns.length))) fail(k + ': incorrect connectivity count.');
       ns.forEach(id); if (new Set(ns).size !== ns.length) fail(k + ': repeated connectivity.');
       if (type === 'RBE2' && (!/^[1-6]+$/.test(v.cm) || new Set(v.cm).size !== v.cm.length)) fail(k + ': invalid dependent components.');
-      if(type==='RBE3'&&(v.cm!=='123456'||v.weight!==1||v.inds.length<3||v.groups?.length!==1||v.groups[0].wt!==1||v.groups[0].c!=='123'||!equal(v.groups[0].gids,v.inds))) fail(k+': owned RBE3 requires six reference DOFs and one unit-weight translational support group.');
+      if(type==='RBE3'&&!equal(v, Connections.distributionValue({id:card.id,node:v.gn,components:v.cm,groups:v.groups}))) fail(k+': owned RBE3 requires explicit weighted translational groups and six reference DOFs.');
       if (type === 'CBUSH' && (v.orient?.kind !== 'x' || !Array.isArray(v.orient.x) || v.orient.x.length !== 3 || !v.orient.x.every(Number.isFinite) || !Math.hypot(...v.orient.x))) fail(k + ': explicit CBUSH orientation required.');
     }
     return { family: card.family, id: card.id, value: copy(v), ...(card.bucket ? { bucket: card.bucket } : {}) };
@@ -163,9 +167,10 @@
       if(e.type==='RBE2')for(const nid of e.deps||[])occupy(nid,e.cm,'RBE2 '+e.eid,true);
       if(e.type==='RBE3')occupy(e.gn,e.cm,'RBE3 '+e.eid,true);
     }
+    for (const e of elements) if(e.type==='RBE3'&&owners.has('element:'+e.eid)) Connections.supportGeometry(e,new Map(semantic.nodes));
     // Generated interpolation supports must remain independent. This also
     // rejects cycles through a hand or generated rigid element after edits.
-    for(const e of elements)if(e.type==='RBE3'&&owners.has('element:'+e.eid))for(const nid of e.inds)for(const c of '123')if(occupied.has(nid+':'+c)&&!/^SPC|^permanent/.test(occupied.get(nid+':'+c)))fail('RBE3 '+e.eid+': solid support GRID '+nid+' component '+c+' is dependent ('+occupied.get(nid+':'+c)+').');
+    for(const e of elements)if(e.type==='RBE3'&&owners.has('element:'+e.eid))for(const nid of e.inds)for(const c of '123')if(occupied.has(nid+':'+c)&&!/^SPC|^permanent/.test(occupied.get(nid+':'+c)))fail('RBE3 '+e.eid+': support GRID '+nid+' component '+c+' is dependent ('+occupied.get(nid+':'+c)+').');
   }
   function empty() { return { format: FORMAT, version: 1, project: Project.create().snapshot(), owners: [] }; }
   function validate(state, semantic) {

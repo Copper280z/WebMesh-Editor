@@ -638,7 +638,7 @@ test('owned RBE3 conflicts are checked against SPC, RBE2, RBE3 and dependent sup
   const a=await mixedModel(),r=a.semantic.elems.rbe3[0];
   const conflict=copy(a.semantic);conflict.spc1.push({sid:1,nodes:[r.gn],components:'4'});assert.throws(()=>O.guard(a.ownership,a.semantic,conflict),/already constrained/);
   const duplicate=copy(a.ownership.project.objects.find(o=>o.id==='tie'));duplicate.id='tie-copy';duplicate.definition.cards=duplicate.definition.cards.map((c,i)=>({...c,id:10000+i,value:{...c.value,eid:10000+i}}));assert.throws(()=>O.preview(a.semantic,a.ownership,{objects:[duplicate]}),/already constrained/);
-  const support=copy(a.semantic);support.elems.rbe2.push({type:'RBE2',eid:20000,gn:100,cm:'123',deps:[r.inds[0]]});assert.throws(()=>O.guard(a.ownership,a.semantic,support),/solid support.*dependent/);
+  const support=copy(a.semantic);support.elems.rbe2.push({type:'RBE2',eid:20000,gn:100,cm:'123',deps:[r.inds[0]]});assert.throws(()=>O.guard(a.ownership,a.semantic,support),/support.*dependent/);
   const b=copy(a.semantic);b.elems.rbe2.push({type:'RBE2',eid:20000,gn:100,cm:'123',deps:[r.gn]});assert.throws(()=>O.guard(a.ownership,a.semantic,b),/already constrained/);
 });
 
@@ -766,4 +766,77 @@ test('the production writer bridge projects active analysis cards but project sa
   await c.writeCardEngine(c.workerModel,{writeFormat:'large'});assert.deepEqual(copy(sent.options.excludeElements),[e]);
   await c.writeCardEngine(c.workerModel,{writeFormat:'free',projectSave:true});assert.deepEqual(copy(sent.options.excludeElements),[]);
   assert.throws(()=>O.preview(O.snapshot(c.model),c.model.projectOwnership,{convertToPlain:['reference']}),/participation/);
+});
+
+const Mass=require('../app/mass-project.js');
+const payloadInput={id:'payload',name:'Offset payload',mass:'1 kg',reference:[7,3,2],offset:[0,0,'200 mm'],inertia:[0,0,0,0,0,0],supports:[{region:'skin-mount',weight:1}]};
+function massApply(a,request){return O.preview(a.semantic,a.ownership,Mass.rebuild(a.ownership,Mount.rebuild(a.ownership,request)));}
+async function payloadBase(){let a=await cadPreview(mixedInput());a=await cadPreview(mixedInput('shell'),a.ownership,a.semantic);a=massApply(a,Mount.region({id:'skin-mount',name:'Payload holes',mesh:'skin',kind:'face',faces:[11]},a.ownership));a=massApply(a,Mount.region({id:'solid-mount',name:'Battery support',mesh:'cad',faces:[1]},a.ownership));return a;}
+test('owned payload composes public actions with 1 kg/200 mm and 500 g battery in tonne units',async()=>{
+  let a=await payloadBase();const before=JSON.stringify(a),request=Mass.payload(payloadInput,a.ownership,nextPlateIds);
+  assert.equal(JSON.stringify(a),before);a=massApply(a,request);
+  a=massApply(a,Mass.payload({...payloadInput,id:'battery',name:'Battery',mass:'500 g',offset:[0,0,15],supports:[{region:'solid-mount',weight:2}]},a.ownership,nextPlateIds));
+  assert.equal(a.semantic.masses.length,2);assert.equal(a.semantic.masses.reduce((s,[,m])=>s+m.m,0),.0015);
+  const p=a.ownership.project.objects.find(o=>o.id==='payload').definition;
+  assert.deepEqual(p.resolved.com,[7,3,202]);assert.deepEqual(p.actions.map(a=>a.action),['point','mass','rbe3']);
+  assert.deepEqual(p.cards.find(c=>c.family==='masses').value.x,[0,0,0]);assert.equal(p.cards.find(c=>c.family==='elems').value.groups[0].wt,1/9);
+  assert.equal(a.semantic.elems.rbe3.length,2);assert.deepEqual(massApply(a,Mass.payload(payloadInput,a.ownership,nextPlateIds)).changes,[]);
+});
+test('multiple region influence survives shell/solid independent remesh with stable COM/mass/RBE3 identities',async()=>{
+  let a=await payloadBase();const input={...payloadInput,supports:[{region:'skin-mount',weight:1},{region:'solid-mount',weight:2}]};a=massApply(a,Mass.payload(input,a.ownership,nextPlateIds));
+  const d=a.ownership.project.objects.find(o=>o.id==='payload').definition,point=a.semantic.nodes.find(([id])=>id===d.identities.node),mass=a.semantic.masses[0];
+  for(const kind of ['shell','solid']){
+    const before=copy(a),request=(await Cad.build(mixedInput(kind,3),a.ownership,nextPlateIds)).request;a=massApply(a,request);
+    assert.deepEqual(a.semantic.nodes.find(([id])=>id===d.identities.node),point);assert.deepEqual(a.semantic.masses[0],mass);
+    const p=a.ownership.project.objects.find(o=>o.id==='payload').definition;assert.deepEqual(p.identities,d.identities);assert.equal(p.resolved.regions[0].nodes.length,16);
+    p.resolved.regions.forEach(r=>assert.ok(Math.abs(r.perNode*r.nodes.length-r.weight)<1e-14));
+    const sibling=kind==='shell'?'cad':'skin';assert.deepEqual(a.ownership.project.objects.find(o=>o.id===sibling).definition.cards,before.ownership.project.objects.find(o=>o.id===sibling).definition.cards);
+    assert.ok(a.project.checks.every(c=>c.status!=='invalid'));
+  }
+});
+test('shell boundary regions resolve canonical embedded nodes and payloads declare their actual owners',async()=>{
+  let a=await embeddedModel();const shell=a.ownership.project.objects.find(o=>o.id==='skin'),edge=shell.definition.edges[0];
+  // A single straight edge cannot transfer all moments. Combine its loop with a second edge.
+  const changed=copy(shell);changed.definition.edges.push({id:999,nodes:changed.definition.cards.filter(c=>c.family==='nodes').map(c=>c.id),center:[7,3,2]});
+  a=O.preview(a.semantic,a.ownership,{objects:[changed]});
+  a=massApply(a,Mount.region({id:'edges',name:'Edge supports',mesh:'skin',kind:'edge',faces:[edge.id,999]},a.ownership));
+  a=massApply(a,Mass.payload({...payloadInput,supports:[{region:'edges',weight:1}]},a.ownership,nextPlateIds));
+  assert.ok(a.ownership.project.objects.find(o=>o.id==='payload').dependsOn.includes('cad'));
+});
+test('payload overlap, support dependency, geometry drift, bad inertia and hand-reference removals fail atomically',async()=>{
+  let a=await payloadBase();a=massApply(a,Mass.payload(payloadInput,a.ownership,nextPlateIds));const before=JSON.stringify(a);
+  assert.throws(()=>Mass.payload({...payloadInput,supports:[...payloadInput.supports,...payloadInput.supports]},a.ownership,nextPlateIds),/once/);
+  const other=massApply(a,Mount.region({id:'overlap',name:'Overlap',mesh:'skin',faces:[11]},a.ownership));assert.throws(()=>Mass.payload({...payloadInput,supports:[...payloadInput.supports,{region:'overlap',weight:1}]},other.ownership,nextPlateIds),/overlap/);
+  const bad=copy(a.semantic),r=bad.elems.rbe3[0];bad.elems.rbe2.push({type:'RBE2',eid:99999,gn:100,cm:'123',deps:[r.inds[0]]});assert.throws(()=>O.guard(a.ownership,a.semantic,bad),/dependent/);
+  const spc=copy(a.semantic);spc.spc1.push({sid:1,nodes:[r.gn],components:'4'});assert.throws(()=>O.guard(a.ownership,a.semantic,spc),/already constrained/);
+  const loaded=copy(a);loaded.semantic.loads.force.push({sid:10,nid:r.gn,mag:1,dir:[0,0,1]});assert.throws(()=>massApply(loaded,Mass.removal(loaded.ownership,'payload')),/Dangling/);
+  assert.throws(()=>Mass.payload({...payloadInput,inertia:[10,0,1,0,0,1]},a.ownership,nextPlateIds),/Inertia/);
+  assert.throws(()=>Mount.removal(a.ownership,'skin-mount'),/dependent/);
+  const removed=massApply(a,Mass.removal(a.ownership,'payload/com'));assert.equal(removed.semantic.masses.length,0);assert.equal(removed.semantic.elems.rbe3.length,0);assert.equal(JSON.stringify(a),before);
+});
+test('direct mass follows a named point edit and direct weighted RBE3 uses the same generator; repair is explicit',async()=>{
+  let a=await payloadBase();a=massApply(a,Mass.direct({id:'point',name:'Motor COM',action:'point',position:[0,0,15]},a.ownership,a.semantic,nextPlateIds));
+  const node=a.ownership.project.objects.find(o=>o.id==='point').definition.action.id;
+  a=massApply(a,Mass.direct({id:'mass',name:'Motor mass',action:'mass',node,mass:'350 g',offset:[0,0,5]},a.ownership,a.semantic,nextPlateIds));
+  const support=a.ownership.project.objects.find(o=>o.id==='skin-mount').definition.resolved.nodes;
+  a=massApply(a,Mass.direct({id:'distribution',name:'Direct RBE3',action:'rbe3',node,groups:[{wt:1,c:'123',gids:support.slice(0,4)},{wt:2,c:'123',gids:support.slice(4)}]},a.ownership,a.semantic,nextPlateIds));
+  const cards=copy(a.semantic.masses);a=massApply(a,Mass.direct({id:'point',name:'Motor COM',action:'point',position:[10,10,20]},a.ownership,a.semantic,nextPlateIds));assert.deepEqual(a.semantic.masses,cards);assert.ok(a.project.checks.every(c=>c.status!=='invalid'));
+  const req=(await Cad.build(mixedInput('shell',3),a.ownership,nextPlateIds)).request;assert.throws(()=>massApply(a,req),/repair.*selection/);
+  assert.throws(()=>Mass.removal(a.ownership,'point'),/dependent/);
+});
+test('payload edits, no-op rebuild, history, saved ownership and all real writer formats preserve mass/weighted groups',async()=>{
+  const c=fixture();for(const input of [mixedInput(),mixedInput('shell')])(await c.previewProjectChange((await Cad.build(input,c.model.projectOwnership,nextPlateIds)).request)).commit();
+  for(const [id,mesh,face] of [['skin-mount','skin',11],['solid-mount','cad',1]])(await c.previewProjectChange(Mount.region({id,name:id,mesh,faces:[face]},c.model.projectOwnership))).commit();
+  const input={...payloadInput,supports:[{region:'skin-mount',weight:1},{region:'solid-mount',weight:2}]},before=copy(c.model.projectOwnership),request=Mass.payload(input,c.model.projectOwnership,nextPlateIds);
+  (await c.previewProjectChange(request)).discard();assert.deepEqual(copy(c.model.projectOwnership),before);
+  (await c.previewProjectChange(request)).commit();const after=copy(c.model.projectOwnership);c.historyManager.undo();assert.deepEqual(copy(c.model.projectOwnership),before);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),after);
+  const original=await exportParsed(c);c.workerModel.cardStream=original.cards;c.indexWorkerCardStream(original.cards);
+  (await c.previewProjectChange(Mass.payload({...input,mass:'500 g',offset:[1,2,200],inertia:[1,.1,2,.2,.3,2]},c.model.projectOwnership,nextPlateIds))).commit();
+  for(const format of ['source','free','small','large']){
+    const {indexes,deck}=await exportParsed(c,format,original.deck);assert.equal(indexes.masses.size,1);const mass=[...indexes.masses.values()][0];assert.equal(mass.m,.0005);assert.deepEqual(copy(mass.inertia),[1,.1,2,.2,.3,2]);assert.deepEqual(copy(mass.x),[0,0,0]);
+    const r=c.model.elems.rbe3[0],parsed=indexes.elements.get(r.eid);assert.equal(parsed.refgrid,r.gn);parsed.groups.forEach((g,i)=>{assert.deepEqual(copy(g.gids),copy(r.groups[i].gids));assert.ok(Math.abs(g.wt-r.groups[i].wt)<1e-7);});assert.doesNotMatch(deck,/unwritable/);
+  }
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();c.loadFromText=async()=>{};await c.loadProjectModel(saved);O.validate(c.model.projectOwnership,O.snapshot(c.model));
+  const noop=await c.previewProjectChange(Mass.rebuild(c.model.projectOwnership,{objects:[copy(c.model.projectOwnership.project.objects.find(o=>o.id==='payload'))]}));assert.equal(noop.preview().changes.length,0);noop.discard();
+  (await c.previewProjectChange(Mass.removal(c.model.projectOwnership,'payload'))).commit();for(const format of ['source','free'])assert.equal((await exportParsed(c,format,original.deck)).indexes.masses.size,0);
 });
