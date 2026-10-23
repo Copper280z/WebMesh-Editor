@@ -2933,6 +2933,11 @@ function nearestTemperatureTriangle(point, vertices, values) {
     solverResults.nodeStats = nodeAvgStress;
   }
   function writeCardEngine(modelToWrite, optionsOverride = null) {
+    if (model.projectOwnership) {
+      const project = window.WebMeshOwnership.validate(model.projectOwnership, window.WebMeshOwnership.snapshot(model));
+      const gate = project.readiness({ action: "export-analysis" });
+      if (!gate.allowed && !(optionsOverride && optionsOverride.projectSave)) throw Error(gate.blockers.map(b => b.name + ": " + b.reason).join("; "));
+    }
     const w = ensureCardEngineWorker();
     assertCoordinateContractBeforeExport(modelToWrite);
     const exportFormatEl2 = document.getElementById("exportFormat");
@@ -3543,6 +3548,9 @@ This will also delete any elements that reference them.`);
     }
   }
   function syncWorkerFromEditorModel(warningSink = null) {
+    if (model.projectOwnership && !projectMutationActive) {
+      window.WebMeshOwnership.validate(model.projectOwnership, window.WebMeshOwnership.snapshot(model));
+    }
     ensureWorkerBackedModelReady();
     refreshSemanticRelationshipIndexes("syncWorkerFromEditorModel");
     assertCoordinateContractBeforeExport(workerModel);
@@ -6245,6 +6253,7 @@ This will also delete any elements that reference them.`);
     return true;
   }
   function flushPendingSemanticWorkerTransactions(reason = "runtime-sync") {
+    if (typeof projectMutationActive !== "undefined" && projectMutationActive) return false;
     if (!cardEngineWorker) return false;
     ensureSemanticWorkerProtocolListener();
     if (!runtime.protocol.initialized) {
@@ -7785,7 +7794,8 @@ This will also delete any elements that reference them.`);
     } catch {
     }
   }
-  var HISTORY_SEMANTIC_FAMILIES = Object.freeze(["nodes", "elems", "loads", "temperatures", "spc", "spc1", "coords", "properties", "materials", "masses"]);
+  var HISTORY_SEMANTIC_FAMILIES = Object.freeze(["nodes", "elems", "loads", "temperatures", "spc", "spc1", "coords", "properties", "materials", "masses", "projectOwnership"]);
+  var projectMutationActive = false, projectOwnershipCommit = false;
   function cloneHistoryJson(value) {
     if (value == null) return value;
     return JSON.parse(JSON.stringify(value));
@@ -7828,7 +7838,8 @@ This will also delete any elements that reference them.`);
         coords: cloneHistoryMapEntries(model.coords),
         properties: cloneHistoryMapEntries(model.properties),
         materials: cloneHistoryMapEntries(model.materials),
-        masses: cloneHistoryMapEntries(model.masses)
+        masses: cloneHistoryMapEntries(model.masses),
+        projectOwnership: cloneHistoryJson(model.projectOwnership || null)
       },
       ui: {
         hidden: {
@@ -7891,6 +7902,7 @@ This will also delete any elements that reference them.`);
   }
   function applyHistorySemanticFamilySnapshot(family, payload) {
     const name = String(family || "");
+    if (name === "projectOwnership") { model.projectOwnership = cloneHistoryJson(payload); return; }
     if (name === "nodes") {
       model.nodes = restoreHistoryNumericMap(payload);
       rebuildNodeIndexFromModel();
@@ -8033,9 +8045,40 @@ This will also delete any elements that reference them.`);
     pointer: -1,
     maxSize: 50,
     recordAction: function(actionFn, txSpec = null) {
-      if (this.pointer < this.stack.length - 1) this.stack.splice(this.pointer + 1);
       const before = captureHistoryState();
-      const applied = semanticTx.apply(txSpec || { kind: "legacy-ui-action", family: "mixed" }, (tx) => actionFn(tx));
+      const guarded = !!(model.projectOwnership || projectOwnershipCommit);
+      const workerBefore = guarded ? structuredClone(workerModel) : null;
+      const protocolBefore = guarded ? structuredClone(runtime.protocol) : null;
+      const coreBefore = guarded && model.coreSoa ? { ...model.coreSoa } : model.coreSoa;
+      let applied;
+      try {
+        if (guarded) projectMutationActive = true;
+        applied = semanticTx.apply(txSpec || { kind: "legacy-ui-action", family: "mixed" }, (tx) => {
+          const result = actionFn(tx);
+          if (guarded && !projectOwnershipCommit && (!txSpec || txSpec.kind !== "model-clear")) {
+            window.WebMeshOwnership.guard(before.semantic.projectOwnership, before.semantic, captureHistoryState().semantic, workerBefore && workerBefore.cardStream || []);
+          }
+          return result;
+        });
+      } catch (error) {
+        if (guarded) {
+          for (const family of HISTORY_SEMANTIC_FAMILIES) applyHistorySemanticFamilySnapshot(family, before.semantic[family]);
+          model.coreSoa = coreBefore;
+          workerModel = workerBefore;
+          Object.assign(runtime.protocol, protocolBefore);
+          syncWorkerModelDebugRef();
+          if (workerModel && workerModel.cardStream) indexWorkerCardStream(workerModel.cardStream);
+          invalidateElementLookup(); refreshSemanticRelationshipIndexes("ownership-rollback");
+          buildGeometries(true); refreshCounts(); restoreHistoryUiState(before.ui);
+          if (typeof schemaEditState !== "undefined" && schemaEditState.targetByCard) {
+            schemaEditState.targetByCard.clear();
+            if (typeof schemaEditApplySelection === "function") schemaEditApplySelection({ throwOnNoTarget: false });
+          }
+          statusMsg(error.message, true);
+        }
+        throw error;
+      } finally { projectMutationActive = false; }
+      if (this.pointer < this.stack.length - 1) this.stack.splice(this.pointer + 1);
       const after = captureHistoryState();
       const delta = computeHistoryDelta(before, after);
       if (delta.forwardOps.length > 0 || delta.inverseOps.length > 0 || delta.uiChanged) {
@@ -8212,6 +8255,7 @@ This will also delete any elements that reference them.`);
     return hslToRgb(h, 0.9, 0.55);
   }
   function resetModel() {
+    model.projectOwnership = null;
     model.nodes.clear();
     model.nodeIndex = /* @__PURE__ */ new Map();
     model.indexToNid.length = 0;
@@ -27873,6 +27917,7 @@ ${formatRanges(v.ranges, 500)}`;
             throw new Error("CORE_SOA_PAYLOAD_REQUIRED: unified pipeline requires transferables.coreModel.");
           }
           applyCoreSoaSnapshotToModel(coreModel);
+          model.projectOwnership = null;
           refreshTemperatureLoadSelector(true);
           refreshContourFieldOptions();
           syncCriteriaModeAvailability();
@@ -28383,6 +28428,84 @@ ${formatRanges(v.ranges, 500)}`;
       compassRenderer.render(compassScene, compassCamera);
     }
   }
+  // Project ownership adapter. Candidates keep detached data, never live model references.
+  function projectModelSignature() {
+    return window.WebMeshOwnership.canonical({ semantic: window.WebMeshOwnership.snapshot(model), ownership: model.projectOwnership || null, revision: runtime.protocol.revision });
+  }
+  async function previewProjectChange(request) {
+    await ensureRichEditableSemanticElementAuthority("project-preview");
+    const adapter = window.WebMeshOwnership;
+    const base = projectModelSignature();
+    const candidate = adapter.preview(adapter.snapshot(model), model.projectOwnership, request, workerModel && workerModel.cardStream || []);
+    let closed = false;
+    const open = () => { if (closed) throw Error("Project candidate is closed."); };
+    return Object.freeze({
+      preview: () => { open(); return structuredClone({ changes: candidate.changes, ownershipChanges: candidate.ownershipChanges, project: candidate.project }); },
+      discard: () => { open(); closed = true; },
+      commit: () => {
+        open();
+        if (base !== projectModelSignature()) throw Error("Outdated project candidate. Recompute against the current model.");
+        if (adapter.equal(candidate.semantic, adapter.snapshot(model)) && adapter.equal(candidate.ownership, model.projectOwnership)) {
+          closed = true;
+          return structuredClone({ changes: candidate.changes, ownershipChanges: candidate.ownershipChanges, project: candidate.project });
+        }
+        projectOwnershipCommit = true;
+        try {
+          historyManager.recordAction(() => {
+            for (const family of HISTORY_SEMANTIC_FAMILIES) if (family !== "projectOwnership") applyHistorySemanticFamilySnapshot(family, candidate.semantic[family]);
+            model.projectOwnership = structuredClone(candidate.ownership);
+            if (model.coreSoa) model.coreSoa.active = false;
+            invalidateElementLookup(); refreshSemanticRelationshipIndexes("project-commit");
+            const warnings = [];
+            syncWorkerFromEditorModel(w => warnings.push(w));
+            if (warnings.length) throw Error("Card generation failed: " + warnings.map(w => typeof w === "string" ? w : w.message || JSON.stringify(w)).join("; "));
+            adapter.validate(model.projectOwnership, adapter.snapshot(model));
+            buildGeometries(true); refreshCounts(); populateModelTree();
+          }, { kind: "project-change", family: "mixed", summary: request.label || "Change project cards" });
+          closed = true;
+          return structuredClone({ changes: candidate.changes, ownershipChanges: candidate.ownershipChanges, project: candidate.project });
+        } finally { projectOwnershipCommit = false; }
+      }
+    });
+  }
+  async function projectDeckDigest(deck) {
+    const bytes = new TextEncoder().encode(deck);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function saveProjectModel() {
+    await ensureRichEditableSemanticElementAuthority("project-save");
+    if (model.projectOwnership) window.WebMeshOwnership.validate(model.projectOwnership, window.WebMeshOwnership.snapshot(model));
+    syncWorkerFromEditorModel();
+    const ownership = model.projectOwnership ? structuredClone(model.projectOwnership) : null;
+    const deck = await writeCardEngine(workerModel, { writeFormat: "free", projectSave: true });
+    return { deck, ...(ownership ? { ownership, snapshotDigest: await projectDeckDigest(deck + "\0" + window.WebMeshOwnership.canonical(ownership)) } : {}) };
+  }
+  async function loadProjectModel(data, name = "project.bdf") {
+    if (!data || typeof data.deck !== "string") throw Error("Missing project deck.");
+    data = structuredClone(data);
+    if (!/(?:^|\n)\s*(?:BEGIN\s+BULK|GRID[,*\s]|CEND\b)/i.test(data.deck)) throw Error("The project contains no recognizable Nastran model deck.");
+    if (data.ownership) {
+      window.WebMeshOwnership.validate(data.ownership);
+      if (await projectDeckDigest(data.deck + "\0" + window.WebMeshOwnership.canonical(data.ownership)) !== data.snapshotDigest) throw Error("Project deck and ownership snapshot disagree. Open the deck separately as hand cards to recover it.");
+    }
+    await loadFromText(data.deck, name, null, { strict: true, throwOnError: true });
+    if (data.ownership) {
+      await ensureRichEditableSemanticElementAuthority("project-restore");
+      // Restore exact authored precision after the writer/parser round trip.
+      // The digest binds this metadata to the saved deck; no cards are inferred.
+      const semantic = window.WebMeshOwnership.snapshot(model);
+      for (const entry of data.ownership.owners) window.WebMeshOwnership.put(semantic, entry.card);
+      window.WebMeshOwnership.validate(data.ownership, semantic);
+      for (const family of HISTORY_SEMANTIC_FAMILIES) if (family !== "projectOwnership") applyHistorySemanticFamilySnapshot(family, semantic[family]);
+      model.projectOwnership = structuredClone(data.ownership);
+      invalidateElementLookup(); refreshSemanticRelationshipIndexes("project-restore");
+      buildGeometries(true); refreshCounts();
+      historyManager.clear();
+    }
+    return workbenchState();
+  }
+
   // Small public bridge: the modeling workbench never reaches into renderer state.
   var workbenchChangeQueued = false;
   var workbenchChangeReasons = new Set();
@@ -28467,6 +28590,8 @@ ${formatRanges(v.ranges, 500)}`;
     const requested = new Set(elementIds.map(Number));
     const elements = collectAuthoritativeElementRefs().filter(e => requested.has(Number(e.eid)));
     if (elements.some(e => e.webmeshOwner && e.webmeshOwner !== ownerTag)) throw new Error("The restored mesh includes elements owned by another CAD source.");
+    const owned = new Set((model.projectOwnership && model.projectOwnership.owners || []).filter(entry => entry.card.family === "elems").map(entry => entry.card.id));
+    if (elements.some(e => owned.has(Number(e.eid)))) throw Error("Project-owned elements cannot be adopted by a legacy CAD mesh. Edit the project owner instead.");
     // Ownership is restored alongside a project, before any authoring action.
     // It is metadata, so the next history baseline includes it automatically.
     for (const e of elements) e.webmeshOwner = ownerTag;
@@ -28746,6 +28871,9 @@ ${formatRanges(v.ranges, 500)}`;
   }
   window.WebMeshAPI = Object.freeze({
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
+    previewProjectChange: (request) => previewProjectChange(request),
+    getProjectOwnership: () => model.projectOwnership ? structuredClone(model.projectOwnership) : null,
+    saveProjectModel: () => saveProjectModel(), loadProjectModel: (data, name) => loadProjectModel(data, name),
     bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner, removeMeshOwner: workbenchRemoveMeshOwner,
     appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, fitView,
     setView: workbenchSetView, setTheme: workbenchSetTheme,

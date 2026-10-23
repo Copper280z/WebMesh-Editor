@@ -5,8 +5,8 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  // Isolated foundation. The editor must not use this as an ownership authority
-  // until every card mutation is routed through the future engine adapter.
+  // Pure project state. engine-ownership.js connects this to guarded editor
+  // transactions; this module itself never mutates solver cards or the DOM.
   const FORMAT = 'webmesh-project-core';
   const VERSION = 1;
   const MAX_ID = 2147483647;

@@ -306,9 +306,9 @@
   }
   function download(text,filename,type='text/plain') {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
   async function saveProject() {
-    const deck=await engine().exportDeck();
+    const saved=await engine().saveProjectModel();
     const cad=await cadWorkspace.serialize();
-    download(JSON.stringify({format:'webmesh-project',version:1,name:projectName,deck,cad,history:historyItems},null,2),projectName.replace(/[^\w.-]+/g,'_')+'.webmesh','application/json');
+    download(JSON.stringify({format:'webmesh-project',version:saved.ownership?2:1,name:projectName,...saved,cad,history:historyItems},null,2),projectName.replace(/[^\w.-]+/g,'_')+'.webmesh','application/json');
     message('Project saved with the model deck and source CAD.');
   }
   async function example() {
@@ -344,9 +344,10 @@
   $('wb-save').onclick=()=>run(saveProject);
   $('wb-project-file').onchange=event=>run(async()=>{
     const file=event.target.files[0];event.target.value='';if(!file)return;
-    const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||data.version!==1||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
+    const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||![1,2].includes(data.version)||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
+    if(data.version===2&&!data.ownership)throw Error('Version 2 projects require ownership metadata.');
     const cadRestore=await cadWorkspace.stageRestore(data.cad);
-    await engine().loadDeck(data.deck,data.name||file.name);nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
+    await engine().loadProjectModel(data.version===2?data:{deck:data.deck},data.name||file.name);nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
     for(const [tag,elements] of cadWorkspace.savedOwners(cadRestore))await engine().bindMeshOwner(tag,elements);
     cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
     operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';

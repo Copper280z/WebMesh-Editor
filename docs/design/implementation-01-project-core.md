@@ -6,7 +6,7 @@
 
 Implement piece 1 of [model-rules.md](model-rules.md): a pure project-state module that can preview a change, identify its dependents, commit atomically, reject outdated candidates, and reconstruct its checks after saving. This is the first implementation milestone, not the complete S1–S2 rover workflow.
 
-The module is `app/project.js`, available through CommonJS and the browser global `WebMeshProject`. It is intentionally not loaded by the editor yet: attaching an incomplete ownership system to existing card mutations would break R6. Existing projects and authoring behavior remain unchanged. Engine card ownership is the next milestone; the outstanding integrity fixes must land before activating the redesigned workflow.
+The module is `app/project.js`, available through CommonJS and the browser global `WebMeshProject`. At the end of this milestone it was intentionally not loaded by the editor: attaching an incomplete ownership system to existing card mutations would break R6. [Implementation 02](implementation-02-engine-ownership.md) now connects it through a guarded engine adapter. Existing legacy authoring remains available; the outstanding integrity fixes must land before activating the redesigned workflow.
 
 ## Contract
 
@@ -32,11 +32,11 @@ The module is `app/project.js`, available through CommonJS and the browser globa
 
 ## Follow-on milestone
 
-Add an engine adapter with owner/role metadata, a complete reference index and an atomic card-diff boundary. Route all mutation paths through it before enabling project objects in the UI. Preserve imported hand cards; do not automatically adopt them. Tests must use the real parser/writer to show that generated cards agree with definitions, hand cards survive unchanged, and invalid references prevent commit. General pattern recognition, broad CAD reattachment, live instances, solver execution and unified CAD/FE undo remain later milestones.
+Implemented in [Implementation 02: engine ownership](implementation-02-engine-ownership.md), with an explicit supported-card boundary and conservative rejection of unknown references. The original scope was: add an engine adapter with owner/role metadata, a complete reference index and an atomic card-diff boundary. Route all mutation paths through it before enabling project objects in the UI. Preserve imported hand cards; do not automatically adopt them. Tests must use the real parser/writer to show that generated cards agree with definitions, hand cards survive unchanged, and invalid references prevent commit. General pattern recognition, broad CAD reattachment, live instances, solver execution and unified CAD/FE undo remain later milestones.
 
 ## Validation record
 
-The implementation is complete in `app/project.js`, with 24 focused tests in `tests/project.test.cjs`. The module is not connected to the editor yet.
+The implementation is complete in `app/project.js`, with 24 focused tests in `tests/project.test.cjs`. The module was isolated at this milestone; the engine connection is recorded in [Implementation 02](implementation-02-engine-ownership.md).
 
 - Focused tests: 24 passed.
 - Full suite: 313 passed, 0 failed, 0 skipped (`npm test`).

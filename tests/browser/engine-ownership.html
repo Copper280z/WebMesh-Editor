@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Engine ownership integration check</title>
+<style>body{font:16px system-ui;background:#16202a;color:#edf4f9;margin:20px}button{padding:12px}iframe{width:100%;height:650px;border:1px solid #64748b}pre{white-space:pre-wrap}</style>
+<h1>Engine ownership integration check</h1>
+<p>Runs in a fresh embedded editor. It creates a managed PLA shell alongside a hand-authored GRID and FORCE, then checks rejection, undo, redo, save, reopen and regeneration.</p>
+<button id="run" disabled>Run ownership checks</button><pre id="result">Loading editor…</pre>
+<iframe id="editor" src="../../WebMeshEditor.html"></iframe>
+<script>
+const frame=document.getElementById('editor'),button=document.getElementById('run'),output=document.getElementById('result');
+frame.onload=()=>{button.disabled=false;output.textContent='Ready.';};
+button.onclick=async()=>{
+ button.disabled=true;output.textContent='Running…';
+ const w=frame.contentWindow,api=w.WebMeshAPI,lines=[];
+ const check=(condition,message)=>{if(!condition)throw Error(message);lines.push('PASS '+message);output.textContent=lines.join('\n');};
+ try {
+  await api.loadDeck('CEND\nBEGIN BULK\nGRID,100,,0.,0.,4.\nFORCE,9,100,0,10.,0.,0.,1.\nENDDATA','hand.bdf');
+  const node=(id,x,y)=>({family:'nodes',id,role:'grid-'+id,value:{x,y,z:0,cp:0,cd:0,ps:''}});
+  const object=(id,kind,cards,dependsOn=[])=>({id,kind,dependsOn,definition:{cards}});
+  const request={label:'Create owned shell',objects:[
+   object('pla','material',[{family:'materials',id:1,role:'isotropic',value:{type:'MAT1',mid:1,E:3500,G:3500/2.72,nu:.36,rho:1.24e-9}}]),
+   object('skin','section',[{family:'properties',id:1,role:'shell',value:{type:'PSHELL',pid:1,mid1:1,mid2:1,t:2}}],['pla']),
+   object('chassis','mesh',[node(1,0,0),node(2,20,0),node(3,0,20),{family:'elems',bucket:'tri',id:1,role:'face',value:{type:'CTRIA3',eid:1,pid:1,n:[1,2,3]}}],['skin'])]};
+  const candidate=await api.previewProjectChange(request);
+  check(api.getState().elements===0,'Preview leaves live mesh unchanged');
+  candidate.commit();api.fitView();
+  check(api.getState().elements===1&&api.getProjectOwnership().owners.length===6,'Cards and owner definitions commit together');
+  const deck=await api.exportDeck();check(deck.includes('FORCE,9,100'),'Hand load survives export');
+  api.undo();check(api.getState().elements===0&&api.getProjectOwnership()===null,'Undo restores hand-only model');
+  api.redo();check(api.getState().elements===1&&api.getProjectOwnership().owners.length===6,'Redo restores ownership');
+  const pending=await api.previewProjectChange(request);api.undo();api.redo();
+  let rejected=false;try{pending.commit();}catch(e){rejected=/Outdated/.test(e.message);}check(rejected,'Undo/redo rejects an outdated candidate');
+  const saved=await api.saveProjectModel();
+  await api.loadProjectModel(saved,'restored ownership');
+  check(api.getProjectOwnership().owners.length===6,'Save/reopen retains explicit ownership');
+  const fresh=await api.previewProjectChange(request);check(fresh.preview().changes.length===0,'Reopened definitions regenerate an empty card diff');fresh.discard();
+  api.fitView();check((await api.exportDeck()).includes('FORCE,9,100'),'Reopened hand load survives export');
+  output.textContent=lines.join('\n')+'\nALL CHECKS PASSED';
+ }catch(error){output.textContent=lines.join('\n')+'\nFAIL '+error.stack;}
+ finally{button.disabled=false;}
+};
+</script>

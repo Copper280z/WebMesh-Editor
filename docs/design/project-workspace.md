@@ -446,3 +446,7 @@ The first version of this document delivered the layout first and the statuses l
 1. **ID allocation.** Each object gets an ID block, which keeps IDs stable (R4). How big should the blocks be, and should export offer compact renumbering? (Rules, question 1.)
 2. **Result files.** Reference them by path and hash by default and embed them on request, while run decks are always kept? (Rules, question 4.)
 3. **Narrow screens.** How much matters below 1000 px: overlays as proposed, or desktop only for now?
+
+## Implementation progress
+
+The [project core milestone](implementation-01-project-core.md) is implemented. [Engine ownership integration](implementation-02-engine-ownership.md) connects explicit generated cards to guarded transactions, undo/redo, project persistence and the export gate. Legacy tools still create hand cards; the next milestone adds an owned primitive and its inspector before broader CAD/assembly authoring.
