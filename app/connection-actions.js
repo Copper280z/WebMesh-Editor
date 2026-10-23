@@ -40,7 +40,7 @@
     return {type:'RBE3',eid:input.id,gn:input.node,cm:'123456',weight:1,inds,groups};
   }
   function supportGeometry(value,nodes){
-    const point=n=>{const p=nodes.get(n);if(!p||p.cp||p.cd)throw Error('GRID '+n+' must exist in basic coordinates (CP=CD=0).');return vector([p.x,p.y,p.z],'GRID '+n);};
+    const point=n=>{const p=nodes.get(n);if(!p||p.cp)throw Error('GRID '+n+' must exist in basic coordinates (CP=0).');return vector([p.x,p.y,p.z],'GRID '+n);};
     point(value.gn);
     const points=value.inds.map(point),a=points[0],vectors=points.map(p=>p.map((v,i)=>v-a[i])),longest=vectors.reduce((a,b)=>Math.hypot(...a)>Math.hypot(...b)?a:b),span=Math.hypot(...longest);
     if(!Number.isFinite(span)||!span)throw Error('RBE3 support nodes are coincident.');
@@ -57,7 +57,7 @@
         id(s.id);if(nodes.has(s.id))throw Error('Point GRID '+s.id+' already exists.');const p=vector(s.position,'Point');
         const value={x:p[0],y:p[1],z:p[2],cp:0,cd:0,ps:''};nodes.set(s.id,{id:s.id,...value});card={family:'nodes',id:s.id,value};
       }else if(s.action==='mass'){
-        const n=nodes.get(s.node);if(!n||n.cp||n.cd)throw Error('Mass attachment GRID must exist in basic coordinates (CP=CD=0).');
+        const n=nodes.get(s.node);if(!n||n.cp)throw Error('Mass attachment GRID must exist in basic coordinates (CP=0).');
         card={family:'masses',id:s.id,value:massValue(s)};
       }else if(s.action==='rbe3'){
         const value=distributionValue(s);supportGeometry(value,nodes);card={family:'elems',bucket:'rbe3',id:s.id,value};

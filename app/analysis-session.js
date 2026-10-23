@@ -1,5 +1,5 @@
 /* Run inputs are sealed snapshots; completion appends output without altering them. */
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./analysis-runs.js'));else root.WebMeshAnalysisSession=factory(root.WebMeshAnalysisRuns);}(typeof globalThis!=='undefined'?globalThis:this,function(R){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./analysis-runs.js'),require('./coordinate-project.js'));else root.WebMeshAnalysisSession=factory(root.WebMeshAnalysisRuns,root.WebMeshCoordinates);}(typeof globalThis!=='undefined'?globalThis:this,function(R,F){
   'use strict';
   const copy=v=>JSON.parse(JSON.stringify(v));
   function create(hooks){
@@ -11,7 +11,7 @@
       const e=hooks.engine(),before=epoch,snapshot=await e.saveProjectModel(),deck=await e.exportDeck(),project=snapshot.ownership?.project;
       if(before!==epoch)throw Error('Model changed while capturing the run. Review it again.');
       const checks=e.getProjectSummary().checks.filter(c=>c.status==='invalid');if(checks.length)throw Error('Resolve project checks before solving: '+checks.map(c=>c.name).join(', '));
-      const semantic=await e.getAuthoringModel(),coordinates=semantic.nodes.every(([,n])=>!n.cp&&!n.cd)?semantic.nodes.map(([id,n])=>[id,[n.x,n.y,n.z]]):null;
+      const semantic=await e.getAuthoringModel(),coordinates=F.resultCoordinates(semantic);
       const projected=R.profile(deck,solver,options),cases=(project?.objects||[]).filter(o=>o.definition.generator==='static-case-v1').map(o=>({id:o.definition.subcase,name:o.name}));
       const captured=await R.seal({format:'webmesh-analysis-run',version:1,id:crypto.randomUUID(),name:options.name||'Static run '+(runs.length+1),created:new Date().toISOString(),revision:project?.revision||0,units:project?.units||{length:'mm',force:'N',mass:'t',time:'s'},modelDigest:await fingerprint(snapshot),snapshot,deck:projected.deck,deckDigest:await R.digest(projected.deck),profile:projected.profile,cases,coordinates,status:'prepared',result:null});
       if(before!==epoch)throw Error('Model changed while capturing the run. Review it again.');return captured;

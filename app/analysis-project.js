@@ -1,24 +1,28 @@
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./analysis-actions.js'),require('./attachment-project.js'));else root.WebMeshAnalysisProject=factory(root.WebMeshAnalysisActions,root.WebMeshAttachmentProject);}(typeof globalThis!=='undefined'?globalThis:this,function(A,Mount){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./analysis-actions.js'),require('./attachment-project.js'),require('./coordinate-project.js'));else root.WebMeshAnalysisProject=factory(root.WebMeshAnalysisActions,root.WebMeshAttachmentProject,root.WebMeshCoordinates);}(typeof globalThis!=='undefined'?globalThis:this,function(A,Mount,F){
   'use strict';
   const SET='analysis-set-v1',CASE='static-case-v1',copy=v=>JSON.parse(JSON.stringify(v)),objects=s=>s?.project.objects||[],map=s=>new Map(objects(s).map(o=>[o.id,o]));
   function existing(input,state,generator){const old=map(state).get(input.id);if(!input.id||!input.name?.trim())throw Error('Enter a name.');if(old&&old.definition.generator!==generator)throw Error('This identity belongs to another object.');return old;}
   function resolve(o,catalog){
     const d=copy(o.definition),a=d.action;let dependsOn=[];
-    if(a.action==='support'){
+    if(d.frame)dependsOn.push(d.frame);
+    if(a.action!=='support')a.cid=F.frame({project:{objects:[...catalog.values()]}},d.frame).cid;
+    if(a.action==='support'||a.action==='force'){
       if(d.region){const region=catalog.get(d.region);if(region?.definition.generator!==Mount.REGION)throw Error(o.name+': mounting region is missing.');const r=Mount.resolveRegion(region,catalog);a.nodes=r.definition.resolved.nodes;dependsOn.push(d.region,...r.dependsOn);}
-      else for(const source of d.sources||[]){const owner=catalog.get(source.owner),card=owner?.definition.cards.find(c=>c.family==='nodes'&&c.id===source.id&&c.role===source.role);if(!card)throw Error(o.name+': selected GRID '+source.id+' was replaced. Repair the support selection first.');dependsOn.push(source.owner);}
-      for(const parent of catalog.values())if((parent.definition.cards||[]).some(c=>c.family==='nodes'&&a.nodes.includes(c.id)))dependsOn.push(parent.id);
+      else for(const source of d.sources||[]){const owner=catalog.get(source.owner),card=owner?.definition.cards.find(c=>c.family==='nodes'&&c.id===source.id&&c.role===source.role);if(!card)throw Error(o.name+': selected GRID '+source.id+' was replaced. Repair this GRID selection first.');dependsOn.push(source.owner);}
+      for(const parent of catalog.values())if((parent.definition.cards||[]).some(c=>c.family==='nodes'&&(a.action==='force'?[a.node]:a.nodes).includes(c.id)))dependsOn.push(parent.id);
     }
     return {...copy(o),dependsOn:[...new Set(dependsOn)],definition:{...d,cards:[A.execute(a)],actions:[copy(a)]}};
   }
   function set(input,state,semantic){
     const old=existing(input,state,SET),family=input.action==='support'?'constraintSets':'loadSets',ns=input.action==='support'?'constraint':'load';
     const sid=old?.definition.action.sid||Math.max(0,...A.rows(semantic).filter(c=>c.family===family).map(c=>c.id),...(state?.project.reservations||[]).filter(r=>r.namespace===ns).map(r=>r.end))+1;
-    const action={action:input.action,sid,...(input.action==='support'?{components:input.components,nodes:input.nodes||[]}:{vector:input.vector})};
+    const action={action:input.action,sid,...(input.action==='support'?{components:input.components,nodes:input.nodes||[]}:{vector:input.vector,...(input.action==='force'?{node:input.node}:{})})};
     const sources=[],inputs=[],catalog=map(state),nodes=new Map(semantic.nodes);
-    if(input.action==='support'&&!input.region)for(const n of input.nodes||[]){if(!nodes.has(n))throw Error('Missing support GRID '+n+'.');const owner=objects(state).find(o=>(o.definition.cards||[]).some(c=>c.family==='nodes'&&c.id===n));if(owner)sources.push({id:n,owner:owner.id,role:owner.definition.cards.find(c=>c.family==='nodes'&&c.id===n).role});else inputs.push({key:'node:'+n,card:{family:'nodes',id:n,value:copy(nodes.get(n))}});}
-    const object={id:input.id,name:input.name.trim(),kind:input.action==='support'?'support':'load',definition:{generator:SET,action,region:input.region||null,sources,inputs,cards:[]}};
-    return{label:(old?'Update ':'Create ')+object.name,objects:[resolve(object,catalog)]};
+    if(['support','force'].includes(input.action)&&!input.region)for(const n of (input.action==='force'?[input.node]:input.nodes||[])){if(!nodes.has(n))throw Error('Missing '+input.action+' GRID '+n+'.');const owner=objects(state).find(o=>(o.definition.cards||[]).some(c=>c.family==='nodes'&&c.id===n));if(owner)sources.push({id:n,owner:owner.id,role:owner.definition.cards.find(c=>c.family==='nodes'&&c.id===n).role});else inputs.push({key:'node:'+n,card:{family:'nodes',id:n,value:copy(nodes.get(n))}});}
+    const object={id:input.id,name:input.name.trim(),kind:input.action==='support'?'support':'load',definition:{generator:SET,action,...(input.frame!==undefined?{frame:input.frame||null}:{}),region:input.region||null,sources,inputs,cards:[]}};
+    const resolved=resolve(object,catalog),request={label:(old?'Update ':'Create ')+object.name,objects:[resolved]};
+    if(input.action==='support'&&input.frame!==undefined){const assigned=F.assign({nodes:resolved.definition.action.nodes,frame:input.frame,source:input.id},state);request.objects.unshift(...assigned.objects);}
+    return request;
   }
   function caseObject(input,state,semantic){
     const old=existing(input,state,CASE),subcase=old?.definition.subcase||Math.max(0,...objects(state).filter(o=>o.definition.generator===CASE).map(o=>o.definition.subcase))+1;

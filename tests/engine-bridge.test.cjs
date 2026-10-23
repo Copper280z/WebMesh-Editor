@@ -57,7 +57,7 @@ test('append creates quadratic shell properties in one history entry and preserv
   assert.deepEqual(plain(c.model.spc), constraints);
   assert.deepEqual(plain(c.model.temperatures), temperatures);
   assert.equal(c.model.coords.get(7).type, 'CORD2R');
-  assert.deepEqual(plain(c.workbenchNextIds()), { node: 101, element: 2, property: 2, material: 4 });
+  assert.deepEqual(plain(c.workbenchNextIds()), { node: 101, element: 2, coordinate: 8, property: 2, material: 4 });
 });
 
 for (const [type, count, bucket] of [['CTRIA6', 6, 'tri'], ['CTETRA10', 10, 'tet'], ['CHEXA20', 20, 'hex']]) {

@@ -27,25 +27,25 @@
     return{deck:lines.join('\n').trim()+'\n',profile:{id:solver+'-static-v1',solver,autospc:!!options.autospc,transformations:[...new Set(changes)]}};
   }
   function equilibrium(f06,coordinates){
-    if(!coordinates)return {status:'not-checked',message:'Balance requires basic-coordinate GRIDs and OLOAD/SPCFORCES output.'};
-    const grids=new Map(coordinates),cases=new Map();let current=null,table=null;
+    if(!coordinates)return {status:'not-checked',message:'Balance requires resolved GRID positions/output frames and OLOAD/SPCFORCES output.'};
+    const grids=new Map(coordinates.map(([id,p,frame])=>[id,{p,frame}])),cases=new Map();let current=null,table=null;
     for(const line of f06.split('\n')){
       const found=line.match(/OUTPUT FOR SUBCASE\s+(\d+)/);if(found){current=Number(found[1]);if(!cases.has(current))cases.set(current,{applied:new Map(),reaction:new Map()});table=null;}
       if(/A\s*P\s*P\s*L\s*I\s*E\s*D\s+F\s*O\s*R\s*C\s*E\s*S/.test(line))table='applied';
       if(/S\s*P\s*C\s+F\s*O\s*R\s*C\s*E\s*S/.test(line))table='reaction';
       if(/MAX\*|MIN\*|ABS\*|TOTALS|D\s*I\s*S\s*P\s*L\s*A\s*C\s*E/.test(line))table=null;
-      if(table&&current){const f=line.trim().split(/\s+/);if(f.length===8&&/^\d+$/.test(f[0])&&f[1]==='0'){const v=f.slice(2).map(Number);if(v.every(Number.isFinite))cases.get(current)[table].set(Number(f[0]),v);}}
+      if(table&&current){const f=line.trim().split(/\s+/);if(f.length===8&&/^\d+$/.test(f[0])&&/^\d+$/.test(f[1])){const v=f.slice(2).map(Number);if(v.every(Number.isFinite))cases.get(current)[table].set(Number(f[0]),{v,cid:Number(f[1])});}}
     }
     const reports=[];
     for(const [id,tables] of cases){
       if(!tables.applied.size||!tables.reaction.size)continue;
       const totals={};let valid=true;
-      for(const key of ['applied','reaction']){const total=[0,0,0,0,0,0];for(const [nid,v]of tables[key]){const p=grids.get(nid);if(!p){valid=false;break;}const moment=[p[1]*v[2]-p[2]*v[1],p[2]*v[0]-p[0]*v[2],p[0]*v[1]-p[1]*v[0]];for(let i=0;i<6;i++)total[i]+=v[i]+(i>2?moment[i-3]:0);}totals[key]=total;}
+      for(const key of ['applied','reaction']){const total=[0,0,0,0,0,0];for(const [nid,row]of tables[key]){const g=grids.get(nid);if(!g||row.cid&&g.frame?.cid!==row.cid){valid=false;break;}const p=g.p,v=row.cid?[0,3].flatMap(offset=>[0,1,2].map(i=>row.v.slice(offset,offset+3).reduce((s,x,j)=>s+x*g.frame.axes[j][i],0))):row.v;const moment=[p[1]*v[2]-p[2]*v[1],p[2]*v[0]-p[0]*v[2],p[0]*v[1]-p[1]*v[0]];for(let i=0;i<6;i++)total[i]+=v[i]+(i>2?moment[i-3]:0);}totals[key]=total;}
       if(!valid)continue;
       const residual=totals.applied.map((v,i)=>v+totals.reaction[i]),passed=residual.every((v,i)=>Math.abs(v)<=1e-5*Math.max(1,Math.abs(totals.applied[i]),Math.abs(totals.reaction[i])));
       reports.push({subcase:id,...totals,residual,passed});
     }
-    return {status:reports.length?reports.every(r=>r.passed)?'passed':'failed':'not-checked',cases:reports,message:reports.length?'Sum of applied loads and SPC reactions about the basic origin; tolerance 1e−5 of each resultant (minimum scale 1).':'No complete basic-frame OLOAD/SPCFORCES tables found.'};
+    return {status:reports.length?reports.every(r=>r.passed)?'passed':'failed':'not-checked',cases:reports,message:reports.length?'Sum of applied loads and SPC reactions about the basic origin; tolerance 1e−5 of each resultant (minimum scale 1).':'No complete OLOAD/SPCFORCES tables with resolved frames found.'};
   }
   function diagnostics(f06,log,coordinates){
     const text=f06+'\n'+log,epsilon=[...text.matchAll(/EPSILON ERROR ESTIMATE\s*=\s*([\d.Ee+-]+)/g)].map(m=>Number(m[1])),residual=[...log.matchAll(/relative residual.*?=\s*([\d.eE+-]+)/g)].map(m=>Number(m[1]));

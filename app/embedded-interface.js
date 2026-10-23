@@ -19,7 +19,7 @@
     const direction=d.direction.map(v=>v/A.norm(d.direction)),tol=d.tolerance;
     const select=(ids,items,label)=>{if(!ids?.length||new Set(ids).size!==ids.length)fail('select distinct '+label+'.');return ids.flatMap(id=>{const hit=items.find(f=>f.id===id);if(!hit)fail('missing '+label+' '+id+'.');return hit.nodes;});};
     const boundary=new Set(select(d.edges,shell.definition.edges,'shell edges')),receiving=new Set(select(d.faces,solid.definition.faces,'receiving faces'));
-    const point=(g,n)=>{const p=g.get(n);if(!p||p.cp||p.cd)fail('basic-coordinate source GRIDs are required.');return A.xyz(p);};
+    const point=(g,n)=>{const p=g.get(n);if(!p||p.cp)fail('basic-coordinate source GRIDs are required.');return A.xyz(p);};
     const edges=new Map();for(const c of se)c.value.n.forEach((a,i)=>{const b=c.value.n[(i+1)%4],key=A.key([a,b]);const entry=edges.get(key)||{nodes:[a,b],cards:[]};entry.cards.push(c);edges.set(key,entry);});
     let front=[...edges.values()].filter(e=>e.cards.length===1&&e.nodes.every(n=>boundary.has(n)));
     if(!front.length||new Set(front.flatMap(e=>e.nodes)).size!==boundary.size)fail('select complete shell boundary edges.');

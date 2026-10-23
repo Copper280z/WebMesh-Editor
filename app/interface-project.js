@@ -27,7 +27,7 @@
     const edges=select(d.edges,shell.definition.edges,'shell boundary edges'),faces=select(d.faces,solid.definition.faces,'solid faces');
     const shellNodes=[...new Set(edges.flatMap(f=>f.nodes))].sort((a,b)=>a-b),solidNodes=[...new Set(faces.flatMap(f=>f.nodes))].sort((a,b)=>a-b);
     const grids=mesh=>new Map(mesh.definition.cards.filter(c=>c.family==='nodes').map(c=>[c.id,c.value]));
-    const sg=grids(shell),vg=grids(solid),point=(map,id)=>{const n=map.get(id);if(!n||n.cp||n.cd)fail('support requires basic-coordinate GRID records.');return xyz(n);};
+    const sg=grids(shell),vg=grids(solid),point=(map,id)=>{const n=map.get(id);if(!n||n.cp)fail('support requires basic-coordinate GRID records.');return xyz(n);};
     const triangles=[];
     for(const f of faces){
       const on=new Set(f.nodes);

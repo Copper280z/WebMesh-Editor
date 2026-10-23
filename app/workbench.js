@@ -124,6 +124,8 @@
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
+  const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
+  const selectionWorkspace=window.WebMeshSelectionWorkspace.create({engine,run,dialog,review:reviewProject,close:closeDialog});
   const massWorkspace=window.WebMeshMassWorkspace.create({engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
   let restoringAnalysisProject=false;
   const analysisRequest=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||'Solver request failed.');return value;};
@@ -131,9 +133,11 @@
   const analysisWorkspace=window.WebMeshAnalysisWorkspace.create({engine,run,dialog,review:reviewProject,session:analysisSession,request:analysisRequest,health:async()=>{const r=await fetch('/api/health');if(!r.ok)throw Error('Local solver service unavailable.');return r.json();},download,results:()=>setTimeout(()=>{setTab('results');openTool('results');updateRunCaption();},0)});
   function updateRunCaption(){
     let el=$('wb-run-caption');if(!el){el=document.createElement('div');el.id='wb-run-caption';el.className='wb-run-caption';$('viewport').appendChild(el);}
-    const id=analysisSession.active();el.textContent=id?analysisSession.get(id).name+' · '+analysisSession.get(id).profile.solver.toUpperCase()+' · matching snapshot':analysisSession.manual()?'Manually imported results · model match not verified':analysisSession.list().length?'Run results are hidden until matched to the editable model.':'';
+    const set=$('resultSetSelect')?.selectedOptions[0]?.textContent||'',field=$('contourFieldSel')?.selectedOptions[0]?.textContent||'';
+    const id=analysisSession.active();el.textContent=id?analysisSession.get(id).name+' · '+analysisSession.get(id).profile.solver.toUpperCase()+' · matching snapshot\n'+set+' · '+field+' · nodal vectors: basic XYZ':analysisSession.manual()?'Manually imported results · model match not verified':analysisSession.list().length?'Run results are hidden until matched to the editable model.':'';
   }
 
+  for(const id of ['resultSetSelect','contourFieldSel'])$(id)?.addEventListener('change',updateRunCaption);
   const actionWorkspace=window.WebMeshActionWorkspace.create({engine,run,dialog,review:reviewProject});
   const interfaceWorkspace=window.WebMeshInterfaceWorkspace.create({engine,run,dialog,review:reviewProject});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
@@ -181,6 +185,7 @@
       html=section('Analysis',`<button class="wb-tool-card" id="wb-analysis-tool"><span><strong>Analysis cases &amp; runs</strong><small>Supports · accelerations · SOL 101 · solver snapshots</small></span></button>`)+section('Physical definitions',`<div class="wb-tool-list">${tool('material','Materials','Isotropic elasticity, density and material IDs','material')}${tool('property','Element properties','Shell thickness, solid regions and beam sections','plate')}</div>`);
       html+=section('Boundary conditions',`<div class="wb-tool-list">${tool('load','Loads','Forces, moments, pressure and load combinations','load')}${tool('constraint','Constraints','Single-point constraints and constrained DOFs','lock')}${tool('coordinate','Coordinate systems','Define local rectangular or cylindrical frames','cube')}</div>`);
       html+=section('Mesh authoring',`<button class="wb-tool-card" id="wb-mesh-actions"><span><strong>Mesh actions</strong><small>Create from nodes · faces · extrude shells or solids · analysis inclusion</small></span></button>`);
+      html+=section('Selections & directions',`<button class="wb-tool-card" id="wb-selection-repair"><span><strong>Selections & repair</strong><small>Inspect selectors · replace inputs · review dependent changes</small></span></button><button class="wb-tool-card" id="wb-frame-tool"><span><strong>Reusable coordinate frames</strong><small>CORD2R · load/stiffness axes · GRID support directions</small></span></button>`);
       html+=section('Connections',`<button class="wb-tool-card" id="wb-mass-tool"><span><strong>Masses & payloads</strong><small>COM · CONM2 · weighted RBE3 · direct connection actions</small></span></button><button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>RBE3 distributed tie or conforming embedded shells</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
       html+=section('Model editing',`<div class="wb-tool-list">${tool('cards','Create nodes','Individual GRID cards and coordinate references','node')}${tool('element','Create elements','Shells, solids, beams, rods and rigid elements','mesh')}${tool('modify','Modify entities','Edit existing cards with schema-driven forms','setup')}${tool('selection','Selection & inspection','Pick, select by ID, filter and edit node coordinates','select')}${tool('transform','Transform mesh','Move, rotate, reflect and merge nodes','rotate')}</div>`)+`<div id="wb-report"></div>`;
       foot=button('wb-check-mesh','Check mesh connectivity','check','primary');
@@ -268,6 +273,7 @@
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
     if([window.WebMeshAnalysisProject.SET,window.WebMeshAnalysisProject.CASE].includes(object.definition.generator)){run(()=>analysisWorkspace.open(id));return;}
+    if(coordinateWorkspace.open(id))return;
     if(actionWorkspace.open(id))return;
     if(interfaceWorkspace.open(id))return;
     if(massWorkspace.open(id))return;
@@ -296,13 +302,18 @@
     const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id));cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed mesh region reopened. Other regions stay in the model.');
   }
   async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,note}={}){
-    const state=engine().getProjectOwnership();
+    const state=engine().getProjectOwnership(),original=request,options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,note};
+    const semantic=await engine().getAuthoringModel();
+    try {
     request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshInterfaceProject.rebuild(state,request,engine().getNextIds());
+    if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(request,options);
     request=window.WebMeshAttachmentProject.rebuild(state,request);
     request=window.WebMeshMassProject.rebuild(state,request);
     request=window.WebMeshActionProject.rebuild(state,request);
     request=window.WebMeshAnalysisProject.rebuild(state,request);
+    request=window.WebMeshCoordinates.rebuild(state,request);
+    } catch(error){return selectionWorkspace.list(original,options,error.message);}
     const attachmentNote=window.WebMeshAttachmentProject.describe(state,request);
     const massNote=window.WebMeshMassProject.describe(state,request);
     if(massNote)note=[note,massNote].filter(Boolean).join(' ');
@@ -315,7 +326,8 @@
       mesh=ownedCardPreview((request.objects||[]).flatMap(o=>o.definition.cards||[]),engine().getMesh().nodes,'Embedded interface and dependents');
     }
 
-    const candidate=await engine().previewProjectChange(request),report=candidate.preview();
+    let candidate;try{candidate=await engine().previewProjectChange(request);}catch(error){return selectionWorkspace.list(original,options,error.message);}
+    const report=candidate.preview();
     const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
     const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
     const affected=report.project.checks.filter(c=>report.project.affected.includes(c.id)),blocked=affected.some(c=>c.status==='invalid');
@@ -344,6 +356,8 @@
     return mesh;
   }
   function bindPanel() {
+    $('wb-frame-tool')?.addEventListener('click',()=>{if(!busy)coordinateWorkspace.list();});
+    $('wb-selection-repair')?.addEventListener('click',()=>{if(!busy)run(()=>selectionWorkspace.list());});
     $('wb-mesh-actions')?.addEventListener('click',()=>{if(!busy)actionWorkspace.list();});
     $('wb-interface-tool')?.addEventListener('click',()=>{if(!busy)interfaceWorkspace.list();});
     $('wb-analysis-tool')?.addEventListener('click',()=>{if(!busy)run(()=>analysisWorkspace.list());});

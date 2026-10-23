@@ -101,7 +101,7 @@ test('readable worker factory can recover source cards after compact import', as
 });
 
 test('run-bound result display does not queue an unverified manual-import notification', () => {
-  const notifications = [], context = vm.createContext({
+  const notifications = [], context = vm.createContext({ window: {},
     solverResults: null, solverResultsSourceName: '',
     emitWorkbenchChange: reason => notifications.push(reason),
     getSolverResultSets: () => [{setId: '1'}], getSolverResultSetById: () => null,

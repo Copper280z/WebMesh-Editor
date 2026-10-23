@@ -36,7 +36,7 @@ This slice provides a complete local static workflow. Its browser solve uses the
 
 Balance checking currently requires basic-coordinate GRID positions/displacements and printed OLOAD/SPCFORCES tables. Results remain conservative about matching: a model/ownership change requires undo or opening the captured snapshot. In-progress jobs belong to a live server session; completed archived runs remain readable after it stops. The run snapshot captures the analysis model and source definitions, not the temporary interactive CAD-session history.
 
-Next: **selection repair and local frames**. Preserve the generic action architecture:
+Implemented next: [selection repair and local frames](implementation-10-selection-frames.md). The milestone followed this scope: Preserve the generic action architecture:
 
 1. Make named regions and explicit point/element selections inspectable, highlight their current resolution and show invalidation reasons before remeshing.
 2. Let an analyst replace a failed selection in a reviewed transaction that regenerates dependent interfaces, attachments, masses and supports; preserve identities where roles still match and show every changed card.

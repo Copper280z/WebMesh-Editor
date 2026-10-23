@@ -854,7 +854,7 @@ test('owned acceleration/support actions and named cases are guarded, editable a
   const edit=copy(a.semantic);edit.spc1[0].components='456';assert.throws(()=>O.guard(a.ownership,a.semantic,edit),/owned by/);
   a=analysisApply(a,Analysis.set({id:'gravity',name:'Half gravity',action:'acceleration',vector:[0,0,-4903.325]},a.ownership,a.semantic));
   assert.equal(a.semantic.loads.gravity[0].sid,load);assert.ok(a.project.checks.every(c=>c.status!=='invalid'));assert.equal(a.semantic.loads.force[0].sid,9);
-  assert.throws(()=>analysisApply(a,{removeObjects:['point']}),/support selection/);
+  assert.throws(()=>analysisApply(a,{removeObjects:['point']}),/GRID selection/);
 });
 test('plain load/support sets remain editable but referenced sets cannot disappear',()=>{
   let s=O.snapshot(model());s.spc1=[{sid:4,components:'123',nodes:[100]}];
@@ -910,4 +910,101 @@ test('reopened indented case control permits later authoring and still rejects u
  assert.doesNotThrow(()=>O.preview(s,file.ownership,req,cards));
  cards.forEach(c=>delete c.rawLines);assert.doesNotThrow(()=>O.preview(s,file.ownership,req,cards));
  cards.unshift({kind:'card',name:'SET 4 =',rawLines:['SET 4 = 658,659']});assert.throws(()=>O.preview(s,file.ownership,req,cards),/case control SET/);
+});
+
+const Frames=require('../app/coordinate-project.js'),Selections=require('../app/selection-project.js');
+const rotatedFrame={id:'motor-frame',name:'Motor local axes',origin:[0,0,0],zAxisPt:[1,0,0],xzPlanePt:[0,0,1]};
+function rebuild10(a,r){r=Embedded.rebuild(a.ownership,r,nextPlateIds);r=Interface.rebuild(a.ownership,r,nextPlateIds);r=Mount.rebuild(a.ownership,r);r=Mass.rebuild(a.ownership,r);r=Analysis.rebuild(a.ownership,r);r=Frames.rebuild(a.ownership,r);return r;}
+function apply10(a,r){return O.preview(a.semantic,a.ownership,rebuild10(a,r));}
+test('rectangular frame axes are right handed, scale independent and reject ambiguous definitions',()=>{
+  const basis=Frames.axes(rotatedFrame);assert.deepEqual(basis,[[0,0,1],[0,-1,0],[1,0,0]]);assert.deepEqual(Frames.vector([2,3,4],basis),[4,-3,2]);
+  assert.deepEqual(Frames.axes({...rotatedFrame,zAxisPt:[3,0,0],xzPlanePt:[2,0,4]}),basis);
+  assert.throws(()=>Frames.axes({...rotatedFrame,xzPlanePt:[2,0,0]}),/noncollinear/);
+  assert.throws(()=>Frames.axes({...rotatedFrame,origin:[NaN,0,0]}),/finite/);
+});
+test('shared frames drive CBUSH and GRAV/FORCE, protect support directions, and survive point regeneration',async()=>{
+  let a=await mountedPair();a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:7}));
+  const motor=copy(a.ownership.project.objects.find(o=>o.id==='motor-left'));motor.definition.frame='motor-frame';a=apply10(a,{objects:[motor]});assert.equal(a.semantic.elems.bush.find(e=>e.eid===motor.definition.cards.find(c=>c.role==='bush').id).cid,7);
+  const points=a.ownership.project.objects.find(o=>o.id===motor.definition.points),shaft=points.definition.cards.find(c=>c.role==='shaft').id;
+  a=apply10(a,Analysis.set({id:'shafts',name:'Local shaft support',action:'support',nodes:[shaft],components:'123456',frame:'motor-frame'},a.ownership,a.semantic));
+  a=apply10(a,Analysis.set({id:'g-local',name:'Local gravity',action:'acceleration',vector:[-9806.65,0,0],frame:'motor-frame'},a.ownership,a.semantic));
+  a=apply10(a,Analysis.set({id:'f-local',name:'Local force',action:'force',node:shaft,vector:[1,2,3],frame:'motor-frame'},a.ownership,a.semantic));
+  assert.equal(a.semantic.loads.gravity[0].cid,7);assert.equal(a.semantic.loads.force.at(-1).cid,7);assert.equal(new Map(a.semantic.nodes).get(shaft).cd,7);
+  assert.throws(()=>apply10(a,Frames.assign({nodes:[shaft],frame:null},a.ownership)),/differs from the support frame/);
+  assert.throws(()=>Frames.remove(a.ownership,'motor-frame'),/Reassign/);
+  const input={id:motor.id,name:motor.name,region:motor.definition.region,template:motor.definition.template,frame:'motor-frame',mount:[0,3,2],shaft:[-25,3,2],components:'123'};
+  a=apply10(a,Mount.attachment(input,a.ownership,nextPlateIds));assert.equal(new Map(a.semantic.nodes).get(shaft).cd,7);assert.equal(new Map(a.semantic.nodes).get(shaft).x,-25);
+  const b=apply10(a,Frames.build({...rotatedFrame,zAxisPt:[0,1,0]},a.ownership,{coordinate:99}));assert.equal(b.semantic.coords[0][0],7);assert.ok(b.project.checks.every(c=>c.status!=='invalid'));
+});
+test('owned CORD2R, GRID CD, FORCE and GRAV round trip real writers with one undo step',async()=>{
+  const c=fixture();let a=O.preview(O.snapshot(c.model),null,{objects:[definition('point','point',[node(1)])]});
+  a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:7}));a=apply10(a,Analysis.set({id:'s',name:'Local support',action:'support',nodes:[1],components:'23',frame:'motor-frame'},a.ownership,a.semantic));
+  a=apply10(a,Analysis.set({id:'f',name:'Local force',action:'force',node:1,vector:[10,20,30],frame:'motor-frame'},a.ownership,a.semantic));
+  (await c.previewProjectChange({objects:a.ownership.project.objects})).commit();const before=O.snapshot(c.model);
+  for(const format of ['source','free','small','large']){const r=await exportParsed(c,format);assert.deepEqual(copy(r.indexes.coords.get(7).pointB),[1,0,0]);assert.equal(r.indexes.nodes.get(1).cd,7);assert.match(r.deck,/CORD2R/);assert.ok(r.cards.some(c=>c.name==='FORCE'&&Number(c.tokens[3])===7));}
+  c.historyManager.undo();assert.equal(c.model.coords.size,0);c.historyManager.redo();assert.deepEqual(O.snapshot(c.model),before);
+  const saved=copy(c.model.projectOwnership);O.validate(saved,O.snapshot(c.model));
+});
+test('pending remesh repairs an explicit support without committing partial changes or replacing its SID',async()=>{
+  let a=await cadPreview();const selected=a.semantic.elems.hex[0].n[0];a=apply10(a,Analysis.set({id:'root',name:'Explicit root',action:'support',nodes:[selected],components:'123'},a.ownership,a.semantic));
+  const before=copy(a),request=(await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds)).request;
+  assert.ok(Selections.inspect(a.ownership,a.semantic,request).find(r=>r.id==='root').issues.length);
+  const replacement=request.objects.find(o=>o.id==='cad').definition.cards.find(c=>c.family==='nodes').id;
+  const repaired=Selections.repair(a.ownership,a.semantic,request,{id:'root',nodes:[[selected,replacement]]},nextPlateIds);
+  const b=apply10(a,repaired);assert.deepEqual(a,before);assert.deepEqual(b.semantic.spc1[0].nodes,[replacement]);assert.equal(b.semantic.spc1[0].sid,a.semantic.spc1[0].sid);
+  assert.equal(Selections.inspect(b.ownership,b.semantic).flatMap(r=>r.issues).length,0);
+  assert.throws(()=>Selections.repair(a.ownership,a.semantic,request,{id:'root',nodes:[[selected,999999]]},nextPlateIds),/Missing/);
+});
+test('explicit CAD topology rebind regenerates motor regions and attachments with stable identities',async()=>{
+  const a=await mountedPair(),source=copy(a.ownership.project.objects.find(o=>o.kind==='source'));source.definition.geometryKey+='-new';let r={label:'Replace topology',objects:[source,copy(a.ownership.project.objects.find(o=>o.id==='cad'))]};
+  assert.equal(Selections.inspect(a.ownership,a.semantic,r).filter(x=>x.issues.length).length,2);
+  for(const id of ['left','right'])r=Selections.repair(a.ownership,a.semantic,r,{id},nextPlateIds);
+  const b=apply10(a,r);assert.deepEqual(b.semantic.elems.rbe2,a.semantic.elems.rbe2);assert.deepEqual(b.semantic.elems.bush,a.semantic.elems.bush);assert.ok(b.project.checks.every(c=>c.status!=='invalid'));
+});
+test('named region support frame rebinds to replacement nodes during independent remesh',async()=>{
+ let a=await cadPreview();a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:22}));a=apply10(a,Mount.region({id:'root-region',name:'Root region',mesh:'cad',faces:[1]},a.ownership));
+ a=apply10(a,Analysis.set({id:'support-local',name:'Frame on region',action:'support',region:'root-region',components:'123',frame:'motor-frame'},a.ownership,a.semantic));
+ const before=a.semantic.spc1[0].nodes;a=apply10(a,(await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds)).request);
+ assert.notDeepEqual(a.semantic.spc1[0].nodes,before);for(const id of a.semantic.spc1[0].nodes)assert.equal(new Map(a.semantic.nodes).get(id).cd,22);
+ assert.ok(a.project.checks.every(c=>c.status!=='invalid'));
+});
+test('explicit shell-to-solid input repair retains matching output slots and excluded parent participation',async()=>{
+ let base=await cadPreview(mixedInput());const shellInput=mixedInput('shell');shellInput.mesh.elements.forEach(e=>e.zoffs=0);base=await cadPreview(shellInput,base.ownership,base.semantic);const seed=base.semantic.elems.quad[0].eid;
+ const built=ActionProject.build({id:'extrude-repair',name:'Extrusion',steps:[{action:'extrude-shells',elements:[seed],layers:1,vector:[0,0,1],pid:base.semantic.properties.find(([,p])=>p.type==='PSOLID')[0]}],excludeElements:[seed]},base.ownership,base.semantic,{node:20000,element:20000});
+ const a=apply10(base,built.request),r=copy(a.ownership.project.objects.find(o=>o.id==='skin'));const original=r.definition.cards.find(c=>c.family==='elems'&&c.id===seed),replacement=r.definition.cards.find(c=>c.family==='elems'&&c.id!==seed).id;r.definition.cards=r.definition.cards.filter(c=>c!==original);
+ const pending={objects:[r]};assert.ok(Selections.inspect(a.ownership,a.semantic,pending).find(r=>r.id==='extrude-repair').issues.length);
+ const b=apply10(a,Selections.repair(a.ownership,a.semantic,pending,{id:'extrude-repair',elements:[[seed,replacement]]},{node:30000,element:30000}));
+ const output=b.ownership.project.objects.find(o=>o.id==='extrude-repair');assert.deepEqual(output.definition.cards.map(c=>c.id),built.object.definition.cards.map(c=>c.id));assert.equal(output.definition.analysisExcluded[0].id,replacement);O.validate(b.ownership,b.semantic);
+});
+test('combined motor battery payload assembly repairs a direct force across solid remesh and retains all connections',async()=>{
+ let a=await embeddedModel();a.semantic.nodes=a.semantic.nodes.filter(([id])=>id!==100);a.semantic.loads.force=[];a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:1234}));
+ for(const input of [{id:'motor-region',name:'Motor flange',mesh:'cad',faces:[1]},{id:'payload-region',name:'Payload and battery mounting plane',mesh:'skin',faces:[11]}])a=apply10(a,Mount.region(input,a.ownership));
+ a=apply10(a,Mount.attachment({id:'motor',name:'Motor',region:'motor-region',mount:[0,3,2],shaft:[-20,3,2],components:'123',frame:'motor-frame',newTemplate:{id:'stiffness',name:'Motor stiffness',stiffness:[1e5,2e5,3e5,1e4,2e4,3e4]}},a.ownership,nextPlateIds));
+ const points=a.ownership.project.objects.find(o=>o.id==='motor/points').definition.cards,mount=points.find(c=>c.role==='mount').id,shaft=points.find(c=>c.role==='shaft').id;
+ a=apply10(a,Mass.direct({id:'motor-mass',name:'280 g motor',action:'mass',node:mount,mass:'280 g'},a.ownership,a.semantic,nextPlateIds));
+ for(const [id,mass,offset] of [['payload','1 kg',[0,0,200]],['battery','500 g',[0,0,15]]])a=apply10(a,Mass.payload({...payloadInput,id,name:id,mass,offset,supports:[{region:'payload-region',weight:1}]},a.ownership,nextPlateIds));
+ a=apply10(a,Analysis.set({id:'shaft-spc',name:'Local shaft support',action:'support',nodes:[shaft],components:'123456',frame:'motor-frame'},a.ownership,a.semantic));
+ a=apply10(a,Analysis.set({id:'g',name:'Gravity',action:'acceleration',vector:[-9806.65,0,0],frame:'motor-frame'},a.ownership,a.semantic));
+ const selected=a.ownership.project.objects.find(o=>o.id==='cad').definition.cards.find(c=>c.family==='nodes'&&c.value.x===4&&c.value.y===0&&c.value.z===0);
+ a=apply10(a,Analysis.set({id:'f',name:'Local chassis force',action:'force',node:selected.id,vector:[0,10,0],frame:'motor-frame'},a.ownership,a.semantic));
+ for(const id of ['g','f']){const load=a.ownership.project.objects.find(o=>o.id===id).definition.action.sid;a=apply10(a,Analysis.caseObject({id:'case-'+id,name:id==='g'?'Combined gravity':'Local chassis force',load,support:a.semantic.spc1[0].sid,outputs:['DISPLACEMENT','SPCFORCES','STRESS','OLOAD']},a.ownership,a.semantic));}
+ const before=a,solid=embeddedMeshInput(),H=require('../app/hex-mapping.js'),data=require('./fixtures/mapping/split-box.json'),analysis=H.analyze(data.topology);
+ solid.mesh=H.generateMesh(analysis,H.solveIntervals(analysis,{size:3,minCount:2,controls:new Map([[9,{count:3}]])}),H.createGeometry(data.topology,data.preview),{volumes:[1]});
+ let request=(await Cad.build(solid,a.ownership,nextPlateIds)).request;request=Embedded.rebuild(a.ownership,request,nextPlateIds);
+ assert.ok(Selections.inspect(a.ownership,a.semantic,request).find(r=>r.id==='f').issues.length);
+ const replacement=request.objects.find(o=>o.id==='cad').definition.cards.find(c=>c.family==='nodes'&&c.value.x===4&&c.value.y===0&&c.value.z===0).id;
+ request=Selections.repair(a.ownership,a.semantic,request,{id:'f',nodes:[[selected.id,replacement]]},nextPlateIds);a=apply10(a,request);
+ assert.equal(a.semantic.elems.bush[0].cid,1234);assert.deepEqual(a.semantic.masses,before.semantic.masses);assert.equal(new Map(a.semantic.nodes).get(shaft).cd,1234);assert.equal(a.semantic.loads.force.find(f=>f.cid===1234).nid,replacement);assert.equal(a.semantic.elems.rbe3.length,2);assert.ok(a.project.checks.every(c=>c.status!=='invalid'));
+ if(process.env.WEBMESH_WRITE_FRAME_EVIDENCE){const path=require('node:path'),folder=path.join(__dirname,'../docs/design/validation/selection-frames');fs.mkdirSync(folder,{recursive:true});for(const [name,model]of [['before',before],['after',a]]){const c=fixture();for(const [k,v]of Object.entries(model.semantic))c.model[k]=['nodes','properties','materials','coords','masses'].includes(k)?new Map(copy(v)):copy(v);c.model.projectOwnership=copy(model.ownership);c.syncWorkerFromEditorModel();const r=await exportParsed(c,'free');const deck=Analysis.projectDeck(r.deck,model.ownership),projected=require('../app/analysis-runs.js').profile(deck,'mystran',{autospc:true});fs.writeFileSync(path.join(folder,name+'.bdf'),projected.deck);fs.writeFileSync(path.join(folder,name+'.json'),JSON.stringify({semantic:model.semantic,ownership:model.ownership},null,2)+'\n');}}
+});
+test('saved displacement-frame bindings cannot disagree with GRID CD or omit their dependency',()=>{
+ let a=O.preview(O.snapshot(model()),null,{objects:[definition('point','point',[node(1)])]});a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:7}));a=apply10(a,Frames.assign({nodes:[1],frame:'motor-frame'},a.ownership));
+ const o=a.ownership.project.objects.find(o=>o.id==='point');
+ for(const mutate of [s=>s.project.objects.find(x=>x.id===o.id).definition.nodeFrames[0].frame=null,s=>s.project.objects.find(x=>x.id===o.id).definition.nodeFrames.push(copy(o.definition.nodeFrames[0]))]){const s=copy(a.ownership);mutate(s);assert.throws(()=>O.validate(s,a.semantic),/invalid GRID displacement/);}
+});
+test('standalone GRID frame selections require explicit repair after their source mesh replaces roles',async()=>{
+ let a=await cadPreview();a=apply10(a,Frames.build(rotatedFrame,a.ownership,{coordinate:7}));const selected=a.semantic.elems.hex[0].n[0];a=apply10(a,Frames.assign({nodes:[selected],frame:'motor-frame'},a.ownership));
+ const r=(await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds)).request,entry=Selections.inspect(a.ownership,a.semantic,r).find(x=>x.id==='cad');assert.equal(entry.type,'frames');assert.ok(entry.issues.length);
+ const replacement=r.objects.find(o=>o.id==='cad').definition.cards.find(c=>c.family==='nodes').id;
+ const b=apply10(a,Selections.repair(a.ownership,a.semantic,r,{id:'cad',nodes:[[selected,replacement]]},nextPlateIds));assert.equal(new Map(b.semantic.nodes).get(replacement).cd,7);
 });

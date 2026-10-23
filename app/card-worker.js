@@ -11736,8 +11736,9 @@ function parseF06ResultsV2(f06Text) {
           if (!isNaN(pointId) && parts.length >= 4) {
             let dofStart = 1;
             const maybeCoord = parseInt(parts[1], 10);
-            if (!isNaN(maybeCoord) && parts.length >= 5 && Math.abs(maybeCoord) < 100) dofStart = 2;
+            if (parts.length >= 8 && (/^[-+]?\d+$/.test(parts[1]) || parts[1] === 'G')) dofStart = 2;
             target[pointId] = {
+              ...(dofStart === 2 && /^[-+]?\d+$/.test(parts[1]) ? { coord: maybeCoord } : {}),
               t1: parseFloat(parts[dofStart] || '0') || 0,
               t2: parseFloat(parts[dofStart + 1] || '0') || 0,
               t3: parseFloat(parts[dofStart + 2] || '0') || 0,

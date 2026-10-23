@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
@@ -60,6 +60,7 @@
     if (sets(card.family)) { Analysis.validateSet(card, kind); return {family:card.family,id:card.id,value:copy(v)}; }
     const type = card.family === 'nodes' ? 'GRID' : v.type;
     const allowed = {
+      CORD2R: ['type', 'cid', 'rid', 'origin', 'zAxisPt', 'xzPlanePt'],
       GRID: ['x', 'y', 'z', 'cp', 'cd', 'ps', 'seid'],
       MAT1: ['type', 'mid', 'E', 'G', 'nu', 'rho'],
       PSHELL: ['type', 'pid', 'mid1', 'mid2', 'mid3', 'mid4', 't'], PSOLID: ['type', 'pid', 'mid'], PROD: ['type', 'pid', 'mid', 'A'],
@@ -69,12 +70,13 @@
     };
     const fields = allowed[type] || (buckets[type] ? ['type', 'eid', 'pid', 'n', 'zoffs'] : null);
     if (!fields || Object.keys(v).some(field => !fields.includes(field))) fail(k + ': unsupported generated card or field.');
-    const expected = type === 'GRID' ? 'nodes' : type === 'MAT1' ? 'materials' : type === 'CONM2' ? 'masses' : type.startsWith('P') ? 'properties' : 'elems';
+    const expected = type === 'GRID' ? 'nodes' : type === 'CORD2R' ? 'coords' : type === 'MAT1' ? 'materials' : type === 'CONM2' ? 'masses' : type.startsWith('P') ? 'properties' : 'elems';
     if (card.family !== expected || card.family === 'elems' && card.bucket !== buckets[type]) fail(k + ': wrong card family or bucket.');
-    const ownerKinds = { nodes: ['mesh', 'point'], elems: ['mesh', 'connection'], properties: ['section', 'template'], materials: ['material'], masses: ['connection'] };
+    const ownerKinds = { coords: ['frame'], nodes: ['mesh', 'point'], elems: ['mesh', 'connection'], properties: ['section', 'template'], materials: ['material'], masses: ['connection'] };
     if (!ownerKinds[card.family]?.includes(kind)) fail(k + ': ' + kind + ' cannot own this family.');
-    if (type !== 'GRID' && v[expected === 'materials' ? 'mid' : expected === 'properties' ? 'pid' : 'eid'] !== card.id) fail(k + ': card ID disagrees with its values.');
+    if (type !== 'GRID' && v[expected === 'coords' ? 'cid' : expected === 'materials' ? 'mid' : expected === 'properties' ? 'pid' : 'eid'] !== card.id) fail(k + ': card ID disagrees with its values.');
     const finite = (value, label) => { if (typeof value !== 'number' || !Number.isFinite(value)) fail(k + ': ' + label + ' must be finite.'); return value; };
+    if (type === 'CORD2R') { if (v.rid !== 0) fail(k + ': authored frames require RID=0.'); Coordinates.axes(v); }
     if (type === 'GRID') { for (const f of ['x', 'y', 'z']) finite(v[f], f); for (const f of ['cp', 'cd']) if (v[f] != null && v[f] !== 0) id(v[f]); }
     if (type === 'CONM2') {
       if (v.cid !== 0 || !equal(v, Connections.massValue({id:card.id,node:v.g,mass:v.m,offset:v.x,inertia:v.inertia}))) fail(k + ': owned CONM2 requires explicit basic offsets and inertia.');
@@ -204,6 +206,8 @@
       if (all && !equal(all.get(entry.key), card)) fail(entry.key + ' is owned by ' + object.name + ' (' + entry.role + '). Edit its owner or explicitly convert the object to plain cards.');
     }
     for (const object of objects.values()) {
+      const frameRoles=new Set();
+      for(const b of object.definition.nodeFrames||[]){const c=object.definition.cards?.find(c=>c.family==='nodes'&&c.role===b.role);if(frameRoles.has(b.role)||!c||(c.value.cd||0)!==Coordinates.frame(s,b.frame).cid||b.frame&&!object.dependsOn.includes(b.frame))fail(object.name+': invalid GRID displacement-frame assignment.');frameRoles.add(b.role);}
       if (object.definition.embeddedBy) {
         const guide = objects.get(object.definition.embeddedBy);
         if (guide?.definition.generator !== 'shell-solid-embedded-v1' || guide.definition.shell !== object.id) fail(object.name + ': remove the embedded interface through its editor to restore boundary connectivity, or convert both connected meshes together.');
@@ -221,7 +225,10 @@
         if (!roles.has(JSON.stringify([object.id, card.role]))) fail('Owner definition is missing a generated card: ' + object.id + '/' + card.role);
       }
     }
-    if (semantic) { analysisExclusions(s, semantic); Analysis.validateCases(s, semantic); }
+    if (semantic) {
+      const grids=new Map(semantic.nodes);
+      for(const o of objects.values())if(o.definition.generator==='analysis-set-v1'&&o.definition.action.action==='support'&&Object.hasOwn(o.definition,'frame')){const cid=Coordinates.frame(s,o.definition.frame).cid;for(const n of o.definition.action.nodes)if((grids.get(n)?.cd||0)!==cid)fail(o.name+': GRID '+n+' displacement frame differs from the support frame. Review the support selection/frame together.');}
+      analysisExclusions(s, semantic); Analysis.validateCases(s, semantic); }
     return project;
   }
   // Analysis participation is metadata, never display visibility or deletion.
@@ -231,7 +238,7 @@
     for (const object of state?.project.objects || []) {
       for (const input of object.definition.inputs || []) {
         const actual = index.cards.get(input.key), expected = input.card;
-        if (!actual || !equal(actual.value, expected.value)) fail(object.name + ': explicit mesh input ' + input.key + ' changed. Remove/recreate the action with a repaired selection before remeshing.');
+        if (!actual || !equal(actual.value, expected.value)) fail(object.name + ': explicit mesh input ' + input.key + ' changed. Use Selections & repair to review replacement inputs before applying.');
       }
       for (const e of object.definition.analysisExcluded || []) {
         const actual = index.cards.get('element:' + e.id);

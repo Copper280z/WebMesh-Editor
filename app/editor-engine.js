@@ -1458,6 +1458,7 @@
     updateResultSetSelector();
   }
   function applyLoadedSolverResults(resultsObj, sourceName = "", boundToRun = false) {
+    if (resultsObj && window.WebMeshCoordinates) window.WebMeshCoordinates.normalizeResults(resultsObj, window.WebMeshOwnership.snapshot(model));
     solverResults = resultsObj && typeof resultsObj === "object" ? resultsObj : null;
     solverResultsSourceName = String(sourceName || "");
     if (!boundToRun) emitWorkbenchChange("results");
@@ -28636,6 +28637,7 @@ ${formatRanges(v.ranges, 500)}`;
     const next = (ids) => { let max = 0; for (const id of ids) max = Math.max(max, Number(id) || 0); return max + 1; };
     return {
       node: next([...model.nodes.keys(), ...reserved("node")]), element: next([...getAllElementIds(), ...model.masses.keys(), ...reserved("element")]),
+      coordinate: next([...model.coords.keys(), ...reserved("coordinate")]),
       property: next([...model.properties.keys(), ...reserved("property")]), material: next([...model.materials.keys(), ...reserved("material")])
     };
   }

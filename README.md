@@ -44,7 +44,7 @@ Use **Model setup → Analysis cases & runs** to create support and acceleration
 
 Each run retains its exact deck, model snapshot, units, case labels, solver binary hash, log and F06. Process completion, numerical indicators and basic-coordinate force/moment balance are reported separately. Editing the model hides results until it matches again or you explicitly open the captured snapshot. Save the project to retain completed runs across server restarts. Manual F06 imports are labeled as unverified against the current model.
 
-The service runs at most two jobs concurrently, retains up to 20 jobs per server session, and limits each job to five minutes and 64 MiB per output file. Jobs use isolated temporary directories. First-slice scope and evidence: [analysis cases and runs](docs/design/implementation-09-analysis-runs.md).
+The service runs at most two jobs concurrently, retains up to 20 jobs per server session, and limits each job to five minutes and 64 MiB per output file. Jobs use isolated temporary directories. Scope and evidence: [analysis cases and runs](docs/design/implementation-09-analysis-runs.md), [selection repair and reusable local frames](docs/design/implementation-10-selection-frames.md). In Model setup, use **Selections & repair** to replace invalidated inputs within a pending remesh review, and **Reusable coordinate frames** for shared CORD2R load/stiffness/support directions.
 
 ## Modeling workflow
 

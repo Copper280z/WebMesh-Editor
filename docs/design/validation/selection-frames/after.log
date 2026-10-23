@@ -1,0 +1,711 @@
+ MYSTRAN Version 19.0.0   JUN 28 2026 MYSTRAN developed by Dr Bill Case
+
+
+ Optional Initialization file: 
+ MYSTRAN.INI
+ does not exist. Internal defaults will be used instead.                        
+ If you want to use the INI file, see the MYSTRAN Installation and Run Manual   
+
+ >> MYSTRAN BEGIN  : 10/23/2026 at 18:28:17.375. The input file is:
+    model.BDF
+
+ >> LINK  0 BEGIN
+  0/DETERMINE ARRAY SIZES - CASE CONTROL                            18:28:17.376
+  0/DETERMINE ARRAY SIZES - BULK DATA                               18:28:17.377
+  0/READ EXEC CONTROL DECK                                          18:28:17.377
+  0/ALLOCATE MEMORY FOR SOME MODEL DATA ARRAYS                      18:28:17.378
+  0/READ CASE CONTROL DECK                                          18:28:17.378
+  0/READ BULK DATA DECK                                             18:28:17.379
+  0/SORT AND CHECK ELEMENTS                                         18:28:17.381
+  0/ELEM PROCESSOR                                                  18:28:17.381
+  0/GRID PROCESSOR                                                  18:28:17.381
+    Initialize arrays GRID and GRID_SEQ                                     
+    Sort arrays GRID and GRID_SEQ so GRID is in numerical order
+    Sort arrays GRID and RGRID so GRID is in numerical order                
+    Check for duplicate GRID IDs                                            
+    Check GRID_ID array                                                     
+    Check that coord systems in field 3 referenced do exist                 
+    Check that coord systems in field 7 referenced do exist                 
+    Calc coord sys transformation matrices                                  
+    Transform grid coords to basic system                                   
+    Write grid data to file                                                 
+    Write coord data to file                                                
+ 
+  0/CHECK THAT ALL GRIDS FOR ELEMS EXIST                            18:28:17.382
+
+       Process element  0 of 21 (  0%)
+
+       Process element 21 of 21 (100%) -- done in ~ 0s                
+ 
+  0/GRID SEQUENCE PROCESSOR                                         18:28:17.382
+  0/SUBCASE PROCESSOR                                               18:28:17.382
+  0/DOF PROCESSOR                                                   18:28:17.382
+      DOF Set Table                                                 18:28:17.382
+       Initializing           
+       Process MPCs           
+       Process Rigid Elements
+       Process SPCs           
+ 
+      DOF Number Table                                              18:28:17.382
+      TDOF PROC
+
+       Process col 1-4 of TDOF  0 of 46 (  0%)
+
+       Process col 1-4 of TDOF 46 of 46 (100%) -- done in ~ 0s                
+
+       Process G -set           0 of 46 (  0%)
+
+       Process G -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process M -set           0 of 46 (  0%)
+
+       Process M -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process SB-set           0 of 46 (  0%)
+
+       Process SB-set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process N -set           0 of 46 (  0%)
+
+       Process N -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process SZ-set           0 of 46 (  0%)
+
+       Process SZ-set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process S -set           0 of 46 (  0%)
+
+       Process S -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process F -set           0 of 46 (  0%)
+
+       Process F -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process A -set           0 of 46 (  0%)
+
+       Process A -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process L -set           0 of 46 (  0%)
+
+       Process L -set          46 of 46 (100%) -- done in ~ 0s                
+       Setting up to get TDOFI
+       Sort TDOF to get TDOFI 
+ 
+  0/CONM2 PROCESSOR #1                                              18:28:17.383
+  0/ALLOCATE MEMORY FOR RBGLOBAL ARRAY                              18:28:17.383
+  0/CONM2 PROCESSOR #2                                              18:28:17.383
+  0/ALLOCATE MEM FOR ELEM AND GRID TEMP ARRAYS                      18:28:17.383
+  0/ALLOCATE MEMORY FOR ELEM PRESSURE DATA ARRAYS                   18:28:17.383
+ >> LINK  0 END
+
+ >> LINK  1 BEGIN
+  1/ALLOCATE DOF TABLES                                             18:28:17.384
+  1/RIGID ELEMENT PROCESSOR                                         18:28:17.384
+  1/ALLOCATE MEMORY FOR RMG ARRAY                                   18:28:17.384
+  1/SPARSE RMG PROCESSOR                                            18:28:17.384
+  1/ALLOCATE MEMORY FOR SYS_LOAD ARRAY                              18:28:17.385
+  1/FORCE/MOMENT PROCESSOR                                          18:28:17.385
+  1/ALLOCATE MEMORY FOR THERMAL LOAD ARRAYS                         18:28:17.385
+  1/CALCULATE ESTIMATE OF MASS MATRIX SIZE                          18:28:17.385
+  1/ALLOCATE MEM FOR EMSKEY, EMSCOL, EMSPNT, EMS                    18:28:17.385
+     Initializing EMSKEY with          276 rows
+ 
+     Initializing EMSCOL with        32400 rows
+ 
+     Initializing EMSPNT with        32400 rows
+ 
+     Initializing EMS    with        32400 rows
+ 
+ 
+  1/ELEMENT MASS MATRIX PROCESSOR                                   18:28:17.386
+
+     Calculating mass matrix. Process elem     0 of 21 (  0%)
+
+     Calculating mass matrix. Process elem    21 of 21 (100%) -- done in ~ 0s                
+ 
+  1/CONCENTRATED MASS MATRIX PROCESSOR                              18:28:17.387
+     Process mass for CONM2       19 int G.P.        7 of       46           
+ 
+     Process mass for CONM2       20 int G.P.        9 of       46           
+ 
+     Process mass for CONM2       22 int G.P.       10 of       46           
+ 
+  1/ALLOCATE MEMORY FOR ELEM MASS ARRAYS                            18:28:17.387
+  1/SPARSE MGG PROCESSOR                                            18:28:17.387
+
+
+     Working on grid   0 of 46 (  0%)
+
+     Working on grid  46 of 46 (100%) -- done in ~ 0s                
+ 
+  1/GRAV LOAD PROCESSOR                                             18:28:17.387
+
+     Proc grid        1 of       46, subcase        1
+     Proc grid        2 of       46, subcase        1
+     Proc grid        3 of       46, subcase        1
+     Proc grid        4 of       46, subcase        1
+     Proc grid        5 of       46, subcase        1
+     Proc grid        6 of       46, subcase        1
+     Proc grid        7 of       46, subcase        1
+     Proc grid        8 of       46, subcase        1
+     Proc grid        9 of       46, subcase        1
+     Proc grid       10 of       46, subcase        1
+     Proc grid       11 of       46, subcase        1
+     Proc grid       12 of       46, subcase        1
+     Proc grid       13 of       46, subcase        1
+     Proc grid       14 of       46, subcase        1
+     Proc grid       15 of       46, subcase        1
+     Proc grid       16 of       46, subcase        1
+     Proc grid       17 of       46, subcase        1
+     Proc grid       18 of       46, subcase        1
+     Proc grid       19 of       46, subcase        1
+     Proc grid       20 of       46, subcase        1
+     Proc grid       21 of       46, subcase        1
+     Proc grid       22 of       46, subcase        1
+     Proc grid       23 of       46, subcase        1
+     Proc grid       24 of       46, subcase        1
+     Proc grid       25 of       46, subcase        1
+     Proc grid       26 of       46, subcase        1
+     Proc grid       27 of       46, subcase        1
+     Proc grid       28 of       46, subcase        1
+     Proc grid       29 of       46, subcase        1
+     Proc grid       30 of       46, subcase        1
+     Proc grid       31 of       46, subcase        1
+     Proc grid       32 of       46, subcase        1
+     Proc grid       33 of       46, subcase        1
+     Proc grid       34 of       46, subcase        1
+     Proc grid       35 of       46, subcase        1
+     Proc grid       36 of       46, subcase        1
+     Proc grid       37 of       46, subcase        1
+     Proc grid       38 of       46, subcase        1
+     Proc grid       39 of       46, subcase        1
+     Proc grid       40 of       46, subcase        1
+     Proc grid       41 of       46, subcase        1
+     Proc grid       42 of       46, subcase        1
+     Proc grid       43 of       46, subcase        1
+     Proc grid       44 of       46, subcase        1
+     Proc grid       45 of       46, subcase        1
+     Proc grid       46 of       46, subcase        1
+ 
+  1/CONVERT LOADS TO SPARSE MATRIX FORM                             18:28:17.387
+
+
+      Write L1E G-set DOF   0 of 276 (  0%)
+
+      Write L1E G-set DOF 276 of 276 (100%) -- done in ~ 0s                
+  1/CALCULATE ESTIMATE OF KGG MATRIX SIZE                           18:28:17.388
+  1/ALLOCATE MEM FOR STFKEY, STFCOL, STFPNT, STF                    18:28:17.388
+     Initializing STFKEY with          276 rows
+ 
+     Allocated    1.10E-03 MB of mem to   array: STFKEY                    
+ 
+     Initializing STF3 with        32400 terms
+ 
+     Allocated    5.18E-01 MB of mem to   array: STF3                    
+ 
+  1/G-SET STIFFNESS MATRIX PROCESSOR                                18:28:17.388
+
+     Calculating stiff matrix. Process elem    0 of 21 (  0%)
+
+     Calculating stiff matrix. Process elem   21 of 21 (100%) -- done in ~ 0s                
+ 
+     Deallocated  5.18E-01 MB of mem from array: STF3
+     Initializing STF3 with        32400 terms
+ 
+     Allocated    5.18E-01 MB of mem to   array: STF3                    
+ 
+  1/SPARSE KGG PROCESSOR                                            18:28:17.393
+
+     Working on grid   0 of 46 (  0%)
+
+     Working on grid  46 of 46 (100%) -- done in ~ 0s                
+ 
+      TDOF PROC
+
+       Process col 1-4 of TDOF  0 of 46 (  0%)
+
+       Process col 1-4 of TDOF 46 of 46 (100%) -- done in ~ 0s                
+
+       Process G -set           0 of 46 (  0%)
+
+       Process G -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process M -set           0 of 46 (  0%)
+
+       Process M -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process SA-set           0 of 46 (  0%)
+
+       Process SA-set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process SB-set           0 of 46 (  0%)
+
+       Process SB-set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process N -set           0 of 46 (  0%)
+
+       Process N -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process SZ-set           0 of 46 (  0%)
+
+       Process SZ-set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process S -set           0 of 46 (  0%)
+
+       Process S -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process F -set           0 of 46 (  0%)
+
+       Process F -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process A -set           0 of 46 (  0%)
+
+       Process A -set          46 of 46 (100%) -- done in ~ 0s                
+
+       Process L -set           0 of 46 (  0%)
+
+       Process L -set          46 of 46 (100%) -- done in ~ 0s                
+       Setting up to get TDOFI
+       Sort TDOF to get TDOFI 
+ 
+     Deallocated  1.10E-03 MB of mem from array: STFKEY
+     Deallocated  5.18E-01 MB of mem from array: STF3
+ 
+  1/WRITE DOF TABLES TO FILE AND DEALLOCATE                         18:28:17.394
+  1/WRITE ELEMENT DATA TO FILE                                      18:28:17.395
+ >> LINK  1 END
+
+ >> LINK  2 BEGIN
+  2/REDUCE G-SET TO N, M-SETS                                       18:28:17.396
+      SOLVE FOR GMN CONSTRAINT MATRIX                               18:28:17.396
+
+       Det. part. size of  RMN, row  0 of 39 (  0%)
+
+       Det. part. size of  RMN, row 39 of 39 (100%) -- done in ~ 0s                
+
+       Partition  RMN from  RMG, row  0 of 39 (  0%)
+
+       Partition  RMN from  RMG, row 39 of 39 (100%) -- done in ~ 0s                
+
+       Det. part. size of  RMM, row  0 of 39 (  0%)
+
+       Det. part. size of  RMM, row 39 of 39 (100%) -- done in ~ 0s                
+
+       Partition  RMM from  RMG, row  0 of 39 (  0%)
+
+       Partition  RMM from  RMG, row 39 of 39 (100%) -- done in ~ 0s                
+
+       Extracting RMM->CCS1 col  0 of 39 (  0%)
+
+       Extracting RMM->CCS1 col 39 of 39 (100%) -- done in ~ 0s                
+ 
+USING METIS ORDERING
+No of nonzeros in factor L = 43
+No of nonzeros in factor U = 43
+No of nonzeros in L+U = 86
+L\U MB 0.001	total MB needed 0.015
+ SUPERLU FACTORIZATION OF MATRIX RMM SUCCEEDED IN SUBR SYM_MAT_DECOMP_SUPRLU          
+
+      Solve for GMN col    0 of 237 (  0%)
+
+      Solve for GMN col  237 of 237 (100%) -- done in ~ 0s                
+ 
+ SUPERLU STORAGE FREED
+ 
+     Reallocate GMN
+       Deallocate GMN          
+       Allocate   GMN          
+ 
+
+       GMN: writing row  0 of 39 (  0%)
+
+       GMN: writing row 39 of 39 (100%) -- done in ~ 0s                
+      DEALLOCATE SOME ARRAYS
+       Deallocate RMN          
+
+                 Deallocate RMM          
+
+                 Deallocate RMG          
+      REDUCE KGG TO KNN (SPARSE MATRIX ROUTINES)                    18:28:17.398
+
+       Det. part. size of  KNN, row   0 of 276 (  0%)
+
+       Det. part. size of  KNN, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition  KNN from  KGG, row   0 of 276 (  0%)
+
+       Partition  KNN from  KGG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KNM, row   0 of 276 (  0%)
+
+       Det. part. size of  KNM, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition  KNM from  KGG, row   0 of 276 (  0%)
+
+       Partition  KNM from  KGG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KMM, row   0 of 276 (  0%)
+
+       Det. part. size of  KMM, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition  KMM from  KGG, row   0 of 276 (  0%)
+
+       Partition  KMM from  KGG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Extracting GMN->CCS1 col   0 of 237 (  0%)
+
+       Extracting GMN->CCS1 col 237 of 237 (100%) -- done in ~ 0s                
+ 
+     Reallocate KNN
+       Deallocate KNN          
+       Allocate   KNN          
+
+       Extracting CRS1->CCS1 col   0 of 237 (  0%)
+
+       Extracting CRS1->CCS1 col 237 of 237 (100%) -- done in ~ 0s                
+ 
+     Reallocate KNN
+       Deallocate KNN          
+       Allocate   KNN          
+
+       HMN: writing row  0 of 39 (  0%)
+
+       HMN: writing row 39 of 39 (100%) -- done in ~ 0s                
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+       Deallocate HMN           
+      REDUCE MGG TO MNN (SPARSE MATRIX ROUTINES)                    18:28:17.400
+
+       Det. part. size of  MNN, row   0 of 276 (  0%)
+
+       Det. part. size of  MNN, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition  MNN from  MGG, row   0 of 276 (  0%)
+
+       Partition  MNN from  MGG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MNM, row   0 of 276 (  0%)
+
+       Det. part. size of  MNM, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MMM, row   0 of 276 (  0%)
+
+       Det. part. size of  MMM, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition  MMM from  MGG, row   0 of 276 (  0%)
+
+       Partition  MMM from  MGG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Extracting GMN->CCS1 col   0 of 237 (  0%)
+
+       Extracting GMN->CCS1 col 237 of 237 (100%) -- done in ~ 0s                
+ 
+
+       Extracting CRS1->CCS1 col   0 of 237 (  0%)
+
+       Extracting CRS1->CCS1 col 237 of 237 (100%) -- done in ~ 0s                
+ 
+     Reallocate MNN
+       Deallocate MNN          
+       Allocate   MNN          
+
+       LMN: writing row  0 of 39 (  0%)
+
+       LMN: writing row 39 of 39 (100%) -- done in ~ 0s                
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+       Deallocate LMN           
+      REDUCE PG  TO PN  (SPARSE MATRIX ROUTINES)                    18:28:17.401
+
+       Det. part. size of   PN, row   0 of 276 (  0%)
+
+       Det. part. size of   PN, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition   PN from   PG, row   0 of 276 (  0%)
+
+       Partition   PN from   PG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Det. part. size of   PM, row   0 of 276 (  0%)
+
+       Det. part. size of   PM, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Partition   PM from   PG, row   0 of 276 (  0%)
+
+       Partition   PM from   PG, row 276 of 276 (100%) -- done in ~ 0s                
+
+       Extracting PM->CCS1 col 0 of 2 (  0%)
+
+       Extracting PM->CCS1 col 2 of 2 (100%) -- done in ~ 0s                
+ 
+     Reallocate PN 
+       Deallocate PN           
+       Allocate   PN           
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+      DEALLOCATE G-SET ARRAYS                                       18:28:17.401
+       Deallocate KGG          
+       Deallocate MGG          
+       Deallocate PG           
+       Deallocate GMN          
+       Deallocate KNM          
+       Deallocate KMM          
+       Deallocate MMN          
+       Deallocate MNM          
+       Deallocate MMM          
+       Deallocate PM           
+ 
+      N SET AUTOSPC PROC #1                                         18:28:17.401
+
+       Proc N-set DOF    0 of 237 (  0%)
+
+       Proc N-set DOF  237 of 237 (100%) -- done in ~ 0s                
+ 
+      AUTOSPC SUMMARY TABLE                                         18:28:17.401
+  2/REDUCE N-SET TO F, S-SETS                                       18:28:17.401
+      REDUCE KNN TO KFF (PARTITION, ONLY)                           18:28:17.401
+
+       Det. part. size of  KFF, row   0 of 237 (  0%)
+
+       Det. part. size of  KFF, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition  KFF from  KNN, row   0 of 237 (  0%)
+
+       Partition  KFF from  KNN, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KFS, row   0 of 237 (  0%)
+
+       Det. part. size of  KFS, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition  KFS from  KNN, row   0 of 237 (  0%)
+
+       Partition  KFS from  KNN, row 237 of 237 (100%) -- done in ~ 0s                
+
+       KSF: writing row   0 of 102 (  0%)
+
+       KSF: writing row 102 of 102 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KSS, row   0 of 237 (  0%)
+
+       Det. part. size of  KSS, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition  KSS from  KNN, row   0 of 237 (  0%)
+
+       Partition  KSS from  KNN, row 237 of 237 (100%) -- done in ~ 0s                
+      REDUCE MNN TO MFF (PARTITION, ONLY)                           18:28:17.402
+
+       Det. part. size of  MFF, row   0 of 237 (  0%)
+
+       Det. part. size of  MFF, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition  MFF from  MNN, row   0 of 237 (  0%)
+
+       Partition  MFF from  MNN, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MFS, row   0 of 237 (  0%)
+
+       Det. part. size of  MFS, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MSS, row   0 of 237 (  0%)
+
+       Det. part. size of  MSS, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition  MSS from  MNN, row   0 of 237 (  0%)
+
+       Partition  MSS from  MNN, row 237 of 237 (100%) -- done in ~ 0s                
+      REDUCE PN TO PF (SPARSE MATRIX ROUTINES)                      18:28:17.402
+
+       Det. part. size of   PF, row   0 of 237 (  0%)
+
+       Det. part. size of   PF, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Partition   PF from   PN, row   0 of 237 (  0%)
+
+       Partition   PF from   PN, row 237 of 237 (100%) -- done in ~ 0s                
+
+       Det. part. size of   PS, row   0 of 237 (  0%)
+
+       Det. part. size of   PS, row 237 of 237 (100%) -- done in ~ 0s                
+       Deallocate PN           
+       DEALLOCATE SOME ARRAYS                                       18:28:17.402
+       Deallocate KNN          
+       Deallocate MNN          
+       Deallocate PN           
+ 
+       DEALLOCATE SOME ARRAYS                                       18:28:17.402
+       Deallocate KSSe          
+       Deallocate QSYS          
+       Deallocate YSe           
+ 
+      DEALLOCATE SOME ARRAYS
+       Deallocate KFS          
+       Deallocate KSF          
+       Deallocate KSS          
+ 
+      DEALLOCATE SOME ARRAYS
+       Deallocate MFS          
+       Deallocate MSF          
+       Deallocate MSS          
+ 
+       Deallocate PS           
+ 
+  2/REDUCE F-SET TO A, O-SETS                                       18:28:17.402
+      EQUATING A-SET TO F-SET                                       18:28:17.402
+       Equate I_KAA with      136 rows 
+       Equate J_KAA with     4057 terms
+       Equate KAA   with     4057 terms
+       Equate I_MAA with      136 rows 
+       Equate J_MAA with      547 terms
+       Equate MAA   with      547 terms
+       Equate I_PA  with      136 rows 
+       Equate J_PA  with       36 terms
+       Equate PA    with       36 terms
+      DEALLOCATE F-SET ARRAYS                                       18:28:17.402
+       Deallocate KFF            
+       Deallocate MFF            
+       Deallocate PF             
+ 
+      DEALLOCATE GOA, ABAND ARRAYS                                  18:28:17.402
+       Deallocate GOA            
+       Deallocate ABAND          
+ 
+      DEALLOCATE O SET ARRAYS                                       18:28:17.402
+       Deallocate KAO          
+       Deallocate KOO          
+ 
+       Deallocate MAO          
+       Deallocate MOO          
+ 
+       Deallocate PO           
+ 
+  2/REDUCE A-SET TO L, R-SETS                                       18:28:17.402
+      EQUATING L-SET TO A-SET                                       18:28:17.402
+       Equate I_KLL with      136 rows 
+       Equate J_KLL with     4057 terms
+       Equate KLL   with     4057 terms
+       Equate I_MLL with      136 rows 
+       Equate J_MLL with      547 terms
+       Equate MLL   with      547 terms
+       Equate I_PL  with      136 rows 
+       Equate J_PL  with       36 terms
+       Equate PL    with       36 terms
+      DEALLOCATE A-SET ARRAYS                                       18:28:17.402
+       Deallocate KAA          
+ 
+       Deallocate MAA          
+ 
+       Deallocate PA           
+ 
+      DEALLOCATE R-SET ARRAYS                                       18:28:17.402
+       Deallocate KRL          
+ 
+       Deallocate KRR          
+ 
+       Deallocate MRL          
+ 
+       Deallocate MRR          
+ 
+       Deallocate PR           
+ 
+  2/WRITE L SET ARRAYS TO FILE                                      18:28:17.403
+
+       KLL: writing row   0 of 135 (  0%)
+
+       KLL: writing row 135 of 135 (100%) -- done in ~ 0s                
+
+       MLL: writing row   0 of 135 (  0%)
+
+       MLL: writing row 135 of 135 (100%) -- done in ~ 0s                
+
+       PL : writing row   0 of 135 (  0%)
+
+       PL : writing row 135 of 135 (100%) -- done in ~ 0s                
+ >> LINK  2 END
+
+ >> LINK  3 BEGIN
+USING METIS ORDERING
+No of nonzeros in factor L = 5859
+No of nonzeros in factor U = 5940
+No of nonzeros in L+U = 11799
+L\U MB 0.111	total MB needed 0.159
+ SUPERLU FACTORIZATION OF MATRIX KLL SUCCEEDED IN SUBR SYM_MAT_DECOMP_SUPRLU          
+  3/GET COL OF PL LOADS FOR                        Subcase       1  18:28:17.407
+  3/FBS - SOLVE FOR RHS ANSWERS FOR                   "          1  18:28:17.407
+  3/CALC  EPSILON ERROR ESTIMATE                      "          1  18:28:17.407
+  3/GET COL OF PL LOADS FOR                        Subcase       2  18:28:17.407
+  3/FBS - SOLVE FOR RHS ANSWERS FOR                   "          2  18:28:17.407
+  3/CALC  EPSILON ERROR ESTIMATE                      "          2  18:28:17.407
+ SUPERLU STORAGE FREED
+  3/DEALLOCATE ARRAYS                                               18:28:17.407
+       Deallocate KLL            
+       Deallocate ABAND           
+       Deallocate RES             
+ >> LINK  3 END
+
+ >> LINK  5 BEGIN
+  5/ALLOCATE SEVERAL ARRAYS                                         18:28:17.408
+  5/READ GMN MATRIX                                                 18:28:17.408
+ 
+  5/READ  L-SET DISPLACEMENTS                      Subcase       1  18:28:17.409
+  5/BUILD UA DISPLS FROM UL, UR:                      "          1  18:28:17.409
+  5/BUILD UF DISPLS FROM UA, UO:                      "          1  18:28:17.409
+  5/BUILD UN DISPLS FROM UF, US:                      "          1  18:28:17.409
+  5/BUILD UG DISPLS FROM UN, UM:                      "          1  18:28:17.409
+  5/WRITE UG DISPLS TO FILE,                          "          1  18:28:17.409
+
+  5/READ  L-SET DISPLACEMENTS                      Subcase       2  18:28:17.409
+  5/BUILD UA DISPLS FROM UL, UR:                      "          2  18:28:17.409
+  5/BUILD UF DISPLS FROM UA, UO:                      "          2  18:28:17.409
+  5/BUILD UN DISPLS FROM UF, US:                      "          2  18:28:17.409
+  5/BUILD UG DISPLS FROM UN, UM:                      "          2  18:28:17.409
+  5/WRITE UG DISPLS TO FILE,                          "          2  18:28:17.409
+
+       Deallocate GMN                
+       Deallocate GOA                
+       Deallocate MODE_NUM           
+       Deallocate GEN_MASS           
+ >> LINK  5 END
+
+ >> LINK  9 BEGIN
+  9/DEALLOCATE ARRAYS BEFORE READING LINK9S                         18:28:17.411
+  9/ALLOCATE ARRAYS FOR DATA READ IN LINK9S                         18:28:17.411
+  9/READ MODEL DATA ARRAYS                                          18:28:17.411
+  9/ALLOCATING SPARSE ARRAYS FOR PG LOADS                           18:28:17.411
+  9/READ PG LOADS                                                   18:28:17.411
+ 
+  9/ALLOCATE ARRAYS FOR, AND READ, KSF                              18:28:17.411
+  9/READ KSF MATRIX                                                 18:28:17.411
+ 
+  9/READ G-SET DISPLACEMENTS,                      Subcase       1  18:28:17.412
+  9/PROCESS DISPL OUTPUT REQUESTS,                    "          1  18:28:17.412
+  9/PROCESS APPLIED LOAD OUTPUT REQS,                 "          1  18:28:17.412
+  9/PROCESS SPC FORCE OUTPUT REQUESTS,                "          1  18:28:17.412
+ 
+  9/PROCESS ELEM FORCE/STRESS REQUESTS,               "          1  18:28:17.412
+  9/READ G-SET DISPLACEMENTS,                      Subcase       2  18:28:17.414
+  9/PROCESS DISPL OUTPUT REQUESTS,                    "          2  18:28:17.415
+  9/PROCESS APPLIED LOAD OUTPUT REQS,                 "          2  18:28:17.415
+  9/PROCESS SPC FORCE OUTPUT REQUESTS,                "          2  18:28:17.415
+ 
+  9/PROCESS ELEM FORCE/STRESS REQUESTS,               "          2  18:28:17.415
+       Deallocate KSF           
+       Deallocate KSFD          
+       Deallocate MGG           
+       Deallocate PG            
+       Deallocate PM            
+       Deallocate PS            
+       Deallocate QSYS          
+       Deallocate GMN           
+       Deallocate GMNt          
+       Deallocate HMN           
+       Deallocate MSF           
+       Deallocate MLL           
+       Deallocate LMN           
+       Deallocate QSYS          
+ >> LINK  9 END
+
+ >> MYSTRAN END    : 10/23/2026 at 18:28:17.418. The output file is:
+    model.F06
+ Check ERR output file for        2 warning messages
+ MYSTRAN terminated normally. Total CPU time =  3.96E-02 seconds
+                    ========
+Note: The following floating-point exceptions are signalling: IEEE_DIVIDE_BY_ZERO IEEE_UNDERFLOW_FLAG

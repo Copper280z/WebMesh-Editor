@@ -1,0 +1,5681 @@
+{
+  "semantic": {
+    "nodes": [
+      [
+        101,
+        {
+          "x": 0,
+          "y": 0,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        102,
+        {
+          "x": 0,
+          "y": 0,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        103,
+        {
+          "x": 0,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        104,
+        {
+          "x": 0,
+          "y": 3,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        105,
+        {
+          "x": 2,
+          "y": 0,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        106,
+        {
+          "x": 2,
+          "y": 0,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        107,
+        {
+          "x": 2,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        108,
+        {
+          "x": 2,
+          "y": 3,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        109,
+        {
+          "x": 4,
+          "y": 0,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        110,
+        {
+          "x": 4,
+          "y": 0,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        111,
+        {
+          "x": 4,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        112,
+        {
+          "x": 4,
+          "y": 3,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        113,
+        {
+          "x": 0,
+          "y": 6,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        114,
+        {
+          "x": 0,
+          "y": 6,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        115,
+        {
+          "x": 2,
+          "y": 6,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        116,
+        {
+          "x": 2,
+          "y": 6,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        117,
+        {
+          "x": 4,
+          "y": 6,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        118,
+        {
+          "x": 4,
+          "y": 6,
+          "z": 4,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        119,
+        {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        120,
+        {
+          "x": 0,
+          "y": 3,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        121,
+        {
+          "x": 2,
+          "y": 0,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        122,
+        {
+          "x": 2,
+          "y": 3,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        123,
+        {
+          "x": 4,
+          "y": 0,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        124,
+        {
+          "x": 4,
+          "y": 3,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        125,
+        {
+          "x": 0,
+          "y": 6,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        126,
+        {
+          "x": 2,
+          "y": 6,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        127,
+        {
+          "x": 4,
+          "y": 6,
+          "z": 0,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        131,
+        {
+          "x": 7,
+          "y": 0,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        132,
+        {
+          "x": 7,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        133,
+        {
+          "x": 7,
+          "y": 6,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        134,
+        {
+          "x": 10,
+          "y": 0,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        135,
+        {
+          "x": 10,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        136,
+        {
+          "x": 10,
+          "y": 6,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        137,
+        {
+          "x": 0,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        138,
+        {
+          "x": -20,
+          "y": 3,
+          "z": 2,
+          "cp": 0,
+          "cd": 1234,
+          "ps": ""
+        }
+      ],
+      [
+        139,
+        {
+          "x": 7,
+          "y": 3,
+          "z": 202,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ],
+      [
+        140,
+        {
+          "x": 7,
+          "y": 3,
+          "z": 17,
+          "cp": 0,
+          "cd": 0,
+          "ps": ""
+        }
+      ]
+    ],
+    "elems": {
+      "tri": [],
+      "tri6": [],
+      "quad": [
+        {
+          "type": "CQUAD4",
+          "eid": 9,
+          "pid": 2,
+          "n": [
+            110,
+            131,
+            132,
+            111
+          ],
+          "zoffs": 0
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 10,
+          "pid": 2,
+          "n": [
+            111,
+            132,
+            133,
+            117
+          ],
+          "zoffs": 0
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 11,
+          "pid": 2,
+          "n": [
+            131,
+            134,
+            135,
+            132
+          ],
+          "zoffs": 0
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 12,
+          "pid": 2,
+          "n": [
+            132,
+            135,
+            136,
+            133
+          ],
+          "zoffs": 0
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 13,
+          "pid": 2,
+          "n": [
+            107,
+            106,
+            110,
+            111
+          ]
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 14,
+          "pid": 2,
+          "n": [
+            115,
+            107,
+            111,
+            117
+          ]
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 15,
+          "pid": 2,
+          "n": [
+            103,
+            102,
+            106,
+            107
+          ]
+        },
+        {
+          "type": "CQUAD4",
+          "eid": 16,
+          "pid": 2,
+          "n": [
+            113,
+            103,
+            107,
+            115
+          ]
+        }
+      ],
+      "quad8": [],
+      "tet": [],
+      "hex": [
+        {
+          "type": "CHEXA",
+          "eid": 1,
+          "pid": 1,
+          "n": [
+            101,
+            102,
+            103,
+            104,
+            105,
+            106,
+            107,
+            108
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 2,
+          "pid": 1,
+          "n": [
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 3,
+          "pid": 1,
+          "n": [
+            104,
+            103,
+            113,
+            114,
+            108,
+            107,
+            115,
+            116
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 4,
+          "pid": 1,
+          "n": [
+            108,
+            107,
+            115,
+            116,
+            112,
+            111,
+            117,
+            118
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 5,
+          "pid": 1,
+          "n": [
+            102,
+            119,
+            120,
+            103,
+            106,
+            121,
+            122,
+            107
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 6,
+          "pid": 1,
+          "n": [
+            106,
+            121,
+            122,
+            107,
+            110,
+            123,
+            124,
+            111
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 7,
+          "pid": 1,
+          "n": [
+            103,
+            120,
+            125,
+            113,
+            107,
+            122,
+            126,
+            115
+          ]
+        },
+        {
+          "type": "CHEXA",
+          "eid": 8,
+          "pid": 1,
+          "n": [
+            107,
+            122,
+            126,
+            115,
+            111,
+            124,
+            127,
+            117
+          ]
+        }
+      ],
+      "penta": [],
+      "pyram": [],
+      "rod": [],
+      "bar": [],
+      "beam": [],
+      "bush": [
+        {
+          "type": "CBUSH",
+          "eid": 18,
+          "pid": 3,
+          "n": [
+            137,
+            138
+          ],
+          "cid": 1234,
+          "orient": {
+            "kind": "x",
+            "x": [
+              0,
+              1,
+              0
+            ]
+          }
+        }
+      ],
+      "rbe2": [
+        {
+          "type": "RBE2",
+          "eid": 17,
+          "gn": 137,
+          "cm": "123",
+          "deps": [
+            101,
+            102,
+            103,
+            104,
+            113,
+            114,
+            119,
+            120,
+            125
+          ]
+        }
+      ],
+      "rbe3": [
+        {
+          "type": "RBE3",
+          "eid": 21,
+          "gn": 139,
+          "cm": "123456",
+          "weight": 1,
+          "inds": [
+            110,
+            111,
+            117,
+            131,
+            132,
+            133,
+            134,
+            135,
+            136
+          ],
+          "groups": [
+            {
+              "wt": 0.1111111111111111,
+              "c": "123",
+              "gids": [
+                110,
+                111,
+                117,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136
+              ]
+            }
+          ]
+        },
+        {
+          "type": "RBE3",
+          "eid": 23,
+          "gn": 140,
+          "cm": "123456",
+          "weight": 1,
+          "inds": [
+            110,
+            111,
+            117,
+            131,
+            132,
+            133,
+            134,
+            135,
+            136
+          ],
+          "groups": [
+            {
+              "wt": 0.1111111111111111,
+              "c": "123",
+              "gids": [
+                110,
+                111,
+                117,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "masses": [
+      [
+        19,
+        {
+          "type": "CONM2",
+          "eid": 19,
+          "g": 137,
+          "cid": 0,
+          "m": 0.00028000000000000003,
+          "x": [
+            0,
+            0,
+            0
+          ],
+          "inertia": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      [
+        20,
+        {
+          "type": "CONM2",
+          "eid": 20,
+          "g": 139,
+          "cid": 0,
+          "m": 0.001,
+          "x": [
+            0,
+            0,
+            0
+          ],
+          "inertia": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      [
+        22,
+        {
+          "type": "CONM2",
+          "eid": 22,
+          "g": 140,
+          "cid": 0,
+          "m": 0.0005,
+          "x": [
+            0,
+            0,
+            0
+          ],
+          "inertia": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    ],
+    "properties": [
+      [
+        1,
+        {
+          "type": "PSOLID",
+          "pid": 1,
+          "mid": 1
+        }
+      ],
+      [
+        2,
+        {
+          "type": "PSHELL",
+          "pid": 2,
+          "mid1": 2,
+          "mid2": 2,
+          "mid3": 2,
+          "t": 4
+        }
+      ],
+      [
+        3,
+        {
+          "type": "PBUSH",
+          "pid": 3,
+          "K": "K",
+          "K1": 100000,
+          "K2": 200000,
+          "K3": 300000,
+          "K4": 10000,
+          "K5": 20000,
+          "K6": 30000
+        }
+      ]
+    ],
+    "materials": [
+      [
+        1,
+        {
+          "type": "MAT1",
+          "mid": 1,
+          "E": 210000,
+          "nu": 0.3,
+          "G": 80769.23076923077,
+          "rho": 7.85e-9
+        }
+      ],
+      [
+        2,
+        {
+          "type": "MAT1",
+          "mid": 2,
+          "E": 210000,
+          "nu": 0.3,
+          "G": 80769.23076923077,
+          "rho": 7.85e-9
+        }
+      ]
+    ],
+    "coords": [
+      [
+        1234,
+        {
+          "type": "CORD2R",
+          "cid": 1234,
+          "rid": 0,
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "zAxisPt": [
+            1,
+            0,
+            0
+          ],
+          "xzPlanePt": [
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    ],
+    "loads": {
+      "force": [
+        {
+          "sid": 2,
+          "nid": 123,
+          "mag": 1,
+          "cid": 1234,
+          "dir": [
+            0,
+            10,
+            0
+          ]
+        }
+      ],
+      "gravity": [
+        {
+          "type": "GRAV",
+          "sid": 1,
+          "cid": 1234,
+          "scale": 1,
+          "vector": [
+            -9806.65,
+            0,
+            0
+          ],
+          "mb": 0
+        }
+      ]
+    },
+    "spc": [],
+    "spc1": [
+      {
+        "sid": 1,
+        "components": "123456",
+        "nodes": [
+          138
+        ]
+      }
+    ],
+    "temperatures": []
+  },
+  "ownership": {
+    "format": "webmesh-engine-ownership",
+    "version": 1,
+    "project": {
+      "format": "webmesh-project-core",
+      "version": 1,
+      "name": "Untitled project",
+      "revision": 15,
+      "units": {
+        "length": "mm",
+        "force": "N",
+        "time": "s",
+        "mass": "t"
+      },
+      "objects": [
+        {
+          "id": "battery",
+          "kind": "connection",
+          "name": "battery",
+          "dependsOn": [
+            "battery/com",
+            "cad",
+            "payload-region",
+            "skin"
+          ],
+          "definition": {
+            "generator": "distributed-payload-v1",
+            "point": "battery/com",
+            "identities": {
+              "node": 140,
+              "mass": 22,
+              "distribution": 23
+            },
+            "parameters": {
+              "mass": 0.0005,
+              "reference": [
+                7,
+                3,
+                2
+              ],
+              "offset": [
+                0,
+                0,
+                15
+              ],
+              "inertia": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "supports": [
+                {
+                  "region": "payload-region",
+                  "weight": 1
+                }
+              ]
+            },
+            "resolved": {
+              "com": [
+                7,
+                3,
+                17
+              ],
+              "regions": [
+                {
+                  "region": "payload-region",
+                  "name": "Payload and battery mounting plane",
+                  "nodes": [
+                    110,
+                    111,
+                    117,
+                    131,
+                    132,
+                    133,
+                    134,
+                    135,
+                    136
+                  ],
+                  "weight": 1,
+                  "perNode": 0.1111111111111111
+                }
+              ],
+              "nodes": [
+                110,
+                111,
+                117,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136
+              ]
+            },
+            "actions": [
+              {
+                "action": "point",
+                "id": 140,
+                "position": [
+                  7,
+                  3,
+                  17
+                ],
+                "role": "com"
+              },
+              {
+                "action": "mass",
+                "id": 22,
+                "node": 140,
+                "mass": 0.0005,
+                "offset": [
+                  0,
+                  0,
+                  0
+                ],
+                "inertia": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "role": "mass"
+              },
+              {
+                "action": "rbe3",
+                "id": 23,
+                "node": 140,
+                "components": "123456",
+                "groups": [
+                  {
+                    "wt": 0.1111111111111111,
+                    "c": "123",
+                    "gids": [
+                      110,
+                      111,
+                      117,
+                      131,
+                      132,
+                      133,
+                      134,
+                      135,
+                      136
+                    ]
+                  }
+                ],
+                "role": "distribution"
+              }
+            ],
+            "cards": [
+              {
+                "family": "masses",
+                "id": 22,
+                "value": {
+                  "type": "CONM2",
+                  "eid": 22,
+                  "g": 140,
+                  "cid": 0,
+                  "m": 0.0005,
+                  "x": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "inertia": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "role": "mass"
+              },
+              {
+                "family": "elems",
+                "bucket": "rbe3",
+                "id": 23,
+                "value": {
+                  "type": "RBE3",
+                  "eid": 23,
+                  "gn": 140,
+                  "cm": "123456",
+                  "weight": 1,
+                  "inds": [
+                    110,
+                    111,
+                    117,
+                    131,
+                    132,
+                    133,
+                    134,
+                    135,
+                    136
+                  ],
+                  "groups": [
+                    {
+                      "wt": 0.1111111111111111,
+                      "c": "123",
+                      "gids": [
+                        110,
+                        111,
+                        117,
+                        131,
+                        132,
+                        133,
+                        134,
+                        135,
+                        136
+                      ]
+                    }
+                  ]
+                },
+                "role": "distribution"
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 10,
+          "evaluatedAt": 10,
+          "verifiedAt": 10
+        },
+        {
+          "id": "battery/com",
+          "kind": "point",
+          "name": "battery · Center of mass",
+          "dependsOn": [],
+          "definition": {
+            "generator": "payload-point-v1",
+            "payload": "battery",
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 140,
+                "value": {
+                  "x": 7,
+                  "y": 3,
+                  "z": 17,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                },
+                "role": "com"
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 10,
+          "evaluatedAt": 10,
+          "verifiedAt": 10
+        },
+        {
+          "id": "cad",
+          "kind": "mesh",
+          "name": "CAD part",
+          "dependsOn": [
+            "cad/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+            "cad/source"
+          ],
+          "definition": {
+            "generator": "cad-mapped-v1",
+            "source": "cad/source",
+            "material": "cad/material",
+            "sections": [
+              {
+                "id": "cad/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+                "key": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+                "volumes": [
+                  1
+                ],
+                "pid": 1
+              }
+            ],
+            "layout": {
+              "key": "c184ab7093f7d38105273ca7e8dc618cc1d9eec565a2df7620e4475d4c02eaa8",
+              "generation": 1,
+              "node": 101,
+              "element": 1
+            },
+            "settings": {
+              "version": 2,
+              "step": "mesh",
+              "mesh": {
+                "method": "mapped",
+                "order": 1,
+                "pidPerSolid": false
+              },
+              "sizing": {
+                "size": 3,
+                "minCount": 1,
+                "edges": []
+              }
+            },
+            "targets": [
+              1
+            ],
+            "sourceVolumes": [
+              1
+            ],
+            "faces": [
+              {
+                "id": 1,
+                "type": "Plane",
+                "center": [
+                  0,
+                  3,
+                  2
+                ],
+                "normal": [
+                  -1,
+                  0,
+                  0
+                ],
+                "nodes": [
+                  101,
+                  102,
+                  103,
+                  104,
+                  113,
+                  114,
+                  119,
+                  120,
+                  125
+                ]
+              },
+              {
+                "id": 2,
+                "type": "Plane",
+                "center": [
+                  4,
+                  3,
+                  2
+                ],
+                "normal": [
+                  1,
+                  0,
+                  0
+                ],
+                "nodes": [
+                  109,
+                  110,
+                  111,
+                  112,
+                  117,
+                  118,
+                  123,
+                  124,
+                  127
+                ]
+              },
+              {
+                "id": 3,
+                "type": "Plane",
+                "center": [
+                  2,
+                  0,
+                  2
+                ],
+                "normal": [
+                  0,
+                  -1,
+                  0
+                ],
+                "nodes": [
+                  101,
+                  102,
+                  105,
+                  106,
+                  109,
+                  110,
+                  119,
+                  121,
+                  123
+                ]
+              },
+              {
+                "id": 4,
+                "type": "Plane",
+                "center": [
+                  2,
+                  6,
+                  2
+                ],
+                "normal": [
+                  0,
+                  1,
+                  0
+                ],
+                "nodes": [
+                  113,
+                  114,
+                  115,
+                  116,
+                  117,
+                  118,
+                  125,
+                  126,
+                  127
+                ]
+              },
+              {
+                "id": 5,
+                "type": "Plane",
+                "center": [
+                  2,
+                  3,
+                  0
+                ],
+                "normal": [
+                  0,
+                  0,
+                  -1
+                ],
+                "nodes": [
+                  119,
+                  120,
+                  121,
+                  122,
+                  123,
+                  124,
+                  125,
+                  126,
+                  127
+                ]
+              },
+              {
+                "id": 6,
+                "type": "Plane",
+                "center": [
+                  2,
+                  3,
+                  4
+                ],
+                "normal": [
+                  0,
+                  0,
+                  1
+                ],
+                "nodes": [
+                  101,
+                  104,
+                  105,
+                  108,
+                  109,
+                  112,
+                  114,
+                  116,
+                  118
+                ]
+              }
+            ],
+            "edges": [],
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 101,
+                "role": "mesh-1/nodes/0",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 102,
+                "role": "mesh-1/nodes/1",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 103,
+                "role": "mesh-1/nodes/2",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 104,
+                "role": "mesh-1/nodes/3",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 3,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 105,
+                "role": "mesh-1/nodes/4",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 0,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 106,
+                "role": "mesh-1/nodes/5",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 107,
+                "role": "mesh-1/nodes/6",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 108,
+                "role": "mesh-1/nodes/7",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 3,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 109,
+                "role": "mesh-1/nodes/8",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 0,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 110,
+                "role": "mesh-1/nodes/9",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 111,
+                "role": "mesh-1/nodes/10",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 112,
+                "role": "mesh-1/nodes/11",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 3,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 113,
+                "role": "mesh-1/nodes/12",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 6,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 114,
+                "role": "mesh-1/nodes/13",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 6,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 115,
+                "role": "mesh-1/nodes/14",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 6,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 116,
+                "role": "mesh-1/nodes/15",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 6,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 117,
+                "role": "mesh-1/nodes/16",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 6,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 118,
+                "role": "mesh-1/nodes/17",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 6,
+                  "z": 4,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 119,
+                "role": "mesh-1/nodes/18",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 120,
+                "role": "mesh-1/nodes/19",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 3,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 121,
+                "role": "mesh-1/nodes/20",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 0,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 122,
+                "role": "mesh-1/nodes/21",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 3,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 123,
+                "role": "mesh-1/nodes/22",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 0,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 124,
+                "role": "mesh-1/nodes/23",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 3,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 125,
+                "role": "mesh-1/nodes/24",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 0,
+                  "y": 6,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 126,
+                "role": "mesh-1/nodes/25",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 2,
+                  "y": 6,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 127,
+                "role": "mesh-1/nodes/26",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 4,
+                  "y": 6,
+                  "z": 0,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 1,
+                "role": "mesh-1/elements/0",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 1,
+                  "pid": 1,
+                  "n": [
+                    101,
+                    102,
+                    103,
+                    104,
+                    105,
+                    106,
+                    107,
+                    108
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 2,
+                "role": "mesh-1/elements/1",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 2,
+                  "pid": 1,
+                  "n": [
+                    105,
+                    106,
+                    107,
+                    108,
+                    109,
+                    110,
+                    111,
+                    112
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 3,
+                "role": "mesh-1/elements/2",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 3,
+                  "pid": 1,
+                  "n": [
+                    104,
+                    103,
+                    113,
+                    114,
+                    108,
+                    107,
+                    115,
+                    116
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 4,
+                "role": "mesh-1/elements/3",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 4,
+                  "pid": 1,
+                  "n": [
+                    108,
+                    107,
+                    115,
+                    116,
+                    112,
+                    111,
+                    117,
+                    118
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 5,
+                "role": "mesh-1/elements/4",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 5,
+                  "pid": 1,
+                  "n": [
+                    102,
+                    119,
+                    120,
+                    103,
+                    106,
+                    121,
+                    122,
+                    107
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 6,
+                "role": "mesh-1/elements/5",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 6,
+                  "pid": 1,
+                  "n": [
+                    106,
+                    121,
+                    122,
+                    107,
+                    110,
+                    123,
+                    124,
+                    111
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 7,
+                "role": "mesh-1/elements/6",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 7,
+                  "pid": 1,
+                  "n": [
+                    103,
+                    120,
+                    125,
+                    113,
+                    107,
+                    122,
+                    126,
+                    115
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 8,
+                "role": "mesh-1/elements/7",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 8,
+                  "pid": 1,
+                  "n": [
+                    107,
+                    122,
+                    126,
+                    115,
+                    111,
+                    124,
+                    127,
+                    117
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 1,
+          "evaluatedAt": 1,
+          "verifiedAt": 1
+        },
+        {
+          "id": "cad/material",
+          "kind": "material",
+          "name": "CAD part · Material",
+          "dependsOn": [],
+          "definition": {
+            "cards": [
+              {
+                "family": "materials",
+                "id": 1,
+                "role": "elastic",
+                "value": {
+                  "type": "MAT1",
+                  "mid": 1,
+                  "E": 210000,
+                  "nu": 0.3,
+                  "G": 80769.23076923077,
+                  "rho": 7.85e-9
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 1,
+          "evaluatedAt": 1,
+          "verifiedAt": 1
+        },
+        {
+          "id": "cad/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+          "kind": "section",
+          "name": "CAD part · Solids 1",
+          "dependsOn": [
+            "cad/material"
+          ],
+          "definition": {
+            "region": {
+              "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+              "volumes": [
+                1
+              ]
+            },
+            "cards": [
+              {
+                "family": "properties",
+                "id": 1,
+                "role": "solid",
+                "value": {
+                  "type": "PSOLID",
+                  "pid": 1,
+                  "mid": 1
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 1,
+          "evaluatedAt": 1,
+          "verifiedAt": 1
+        },
+        {
+          "id": "cad/source",
+          "kind": "source",
+          "name": "CAD part · CAD source",
+          "dependsOn": [],
+          "definition": {
+            "generator": "cad-source-v1",
+            "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+            "snapshot": {
+              "filename": "part.step",
+              "content": "U1RFUA==",
+              "prepared": {
+                "filename": "part.brep",
+                "format": "brep",
+                "content": "QlJFUA=="
+              }
+            }
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 1,
+          "evaluatedAt": 1,
+          "verifiedAt": 1
+        },
+        {
+          "id": "case-f",
+          "kind": "analysis",
+          "name": "Local chassis force",
+          "dependsOn": [
+            "f",
+            "shaft-spc"
+          ],
+          "definition": {
+            "generator": "static-case-v1",
+            "subcase": 2,
+            "load": 2,
+            "support": 1,
+            "outputs": [
+              "DISPLACEMENT",
+              "SPCFORCES",
+              "STRESS",
+              "OLOAD"
+            ],
+            "cards": []
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 15,
+          "evaluatedAt": 15,
+          "verifiedAt": 15
+        },
+        {
+          "id": "case-g",
+          "kind": "analysis",
+          "name": "Combined gravity",
+          "dependsOn": [
+            "g",
+            "shaft-spc"
+          ],
+          "definition": {
+            "generator": "static-case-v1",
+            "subcase": 1,
+            "load": 1,
+            "support": 1,
+            "outputs": [
+              "DISPLACEMENT",
+              "SPCFORCES",
+              "STRESS",
+              "OLOAD"
+            ],
+            "cards": []
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 14,
+          "evaluatedAt": 14,
+          "verifiedAt": 14
+        },
+        {
+          "id": "embedded",
+          "kind": "connection",
+          "name": "Embedded root",
+          "dependsOn": [
+            "cad",
+            "cad/source",
+            "skin",
+            "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11"
+          ],
+          "definition": {
+            "generator": "shell-solid-embedded-v1",
+            "shell": "skin",
+            "solid": "cad",
+            "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+            "edges": [
+              6
+            ],
+            "faces": [
+              2
+            ],
+            "direction": [
+              -1,
+              0,
+              0
+            ],
+            "rows": 2,
+            "tolerance": 0.000001,
+            "baseShell": {
+              "id": "skin",
+              "kind": "mesh",
+              "name": "Thin wall",
+              "dependsOn": [
+                "cad/source",
+                "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11"
+              ],
+              "definition": {
+                "generator": "cad-shell-v1",
+                "source": "cad/source",
+                "material": "skin/material",
+                "sections": [
+                  {
+                    "id": "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+                    "key": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+                    "volumes": [
+                      11
+                    ],
+                    "pid": 2
+                  }
+                ],
+                "layout": {
+                  "key": "a0f77d1a3e5e4067db1dd4ad8bff83543b8d5d7bde9062dd806b0ba92fe71cb1",
+                  "generation": 1,
+                  "node": 128,
+                  "element": 9
+                },
+                "settings": {
+                  "version": 2,
+                  "step": "mesh",
+                  "mesh": {
+                    "method": "shell"
+                  },
+                  "sizing": {
+                    "size": 3,
+                    "minCount": 1,
+                    "edges": []
+                  },
+                  "shell": {
+                    "scope": "selected",
+                    "selectedFaces": [
+                      11
+                    ],
+                    "thickness": 4,
+                    "size": 3
+                  }
+                },
+                "targets": [
+                  11
+                ],
+                "sourceVolumes": [
+                  2
+                ],
+                "faces": [
+                  {
+                    "id": 11,
+                    "type": "Plane",
+                    "center": [
+                      7,
+                      3,
+                      4
+                    ],
+                    "normal": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "nodes": [
+                      128,
+                      129,
+                      130,
+                      131,
+                      132,
+                      133,
+                      134,
+                      135,
+                      136
+                    ]
+                  }
+                ],
+                "edges": [
+                  {
+                    "id": 6,
+                    "nodes": [
+                      128,
+                      129,
+                      130
+                    ],
+                    "center": [
+                      4,
+                      3,
+                      2
+                    ]
+                  }
+                ],
+                "cards": [
+                  {
+                    "family": "nodes",
+                    "id": 128,
+                    "role": "mesh-1/nodes/0",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 4,
+                      "y": 0,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 129,
+                    "role": "mesh-1/nodes/1",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 4,
+                      "y": 3,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 130,
+                    "role": "mesh-1/nodes/2",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 4,
+                      "y": 6,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 131,
+                    "role": "mesh-1/nodes/3",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 7,
+                      "y": 0,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 132,
+                    "role": "mesh-1/nodes/4",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 7,
+                      "y": 3,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 133,
+                    "role": "mesh-1/nodes/5",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 7,
+                      "y": 6,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 134,
+                    "role": "mesh-1/nodes/6",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 10,
+                      "y": 0,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 135,
+                    "role": "mesh-1/nodes/7",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 10,
+                      "y": 3,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "nodes",
+                    "id": 136,
+                    "role": "mesh-1/nodes/8",
+                    "allocationRole": "mesh-1/nodes",
+                    "value": {
+                      "x": 10,
+                      "y": 6,
+                      "z": 2,
+                      "cp": 0,
+                      "cd": 0,
+                      "ps": ""
+                    }
+                  },
+                  {
+                    "family": "elems",
+                    "bucket": "quad",
+                    "id": 9,
+                    "role": "mesh-1/elements/0",
+                    "allocationRole": "mesh-1/elements",
+                    "value": {
+                      "type": "CQUAD4",
+                      "eid": 9,
+                      "pid": 2,
+                      "n": [
+                        128,
+                        131,
+                        132,
+                        129
+                      ],
+                      "zoffs": 0
+                    }
+                  },
+                  {
+                    "family": "elems",
+                    "bucket": "quad",
+                    "id": 10,
+                    "role": "mesh-1/elements/1",
+                    "allocationRole": "mesh-1/elements",
+                    "value": {
+                      "type": "CQUAD4",
+                      "eid": 10,
+                      "pid": 2,
+                      "n": [
+                        129,
+                        132,
+                        133,
+                        130
+                      ],
+                      "zoffs": 0
+                    }
+                  },
+                  {
+                    "family": "elems",
+                    "bucket": "quad",
+                    "id": 11,
+                    "role": "mesh-1/elements/2",
+                    "allocationRole": "mesh-1/elements",
+                    "value": {
+                      "type": "CQUAD4",
+                      "eid": 11,
+                      "pid": 2,
+                      "n": [
+                        131,
+                        134,
+                        135,
+                        132
+                      ],
+                      "zoffs": 0
+                    }
+                  },
+                  {
+                    "family": "elems",
+                    "bucket": "quad",
+                    "id": 12,
+                    "role": "mesh-1/elements/3",
+                    "allocationRole": "mesh-1/elements",
+                    "value": {
+                      "type": "CQUAD4",
+                      "eid": 12,
+                      "pid": 2,
+                      "n": [
+                        132,
+                        135,
+                        136,
+                        133
+                      ],
+                      "zoffs": 0
+                    }
+                  }
+                ]
+              },
+              "overrides": {},
+              "facts": {
+                "defined": true,
+                "issues": [],
+                "suspendedReason": null,
+                "unverifiedReason": null
+              },
+              "changedAt": 2,
+              "evaluatedAt": 2,
+              "verifiedAt": 2
+            },
+            "embeddedShell": "skin",
+            "actions": [
+              {
+                "action": "share-nodes",
+                "elements": [
+                  9,
+                  10
+                ],
+                "pairs": [
+                  [
+                    128,
+                    110
+                  ],
+                  [
+                    129,
+                    111
+                  ],
+                  [
+                    130,
+                    117
+                  ]
+                ],
+                "tolerance": 0.000001,
+                "retireSources": true,
+                "createdNodes": 0,
+                "createdElements": 0
+              },
+              {
+                "action": "shells-on-faces",
+                "facets": [
+                  {
+                    "element": 6,
+                    "face": 6
+                  }
+                ],
+                "pid": 2,
+                "reverse": false,
+                "createdNodes": 0,
+                "createdElements": 1
+              },
+              {
+                "action": "shells-on-faces",
+                "facets": [
+                  {
+                    "element": 8,
+                    "face": 6
+                  }
+                ],
+                "pid": 2,
+                "reverse": false,
+                "createdNodes": 0,
+                "createdElements": 1
+              },
+              {
+                "action": "shells-on-faces",
+                "facets": [
+                  {
+                    "element": 5,
+                    "face": 6
+                  }
+                ],
+                "pid": 2,
+                "reverse": false,
+                "createdNodes": 0,
+                "createdElements": 1
+              },
+              {
+                "action": "shells-on-faces",
+                "facets": [
+                  {
+                    "element": 7,
+                    "face": 6
+                  }
+                ],
+                "pid": 2,
+                "reverse": false,
+                "createdNodes": 0,
+                "createdElements": 1
+              }
+            ],
+            "cards": [
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 13,
+                "role": "element-13",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 13,
+                  "pid": 2,
+                  "n": [
+                    107,
+                    106,
+                    110,
+                    111
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 14,
+                "role": "element-14",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 14,
+                  "pid": 2,
+                  "n": [
+                    115,
+                    107,
+                    111,
+                    117
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 15,
+                "role": "element-15",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 15,
+                  "pid": 2,
+                  "n": [
+                    103,
+                    102,
+                    106,
+                    107
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 16,
+                "role": "element-16",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 16,
+                  "pid": 2,
+                  "n": [
+                    113,
+                    103,
+                    107,
+                    115
+                  ]
+                }
+              }
+            ],
+            "resolved": {
+              "pairs": [
+                [
+                  128,
+                  110
+                ],
+                [
+                  129,
+                  111
+                ],
+                [
+                  130,
+                  117
+                ]
+              ],
+              "facets": [
+                {
+                  "element": 6,
+                  "face": 6,
+                  "nodes": [
+                    107,
+                    106,
+                    110,
+                    111
+                  ],
+                  "uses": 2,
+                  "row": 1,
+                  "depth": [
+                    2,
+                    2
+                  ]
+                },
+                {
+                  "element": 8,
+                  "face": 6,
+                  "nodes": [
+                    115,
+                    107,
+                    111,
+                    117
+                  ],
+                  "uses": 2,
+                  "row": 1,
+                  "depth": [
+                    2,
+                    2
+                  ]
+                },
+                {
+                  "element": 5,
+                  "face": 6,
+                  "nodes": [
+                    103,
+                    102,
+                    106,
+                    107
+                  ],
+                  "uses": 2,
+                  "row": 2,
+                  "depth": [
+                    2,
+                    2
+                  ]
+                },
+                {
+                  "element": 7,
+                  "face": 6,
+                  "nodes": [
+                    113,
+                    103,
+                    107,
+                    115
+                  ],
+                  "uses": 2,
+                  "row": 2,
+                  "depth": [
+                    2,
+                    2
+                  ]
+                }
+              ],
+              "overlapArea": 24,
+              "overlapVolume": 96,
+              "addedMass": 7.536000000000001e-7
+            }
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 3,
+          "evaluatedAt": 3,
+          "verifiedAt": 3
+        },
+        {
+          "id": "f",
+          "kind": "load",
+          "name": "Local chassis force",
+          "dependsOn": [
+            "cad",
+            "motor-frame"
+          ],
+          "definition": {
+            "generator": "analysis-set-v1",
+            "action": {
+              "action": "force",
+              "sid": 2,
+              "vector": [
+                0,
+                10,
+                0
+              ],
+              "node": 123,
+              "cid": 1234
+            },
+            "frame": "motor-frame",
+            "region": null,
+            "sources": [
+              {
+                "id": 123,
+                "owner": "cad",
+                "role": "mesh-1/nodes/22"
+              }
+            ],
+            "inputs": [],
+            "cards": [
+              {
+                "family": "loadSets",
+                "id": 2,
+                "role": "set",
+                "value": {
+                  "type": "LOADSET",
+                  "sid": 2,
+                  "entries": [
+                    {
+                      "bucket": "force",
+                      "value": {
+                        "sid": 2,
+                        "nid": 123,
+                        "mag": 1,
+                        "cid": 1234,
+                        "dir": [
+                          0,
+                          10,
+                          0
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "actions": [
+              {
+                "action": "force",
+                "sid": 2,
+                "vector": [
+                  0,
+                  10,
+                  0
+                ],
+                "node": 123,
+                "cid": 1234
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 13,
+          "evaluatedAt": 13,
+          "verifiedAt": 13
+        },
+        {
+          "id": "g",
+          "kind": "load",
+          "name": "Gravity",
+          "dependsOn": [
+            "motor-frame"
+          ],
+          "definition": {
+            "generator": "analysis-set-v1",
+            "action": {
+              "action": "acceleration",
+              "sid": 1,
+              "vector": [
+                -9806.65,
+                0,
+                0
+              ],
+              "cid": 1234
+            },
+            "frame": "motor-frame",
+            "region": null,
+            "sources": [],
+            "inputs": [],
+            "cards": [
+              {
+                "family": "loadSets",
+                "id": 1,
+                "role": "set",
+                "value": {
+                  "type": "LOADSET",
+                  "sid": 1,
+                  "entries": [
+                    {
+                      "bucket": "gravity",
+                      "value": {
+                        "type": "GRAV",
+                        "sid": 1,
+                        "cid": 1234,
+                        "scale": 1,
+                        "vector": [
+                          -9806.65,
+                          0,
+                          0
+                        ],
+                        "mb": 0
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "actions": [
+              {
+                "action": "acceleration",
+                "sid": 1,
+                "vector": [
+                  -9806.65,
+                  0,
+                  0
+                ],
+                "cid": 1234
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 12,
+          "evaluatedAt": 12,
+          "verifiedAt": 12
+        },
+        {
+          "id": "motor",
+          "kind": "connection",
+          "name": "Motor",
+          "dependsOn": [
+            "cad",
+            "motor-frame",
+            "motor-region",
+            "motor/points",
+            "stiffness"
+          ],
+          "definition": {
+            "generator": "rbe2-cbush-v1",
+            "region": "motor-region",
+            "points": "motor/points",
+            "template": "stiffness",
+            "components": "123",
+            "frame": "motor-frame",
+            "cards": [
+              {
+                "family": "elems",
+                "bucket": "rbe2",
+                "id": 17,
+                "role": "mount",
+                "value": {
+                  "type": "RBE2",
+                  "eid": 17,
+                  "gn": 137,
+                  "cm": "123",
+                  "deps": [
+                    101,
+                    102,
+                    103,
+                    104,
+                    113,
+                    114,
+                    119,
+                    120,
+                    125
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "bush",
+                "id": 18,
+                "role": "bush",
+                "value": {
+                  "type": "CBUSH",
+                  "eid": 18,
+                  "pid": 3,
+                  "n": [
+                    137,
+                    138
+                  ],
+                  "cid": 1234,
+                  "orient": {
+                    "kind": "x",
+                    "x": [
+                      0,
+                      1,
+                      0
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 11,
+          "evaluatedAt": 11,
+          "verifiedAt": 7
+        },
+        {
+          "id": "motor-frame",
+          "kind": "frame",
+          "name": "Motor local axes",
+          "dependsOn": [],
+          "definition": {
+            "generator": "rectangular-frame-v1",
+            "actions": [
+              {
+                "action": "rectangular-frame",
+                "type": "CORD2R",
+                "cid": 1234,
+                "rid": 0,
+                "origin": [
+                  0,
+                  0,
+                  0
+                ],
+                "zAxisPt": [
+                  1,
+                  0,
+                  0
+                ],
+                "xzPlanePt": [
+                  0,
+                  0,
+                  1
+                ]
+              }
+            ],
+            "cards": [
+              {
+                "family": "coords",
+                "id": 1234,
+                "role": "frame",
+                "value": {
+                  "type": "CORD2R",
+                  "cid": 1234,
+                  "rid": 0,
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "zAxisPt": [
+                    1,
+                    0,
+                    0
+                  ],
+                  "xzPlanePt": [
+                    0,
+                    0,
+                    1
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 4,
+          "evaluatedAt": 4,
+          "verifiedAt": 4
+        },
+        {
+          "id": "motor-mass",
+          "kind": "connection",
+          "name": "280 g motor",
+          "dependsOn": [
+            "motor/points"
+          ],
+          "definition": {
+            "generator": "point-mass-v1",
+            "action": {
+              "action": "mass",
+              "id": 19,
+              "node": 137,
+              "mass": 0.00028000000000000003,
+              "offset": [
+                0,
+                0,
+                0
+              ],
+              "inertia": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "sources": [
+              {
+                "id": 137,
+                "owner": "motor/points",
+                "role": "mount"
+              }
+            ],
+            "inputs": [],
+            "cards": [
+              {
+                "family": "masses",
+                "id": 19,
+                "value": {
+                  "type": "CONM2",
+                  "eid": 19,
+                  "g": 137,
+                  "cid": 0,
+                  "m": 0.00028000000000000003,
+                  "x": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "inertia": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "role": "mass"
+              }
+            ],
+            "actions": [
+              {
+                "action": "mass",
+                "id": 19,
+                "node": 137,
+                "mass": 0.00028000000000000003,
+                "offset": [
+                  0,
+                  0,
+                  0
+                ],
+                "inertia": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 11,
+          "evaluatedAt": 11,
+          "verifiedAt": 8
+        },
+        {
+          "id": "motor-region",
+          "kind": "region",
+          "name": "Motor flange",
+          "dependsOn": [
+            "cad",
+            "cad/source"
+          ],
+          "definition": {
+            "generator": "cad-mount-region-v1",
+            "selector": {
+              "mesh": "cad",
+              "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+              "faces": [
+                1
+              ]
+            },
+            "resolved": {
+              "meshKey": "c184ab7093f7d38105273ca7e8dc618cc1d9eec565a2df7620e4475d4c02eaa8",
+              "nodes": [
+                101,
+                102,
+                103,
+                104,
+                113,
+                114,
+                119,
+                120,
+                125
+              ],
+              "centroid": [
+                0,
+                3,
+                2
+              ]
+            },
+            "cards": []
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 5,
+          "evaluatedAt": 5,
+          "verifiedAt": 5
+        },
+        {
+          "id": "motor/points",
+          "kind": "point",
+          "name": "Motor · Points",
+          "dependsOn": [
+            "motor-frame"
+          ],
+          "definition": {
+            "attachment": "motor",
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 137,
+                "role": "mount",
+                "value": {
+                  "x": 0,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 138,
+                "role": "shaft",
+                "value": {
+                  "x": -20,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 1234,
+                  "ps": ""
+                }
+              }
+            ],
+            "nodeFrames": [
+              {
+                "role": "shaft",
+                "node": 138,
+                "frame": "motor-frame",
+                "source": "shaft-spc"
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 11,
+          "evaluatedAt": 11,
+          "verifiedAt": 11
+        },
+        {
+          "id": "payload",
+          "kind": "connection",
+          "name": "payload",
+          "dependsOn": [
+            "cad",
+            "payload-region",
+            "payload/com",
+            "skin"
+          ],
+          "definition": {
+            "generator": "distributed-payload-v1",
+            "point": "payload/com",
+            "identities": {
+              "node": 139,
+              "mass": 20,
+              "distribution": 21
+            },
+            "parameters": {
+              "mass": 0.001,
+              "reference": [
+                7,
+                3,
+                2
+              ],
+              "offset": [
+                0,
+                0,
+                200
+              ],
+              "inertia": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "supports": [
+                {
+                  "region": "payload-region",
+                  "weight": 1
+                }
+              ]
+            },
+            "resolved": {
+              "com": [
+                7,
+                3,
+                202
+              ],
+              "regions": [
+                {
+                  "region": "payload-region",
+                  "name": "Payload and battery mounting plane",
+                  "nodes": [
+                    110,
+                    111,
+                    117,
+                    131,
+                    132,
+                    133,
+                    134,
+                    135,
+                    136
+                  ],
+                  "weight": 1,
+                  "perNode": 0.1111111111111111
+                }
+              ],
+              "nodes": [
+                110,
+                111,
+                117,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136
+              ]
+            },
+            "actions": [
+              {
+                "action": "point",
+                "id": 139,
+                "position": [
+                  7,
+                  3,
+                  202
+                ],
+                "role": "com"
+              },
+              {
+                "action": "mass",
+                "id": 20,
+                "node": 139,
+                "mass": 0.001,
+                "offset": [
+                  0,
+                  0,
+                  0
+                ],
+                "inertia": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "role": "mass"
+              },
+              {
+                "action": "rbe3",
+                "id": 21,
+                "node": 139,
+                "components": "123456",
+                "groups": [
+                  {
+                    "wt": 0.1111111111111111,
+                    "c": "123",
+                    "gids": [
+                      110,
+                      111,
+                      117,
+                      131,
+                      132,
+                      133,
+                      134,
+                      135,
+                      136
+                    ]
+                  }
+                ],
+                "role": "distribution"
+              }
+            ],
+            "cards": [
+              {
+                "family": "masses",
+                "id": 20,
+                "value": {
+                  "type": "CONM2",
+                  "eid": 20,
+                  "g": 139,
+                  "cid": 0,
+                  "m": 0.001,
+                  "x": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "inertia": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ]
+                },
+                "role": "mass"
+              },
+              {
+                "family": "elems",
+                "bucket": "rbe3",
+                "id": 21,
+                "value": {
+                  "type": "RBE3",
+                  "eid": 21,
+                  "gn": 139,
+                  "cm": "123456",
+                  "weight": 1,
+                  "inds": [
+                    110,
+                    111,
+                    117,
+                    131,
+                    132,
+                    133,
+                    134,
+                    135,
+                    136
+                  ],
+                  "groups": [
+                    {
+                      "wt": 0.1111111111111111,
+                      "c": "123",
+                      "gids": [
+                        110,
+                        111,
+                        117,
+                        131,
+                        132,
+                        133,
+                        134,
+                        135,
+                        136
+                      ]
+                    }
+                  ]
+                },
+                "role": "distribution"
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 9,
+          "evaluatedAt": 9,
+          "verifiedAt": 9
+        },
+        {
+          "id": "payload-region",
+          "kind": "region",
+          "name": "Payload and battery mounting plane",
+          "dependsOn": [
+            "cad/source",
+            "skin"
+          ],
+          "definition": {
+            "generator": "cad-mount-region-v1",
+            "selector": {
+              "mesh": "skin",
+              "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+              "faces": [
+                11
+              ]
+            },
+            "resolved": {
+              "meshKey": "a0f77d1a3e5e4067db1dd4ad8bff83543b8d5d7bde9062dd806b0ba92fe71cb1",
+              "nodes": [
+                110,
+                111,
+                117,
+                131,
+                132,
+                133,
+                134,
+                135,
+                136
+              ],
+              "centroid": [
+                7,
+                3,
+                2
+              ]
+            },
+            "cards": []
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 6,
+          "evaluatedAt": 6,
+          "verifiedAt": 6
+        },
+        {
+          "id": "payload/com",
+          "kind": "point",
+          "name": "payload · Center of mass",
+          "dependsOn": [],
+          "definition": {
+            "generator": "payload-point-v1",
+            "payload": "payload",
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 139,
+                "value": {
+                  "x": 7,
+                  "y": 3,
+                  "z": 202,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                },
+                "role": "com"
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 9,
+          "evaluatedAt": 9,
+          "verifiedAt": 9
+        },
+        {
+          "id": "shaft-spc",
+          "kind": "support",
+          "name": "Local shaft support",
+          "dependsOn": [
+            "motor-frame",
+            "motor/points"
+          ],
+          "definition": {
+            "generator": "analysis-set-v1",
+            "action": {
+              "action": "support",
+              "sid": 1,
+              "components": "123456",
+              "nodes": [
+                138
+              ]
+            },
+            "frame": "motor-frame",
+            "region": null,
+            "sources": [
+              {
+                "id": 138,
+                "owner": "motor/points",
+                "role": "shaft"
+              }
+            ],
+            "inputs": [],
+            "cards": [
+              {
+                "family": "constraintSets",
+                "id": 1,
+                "role": "set",
+                "value": {
+                  "type": "SUPPORTSET",
+                  "sid": 1,
+                  "entries": [
+                    {
+                      "bucket": "spc1",
+                      "value": {
+                        "sid": 1,
+                        "components": "123456",
+                        "nodes": [
+                          138
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "actions": [
+              {
+                "action": "support",
+                "sid": 1,
+                "components": "123456",
+                "nodes": [
+                  138
+                ]
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 11,
+          "evaluatedAt": 11,
+          "verifiedAt": 11
+        },
+        {
+          "id": "skin",
+          "kind": "mesh",
+          "name": "Thin wall",
+          "dependsOn": [
+            "cad",
+            "cad/source",
+            "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11"
+          ],
+          "definition": {
+            "generator": "cad-shell-v1",
+            "source": "cad/source",
+            "material": "skin/material",
+            "sections": [
+              {
+                "id": "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+                "key": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+                "volumes": [
+                  11
+                ],
+                "pid": 2
+              }
+            ],
+            "layout": {
+              "key": "a0f77d1a3e5e4067db1dd4ad8bff83543b8d5d7bde9062dd806b0ba92fe71cb1",
+              "generation": 1,
+              "node": 128,
+              "element": 9
+            },
+            "settings": {
+              "version": 2,
+              "step": "mesh",
+              "mesh": {
+                "method": "shell"
+              },
+              "sizing": {
+                "size": 3,
+                "minCount": 1,
+                "edges": []
+              },
+              "shell": {
+                "scope": "selected",
+                "selectedFaces": [
+                  11
+                ],
+                "thickness": 4,
+                "size": 3
+              }
+            },
+            "targets": [
+              11
+            ],
+            "sourceVolumes": [
+              2
+            ],
+            "faces": [
+              {
+                "id": 11,
+                "type": "Plane",
+                "center": [
+                  7,
+                  3,
+                  4
+                ],
+                "normal": [
+                  0,
+                  0,
+                  1
+                ],
+                "nodes": [
+                  110,
+                  111,
+                  117,
+                  131,
+                  132,
+                  133,
+                  134,
+                  135,
+                  136
+                ]
+              }
+            ],
+            "edges": [
+              {
+                "id": 6,
+                "nodes": [
+                  110,
+                  111,
+                  117
+                ],
+                "center": [
+                  4,
+                  3,
+                  2
+                ]
+              }
+            ],
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 131,
+                "role": "mesh-1/nodes/3",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 7,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 132,
+                "role": "mesh-1/nodes/4",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 7,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 133,
+                "role": "mesh-1/nodes/5",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 7,
+                  "y": 6,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 134,
+                "role": "mesh-1/nodes/6",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 10,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 135,
+                "role": "mesh-1/nodes/7",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 10,
+                  "y": 3,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 136,
+                "role": "mesh-1/nodes/8",
+                "allocationRole": "mesh-1/nodes",
+                "value": {
+                  "x": 10,
+                  "y": 6,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 9,
+                "role": "mesh-1/elements/0",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 9,
+                  "pid": 2,
+                  "n": [
+                    110,
+                    131,
+                    132,
+                    111
+                  ],
+                  "zoffs": 0
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 10,
+                "role": "mesh-1/elements/1",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 10,
+                  "pid": 2,
+                  "n": [
+                    111,
+                    132,
+                    133,
+                    117
+                  ],
+                  "zoffs": 0
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 11,
+                "role": "mesh-1/elements/2",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 11,
+                  "pid": 2,
+                  "n": [
+                    131,
+                    134,
+                    135,
+                    132
+                  ],
+                  "zoffs": 0
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 12,
+                "role": "mesh-1/elements/3",
+                "allocationRole": "mesh-1/elements",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 12,
+                  "pid": 2,
+                  "n": [
+                    132,
+                    135,
+                    136,
+                    133
+                  ],
+                  "zoffs": 0
+                }
+              }
+            ],
+            "embeddedBy": "embedded"
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 3,
+          "evaluatedAt": 3,
+          "verifiedAt": 3
+        },
+        {
+          "id": "skin/material",
+          "kind": "material",
+          "name": "Thin wall · Material",
+          "dependsOn": [],
+          "definition": {
+            "cards": [
+              {
+                "family": "materials",
+                "id": 2,
+                "role": "elastic",
+                "value": {
+                  "type": "MAT1",
+                  "mid": 2,
+                  "E": 210000,
+                  "nu": 0.3,
+                  "G": 80769.23076923077,
+                  "rho": 7.85e-9
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 2,
+          "evaluatedAt": 2,
+          "verifiedAt": 2
+        },
+        {
+          "id": "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+          "kind": "section",
+          "name": "Thin wall · Shell faces 11",
+          "dependsOn": [
+            "skin/material"
+          ],
+          "definition": {
+            "region": {
+              "geometryKey": "97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13",
+              "faces": [
+                11
+              ]
+            },
+            "cards": [
+              {
+                "family": "properties",
+                "id": 2,
+                "role": "shell",
+                "value": {
+                  "type": "PSHELL",
+                  "pid": 2,
+                  "mid1": 2,
+                  "mid2": 2,
+                  "mid3": 2,
+                  "t": 4
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 2,
+          "evaluatedAt": 2,
+          "verifiedAt": 2
+        },
+        {
+          "id": "stiffness",
+          "kind": "template",
+          "name": "Motor stiffness",
+          "dependsOn": [],
+          "definition": {
+            "generator": "pbush-basic-v1",
+            "frame": "basic",
+            "cards": [
+              {
+                "family": "properties",
+                "id": 3,
+                "role": "stiffness",
+                "value": {
+                  "type": "PBUSH",
+                  "pid": 3,
+                  "K": "K",
+                  "K1": 100000,
+                  "K2": 200000,
+                  "K3": 300000,
+                  "K4": 10000,
+                  "K5": 20000,
+                  "K6": 30000
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 7,
+          "evaluatedAt": 7,
+          "verifiedAt": 7
+        }
+      ],
+      "reservations": [
+        {
+          "owner": "cad",
+          "namespace": "node",
+          "role": "mesh-1/nodes",
+          "start": 101,
+          "end": 127
+        },
+        {
+          "owner": "cad",
+          "namespace": "element",
+          "role": "mesh-1/elements",
+          "start": 1,
+          "end": 8
+        },
+        {
+          "owner": "cad/material",
+          "namespace": "material",
+          "role": "elastic",
+          "start": 1,
+          "end": 1
+        },
+        {
+          "owner": "cad/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+          "namespace": "property",
+          "role": "solid",
+          "start": 1,
+          "end": 1
+        },
+        {
+          "owner": "skin",
+          "namespace": "node",
+          "role": "mesh-1/nodes",
+          "start": 128,
+          "end": 136
+        },
+        {
+          "owner": "skin",
+          "namespace": "element",
+          "role": "mesh-1/elements",
+          "start": 9,
+          "end": 12
+        },
+        {
+          "owner": "skin/material",
+          "namespace": "material",
+          "role": "elastic",
+          "start": 2,
+          "end": 2
+        },
+        {
+          "owner": "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+          "namespace": "property",
+          "role": "shell",
+          "start": 2,
+          "end": 2
+        },
+        {
+          "owner": "embedded",
+          "namespace": "element",
+          "role": "element-13",
+          "start": 13,
+          "end": 13
+        },
+        {
+          "owner": "embedded",
+          "namespace": "element",
+          "role": "element-14",
+          "start": 14,
+          "end": 14
+        },
+        {
+          "owner": "embedded",
+          "namespace": "element",
+          "role": "element-15",
+          "start": 15,
+          "end": 15
+        },
+        {
+          "owner": "embedded",
+          "namespace": "element",
+          "role": "element-16",
+          "start": 16,
+          "end": 16
+        },
+        {
+          "owner": "motor-frame",
+          "namespace": "coordinate",
+          "role": "frame",
+          "start": 1234,
+          "end": 1234
+        },
+        {
+          "owner": "stiffness",
+          "namespace": "property",
+          "role": "stiffness",
+          "start": 3,
+          "end": 3
+        },
+        {
+          "owner": "motor/points",
+          "namespace": "node",
+          "role": "mount",
+          "start": 137,
+          "end": 137
+        },
+        {
+          "owner": "motor/points",
+          "namespace": "node",
+          "role": "shaft",
+          "start": 138,
+          "end": 138
+        },
+        {
+          "owner": "motor",
+          "namespace": "element",
+          "role": "mount",
+          "start": 17,
+          "end": 17
+        },
+        {
+          "owner": "motor",
+          "namespace": "element",
+          "role": "bush",
+          "start": 18,
+          "end": 18
+        },
+        {
+          "owner": "motor-mass",
+          "namespace": "element",
+          "role": "mass",
+          "start": 19,
+          "end": 19
+        },
+        {
+          "owner": "payload/com",
+          "namespace": "node",
+          "role": "com",
+          "start": 139,
+          "end": 139
+        },
+        {
+          "owner": "payload",
+          "namespace": "element",
+          "role": "mass",
+          "start": 20,
+          "end": 20
+        },
+        {
+          "owner": "payload",
+          "namespace": "element",
+          "role": "distribution",
+          "start": 21,
+          "end": 21
+        },
+        {
+          "owner": "battery/com",
+          "namespace": "node",
+          "role": "com",
+          "start": 140,
+          "end": 140
+        },
+        {
+          "owner": "battery",
+          "namespace": "element",
+          "role": "mass",
+          "start": 22,
+          "end": 22
+        },
+        {
+          "owner": "battery",
+          "namespace": "element",
+          "role": "distribution",
+          "start": 23,
+          "end": 23
+        },
+        {
+          "owner": "shaft-spc",
+          "namespace": "constraint",
+          "role": "set",
+          "start": 1,
+          "end": 1
+        },
+        {
+          "owner": "g",
+          "namespace": "load",
+          "role": "set",
+          "start": 1,
+          "end": 1
+        },
+        {
+          "owner": "f",
+          "namespace": "load",
+          "role": "set",
+          "start": 2,
+          "end": 2
+        }
+      ],
+      "retiredObjectIds": []
+    },
+    "owners": [
+      {
+        "key": "constraint:1",
+        "owner": "shaft-spc",
+        "role": "set",
+        "card": {
+          "family": "constraintSets",
+          "id": 1,
+          "value": {
+            "type": "SUPPORTSET",
+            "sid": 1,
+            "entries": [
+              {
+                "bucket": "spc1",
+                "value": {
+                  "sid": 1,
+                  "components": "123456",
+                  "nodes": [
+                    138
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "key": "coordinate:1234",
+        "owner": "motor-frame",
+        "role": "frame",
+        "card": {
+          "family": "coords",
+          "id": 1234,
+          "value": {
+            "type": "CORD2R",
+            "cid": 1234,
+            "rid": 0,
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "zAxisPt": [
+              1,
+              0,
+              0
+            ],
+            "xzPlanePt": [
+              0,
+              0,
+              1
+            ]
+          }
+        }
+      },
+      {
+        "key": "element:1",
+        "owner": "cad",
+        "role": "mesh-1/elements/0",
+        "card": {
+          "family": "elems",
+          "id": 1,
+          "value": {
+            "type": "CHEXA",
+            "eid": 1,
+            "pid": 1,
+            "n": [
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:10",
+        "owner": "skin",
+        "role": "mesh-1/elements/1",
+        "card": {
+          "family": "elems",
+          "id": 10,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 10,
+            "pid": 2,
+            "n": [
+              111,
+              132,
+              133,
+              117
+            ],
+            "zoffs": 0
+          },
+          "bucket": "quad"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:11",
+        "owner": "skin",
+        "role": "mesh-1/elements/2",
+        "card": {
+          "family": "elems",
+          "id": 11,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 11,
+            "pid": 2,
+            "n": [
+              131,
+              134,
+              135,
+              132
+            ],
+            "zoffs": 0
+          },
+          "bucket": "quad"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:12",
+        "owner": "skin",
+        "role": "mesh-1/elements/3",
+        "card": {
+          "family": "elems",
+          "id": 12,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 12,
+            "pid": 2,
+            "n": [
+              132,
+              135,
+              136,
+              133
+            ],
+            "zoffs": 0
+          },
+          "bucket": "quad"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:13",
+        "owner": "embedded",
+        "role": "element-13",
+        "card": {
+          "family": "elems",
+          "id": 13,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 13,
+            "pid": 2,
+            "n": [
+              107,
+              106,
+              110,
+              111
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:14",
+        "owner": "embedded",
+        "role": "element-14",
+        "card": {
+          "family": "elems",
+          "id": 14,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 14,
+            "pid": 2,
+            "n": [
+              115,
+              107,
+              111,
+              117
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:15",
+        "owner": "embedded",
+        "role": "element-15",
+        "card": {
+          "family": "elems",
+          "id": 15,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 15,
+            "pid": 2,
+            "n": [
+              103,
+              102,
+              106,
+              107
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:16",
+        "owner": "embedded",
+        "role": "element-16",
+        "card": {
+          "family": "elems",
+          "id": 16,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 16,
+            "pid": 2,
+            "n": [
+              113,
+              103,
+              107,
+              115
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:17",
+        "owner": "motor",
+        "role": "mount",
+        "card": {
+          "family": "elems",
+          "id": 17,
+          "value": {
+            "type": "RBE2",
+            "eid": 17,
+            "gn": 137,
+            "cm": "123",
+            "deps": [
+              101,
+              102,
+              103,
+              104,
+              113,
+              114,
+              119,
+              120,
+              125
+            ]
+          },
+          "bucket": "rbe2"
+        }
+      },
+      {
+        "key": "element:18",
+        "owner": "motor",
+        "role": "bush",
+        "card": {
+          "family": "elems",
+          "id": 18,
+          "value": {
+            "type": "CBUSH",
+            "eid": 18,
+            "pid": 3,
+            "n": [
+              137,
+              138
+            ],
+            "cid": 1234,
+            "orient": {
+              "kind": "x",
+              "x": [
+                0,
+                1,
+                0
+              ]
+            }
+          },
+          "bucket": "bush"
+        }
+      },
+      {
+        "key": "element:19",
+        "owner": "motor-mass",
+        "role": "mass",
+        "card": {
+          "family": "masses",
+          "id": 19,
+          "value": {
+            "type": "CONM2",
+            "eid": 19,
+            "g": 137,
+            "cid": 0,
+            "m": 0.00028000000000000003,
+            "x": [
+              0,
+              0,
+              0
+            ],
+            "inertia": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "key": "element:2",
+        "owner": "cad",
+        "role": "mesh-1/elements/1",
+        "card": {
+          "family": "elems",
+          "id": 2,
+          "value": {
+            "type": "CHEXA",
+            "eid": 2,
+            "pid": 1,
+            "n": [
+              105,
+              106,
+              107,
+              108,
+              109,
+              110,
+              111,
+              112
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:20",
+        "owner": "payload",
+        "role": "mass",
+        "card": {
+          "family": "masses",
+          "id": 20,
+          "value": {
+            "type": "CONM2",
+            "eid": 20,
+            "g": 139,
+            "cid": 0,
+            "m": 0.001,
+            "x": [
+              0,
+              0,
+              0
+            ],
+            "inertia": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "key": "element:21",
+        "owner": "payload",
+        "role": "distribution",
+        "card": {
+          "family": "elems",
+          "id": 21,
+          "value": {
+            "type": "RBE3",
+            "eid": 21,
+            "gn": 139,
+            "cm": "123456",
+            "weight": 1,
+            "inds": [
+              110,
+              111,
+              117,
+              131,
+              132,
+              133,
+              134,
+              135,
+              136
+            ],
+            "groups": [
+              {
+                "wt": 0.1111111111111111,
+                "c": "123",
+                "gids": [
+                  110,
+                  111,
+                  117,
+                  131,
+                  132,
+                  133,
+                  134,
+                  135,
+                  136
+                ]
+              }
+            ]
+          },
+          "bucket": "rbe3"
+        }
+      },
+      {
+        "key": "element:22",
+        "owner": "battery",
+        "role": "mass",
+        "card": {
+          "family": "masses",
+          "id": 22,
+          "value": {
+            "type": "CONM2",
+            "eid": 22,
+            "g": 140,
+            "cid": 0,
+            "m": 0.0005,
+            "x": [
+              0,
+              0,
+              0
+            ],
+            "inertia": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      {
+        "key": "element:23",
+        "owner": "battery",
+        "role": "distribution",
+        "card": {
+          "family": "elems",
+          "id": 23,
+          "value": {
+            "type": "RBE3",
+            "eid": 23,
+            "gn": 140,
+            "cm": "123456",
+            "weight": 1,
+            "inds": [
+              110,
+              111,
+              117,
+              131,
+              132,
+              133,
+              134,
+              135,
+              136
+            ],
+            "groups": [
+              {
+                "wt": 0.1111111111111111,
+                "c": "123",
+                "gids": [
+                  110,
+                  111,
+                  117,
+                  131,
+                  132,
+                  133,
+                  134,
+                  135,
+                  136
+                ]
+              }
+            ]
+          },
+          "bucket": "rbe3"
+        }
+      },
+      {
+        "key": "element:3",
+        "owner": "cad",
+        "role": "mesh-1/elements/2",
+        "card": {
+          "family": "elems",
+          "id": 3,
+          "value": {
+            "type": "CHEXA",
+            "eid": 3,
+            "pid": 1,
+            "n": [
+              104,
+              103,
+              113,
+              114,
+              108,
+              107,
+              115,
+              116
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:4",
+        "owner": "cad",
+        "role": "mesh-1/elements/3",
+        "card": {
+          "family": "elems",
+          "id": 4,
+          "value": {
+            "type": "CHEXA",
+            "eid": 4,
+            "pid": 1,
+            "n": [
+              108,
+              107,
+              115,
+              116,
+              112,
+              111,
+              117,
+              118
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:5",
+        "owner": "cad",
+        "role": "mesh-1/elements/4",
+        "card": {
+          "family": "elems",
+          "id": 5,
+          "value": {
+            "type": "CHEXA",
+            "eid": 5,
+            "pid": 1,
+            "n": [
+              102,
+              119,
+              120,
+              103,
+              106,
+              121,
+              122,
+              107
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:6",
+        "owner": "cad",
+        "role": "mesh-1/elements/5",
+        "card": {
+          "family": "elems",
+          "id": 6,
+          "value": {
+            "type": "CHEXA",
+            "eid": 6,
+            "pid": 1,
+            "n": [
+              106,
+              121,
+              122,
+              107,
+              110,
+              123,
+              124,
+              111
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:7",
+        "owner": "cad",
+        "role": "mesh-1/elements/6",
+        "card": {
+          "family": "elems",
+          "id": 7,
+          "value": {
+            "type": "CHEXA",
+            "eid": 7,
+            "pid": 1,
+            "n": [
+              103,
+              120,
+              125,
+              113,
+              107,
+              122,
+              126,
+              115
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:8",
+        "owner": "cad",
+        "role": "mesh-1/elements/7",
+        "card": {
+          "family": "elems",
+          "id": 8,
+          "value": {
+            "type": "CHEXA",
+            "eid": 8,
+            "pid": 1,
+            "n": [
+              107,
+              122,
+              126,
+              115,
+              111,
+              124,
+              127,
+              117
+            ]
+          },
+          "bucket": "hex"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "element:9",
+        "owner": "skin",
+        "role": "mesh-1/elements/0",
+        "card": {
+          "family": "elems",
+          "id": 9,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 9,
+            "pid": 2,
+            "n": [
+              110,
+              131,
+              132,
+              111
+            ],
+            "zoffs": 0
+          },
+          "bucket": "quad"
+        },
+        "allocationRole": "mesh-1/elements"
+      },
+      {
+        "key": "load:1",
+        "owner": "g",
+        "role": "set",
+        "card": {
+          "family": "loadSets",
+          "id": 1,
+          "value": {
+            "type": "LOADSET",
+            "sid": 1,
+            "entries": [
+              {
+                "bucket": "gravity",
+                "value": {
+                  "type": "GRAV",
+                  "sid": 1,
+                  "cid": 1234,
+                  "scale": 1,
+                  "vector": [
+                    -9806.65,
+                    0,
+                    0
+                  ],
+                  "mb": 0
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "key": "load:2",
+        "owner": "f",
+        "role": "set",
+        "card": {
+          "family": "loadSets",
+          "id": 2,
+          "value": {
+            "type": "LOADSET",
+            "sid": 2,
+            "entries": [
+              {
+                "bucket": "force",
+                "value": {
+                  "sid": 2,
+                  "nid": 123,
+                  "mag": 1,
+                  "cid": 1234,
+                  "dir": [
+                    0,
+                    10,
+                    0
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "key": "material:1",
+        "owner": "cad/material",
+        "role": "elastic",
+        "card": {
+          "family": "materials",
+          "id": 1,
+          "value": {
+            "type": "MAT1",
+            "mid": 1,
+            "E": 210000,
+            "nu": 0.3,
+            "G": 80769.23076923077,
+            "rho": 7.85e-9
+          }
+        }
+      },
+      {
+        "key": "material:2",
+        "owner": "skin/material",
+        "role": "elastic",
+        "card": {
+          "family": "materials",
+          "id": 2,
+          "value": {
+            "type": "MAT1",
+            "mid": 2,
+            "E": 210000,
+            "nu": 0.3,
+            "G": 80769.23076923077,
+            "rho": 7.85e-9
+          }
+        }
+      },
+      {
+        "key": "node:101",
+        "owner": "cad",
+        "role": "mesh-1/nodes/0",
+        "card": {
+          "family": "nodes",
+          "id": 101,
+          "value": {
+            "x": 0,
+            "y": 0,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:102",
+        "owner": "cad",
+        "role": "mesh-1/nodes/1",
+        "card": {
+          "family": "nodes",
+          "id": 102,
+          "value": {
+            "x": 0,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:103",
+        "owner": "cad",
+        "role": "mesh-1/nodes/2",
+        "card": {
+          "family": "nodes",
+          "id": 103,
+          "value": {
+            "x": 0,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:104",
+        "owner": "cad",
+        "role": "mesh-1/nodes/3",
+        "card": {
+          "family": "nodes",
+          "id": 104,
+          "value": {
+            "x": 0,
+            "y": 3,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:105",
+        "owner": "cad",
+        "role": "mesh-1/nodes/4",
+        "card": {
+          "family": "nodes",
+          "id": 105,
+          "value": {
+            "x": 2,
+            "y": 0,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:106",
+        "owner": "cad",
+        "role": "mesh-1/nodes/5",
+        "card": {
+          "family": "nodes",
+          "id": 106,
+          "value": {
+            "x": 2,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:107",
+        "owner": "cad",
+        "role": "mesh-1/nodes/6",
+        "card": {
+          "family": "nodes",
+          "id": 107,
+          "value": {
+            "x": 2,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:108",
+        "owner": "cad",
+        "role": "mesh-1/nodes/7",
+        "card": {
+          "family": "nodes",
+          "id": 108,
+          "value": {
+            "x": 2,
+            "y": 3,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:109",
+        "owner": "cad",
+        "role": "mesh-1/nodes/8",
+        "card": {
+          "family": "nodes",
+          "id": 109,
+          "value": {
+            "x": 4,
+            "y": 0,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:110",
+        "owner": "cad",
+        "role": "mesh-1/nodes/9",
+        "card": {
+          "family": "nodes",
+          "id": 110,
+          "value": {
+            "x": 4,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:111",
+        "owner": "cad",
+        "role": "mesh-1/nodes/10",
+        "card": {
+          "family": "nodes",
+          "id": 111,
+          "value": {
+            "x": 4,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:112",
+        "owner": "cad",
+        "role": "mesh-1/nodes/11",
+        "card": {
+          "family": "nodes",
+          "id": 112,
+          "value": {
+            "x": 4,
+            "y": 3,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:113",
+        "owner": "cad",
+        "role": "mesh-1/nodes/12",
+        "card": {
+          "family": "nodes",
+          "id": 113,
+          "value": {
+            "x": 0,
+            "y": 6,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:114",
+        "owner": "cad",
+        "role": "mesh-1/nodes/13",
+        "card": {
+          "family": "nodes",
+          "id": 114,
+          "value": {
+            "x": 0,
+            "y": 6,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:115",
+        "owner": "cad",
+        "role": "mesh-1/nodes/14",
+        "card": {
+          "family": "nodes",
+          "id": 115,
+          "value": {
+            "x": 2,
+            "y": 6,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:116",
+        "owner": "cad",
+        "role": "mesh-1/nodes/15",
+        "card": {
+          "family": "nodes",
+          "id": 116,
+          "value": {
+            "x": 2,
+            "y": 6,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:117",
+        "owner": "cad",
+        "role": "mesh-1/nodes/16",
+        "card": {
+          "family": "nodes",
+          "id": 117,
+          "value": {
+            "x": 4,
+            "y": 6,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:118",
+        "owner": "cad",
+        "role": "mesh-1/nodes/17",
+        "card": {
+          "family": "nodes",
+          "id": 118,
+          "value": {
+            "x": 4,
+            "y": 6,
+            "z": 4,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:119",
+        "owner": "cad",
+        "role": "mesh-1/nodes/18",
+        "card": {
+          "family": "nodes",
+          "id": 119,
+          "value": {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:120",
+        "owner": "cad",
+        "role": "mesh-1/nodes/19",
+        "card": {
+          "family": "nodes",
+          "id": 120,
+          "value": {
+            "x": 0,
+            "y": 3,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:121",
+        "owner": "cad",
+        "role": "mesh-1/nodes/20",
+        "card": {
+          "family": "nodes",
+          "id": 121,
+          "value": {
+            "x": 2,
+            "y": 0,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:122",
+        "owner": "cad",
+        "role": "mesh-1/nodes/21",
+        "card": {
+          "family": "nodes",
+          "id": 122,
+          "value": {
+            "x": 2,
+            "y": 3,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:123",
+        "owner": "cad",
+        "role": "mesh-1/nodes/22",
+        "card": {
+          "family": "nodes",
+          "id": 123,
+          "value": {
+            "x": 4,
+            "y": 0,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:124",
+        "owner": "cad",
+        "role": "mesh-1/nodes/23",
+        "card": {
+          "family": "nodes",
+          "id": 124,
+          "value": {
+            "x": 4,
+            "y": 3,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:125",
+        "owner": "cad",
+        "role": "mesh-1/nodes/24",
+        "card": {
+          "family": "nodes",
+          "id": 125,
+          "value": {
+            "x": 0,
+            "y": 6,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:126",
+        "owner": "cad",
+        "role": "mesh-1/nodes/25",
+        "card": {
+          "family": "nodes",
+          "id": 126,
+          "value": {
+            "x": 2,
+            "y": 6,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:127",
+        "owner": "cad",
+        "role": "mesh-1/nodes/26",
+        "card": {
+          "family": "nodes",
+          "id": 127,
+          "value": {
+            "x": 4,
+            "y": 6,
+            "z": 0,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:131",
+        "owner": "skin",
+        "role": "mesh-1/nodes/3",
+        "card": {
+          "family": "nodes",
+          "id": 131,
+          "value": {
+            "x": 7,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:132",
+        "owner": "skin",
+        "role": "mesh-1/nodes/4",
+        "card": {
+          "family": "nodes",
+          "id": 132,
+          "value": {
+            "x": 7,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:133",
+        "owner": "skin",
+        "role": "mesh-1/nodes/5",
+        "card": {
+          "family": "nodes",
+          "id": 133,
+          "value": {
+            "x": 7,
+            "y": 6,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:134",
+        "owner": "skin",
+        "role": "mesh-1/nodes/6",
+        "card": {
+          "family": "nodes",
+          "id": 134,
+          "value": {
+            "x": 10,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:135",
+        "owner": "skin",
+        "role": "mesh-1/nodes/7",
+        "card": {
+          "family": "nodes",
+          "id": 135,
+          "value": {
+            "x": 10,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:136",
+        "owner": "skin",
+        "role": "mesh-1/nodes/8",
+        "card": {
+          "family": "nodes",
+          "id": 136,
+          "value": {
+            "x": 10,
+            "y": 6,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        },
+        "allocationRole": "mesh-1/nodes"
+      },
+      {
+        "key": "node:137",
+        "owner": "motor/points",
+        "role": "mount",
+        "card": {
+          "family": "nodes",
+          "id": 137,
+          "value": {
+            "x": 0,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:138",
+        "owner": "motor/points",
+        "role": "shaft",
+        "card": {
+          "family": "nodes",
+          "id": 138,
+          "value": {
+            "x": -20,
+            "y": 3,
+            "z": 2,
+            "cp": 0,
+            "cd": 1234,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:139",
+        "owner": "payload/com",
+        "role": "com",
+        "card": {
+          "family": "nodes",
+          "id": 139,
+          "value": {
+            "x": 7,
+            "y": 3,
+            "z": 202,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:140",
+        "owner": "battery/com",
+        "role": "com",
+        "card": {
+          "family": "nodes",
+          "id": 140,
+          "value": {
+            "x": 7,
+            "y": 3,
+            "z": 17,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "property:1",
+        "owner": "cad/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/solid/1",
+        "role": "solid",
+        "card": {
+          "family": "properties",
+          "id": 1,
+          "value": {
+            "type": "PSOLID",
+            "pid": 1,
+            "mid": 1
+          }
+        }
+      },
+      {
+        "key": "property:2",
+        "owner": "skin/section/1/97aecd85d5250fdd0e190d9410d1005ffa920cd9116bae1e338266b83e503c13/shell/11",
+        "role": "shell",
+        "card": {
+          "family": "properties",
+          "id": 2,
+          "value": {
+            "type": "PSHELL",
+            "pid": 2,
+            "mid1": 2,
+            "mid2": 2,
+            "mid3": 2,
+            "t": 4
+          }
+        }
+      },
+      {
+        "key": "property:3",
+        "owner": "stiffness",
+        "role": "stiffness",
+        "card": {
+          "family": "properties",
+          "id": 3,
+          "value": {
+            "type": "PBUSH",
+            "pid": 3,
+            "K": "K",
+            "K1": 100000,
+            "K2": 200000,
+            "K3": 300000,
+            "K4": 10000,
+            "K5": 20000,
+            "K6": 30000
+          }
+        }
+      }
+    ]
+  }
+}

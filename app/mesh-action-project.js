@@ -16,7 +16,7 @@
       for(const n of [...(s.nodes||[]),...(s.connectivity||[]).flat(),...(s.pairs||[]).flat()])sourceKeys.add('node:'+n);
       if(s.pid){const p=semantic.properties.find(([id])=>id===s.pid)?.[1],solid=s.action==='extrude-shells'||s.action==='create-elements'&&['CHEXA','CTETRA','CPENTA'].includes(s.type);if(p?.type!==(solid?'PSOLID':'PSHELL'))throw Error('Choose an existing '+(solid?'PSOLID':'PSHELL')+' section.');}
     }
-    for(const k of sourceKeys){const r=rows.get(k);if(!r)throw Error('Missing input '+k+'.');if(r.family==='nodes'&&(r.value.cp||r.value.cd))throw Error('Mesh actions currently require basic-coordinate source GRID records.');}
+    for(const k of sourceKeys){const r=rows.get(k);if(!r)throw Error('Missing input '+k+'.');if(r.family==='nodes'&&(r.value.cp))throw Error('Mesh actions currently require basic-coordinate source GRID records.');}
     const result=A.execute(mesh,steps,ids),cards=cardsOf(result),modifiedOwners=[];
     for(const e of result.updatedElements){
       const entry=state?.owners.find(o=>o.key==='element:'+e.id),owner=state?.project.objects.find(o=>o.id===entry?.owner);
@@ -43,7 +43,7 @@
     const changed=new Map(modifiedOwners.flatMap(m=>m.after.definition.cards.filter(c=>c.family==='elems').map(c=>['element:'+c.id,c])));
     const inputs=[...sourceKeys].map(k=>({key:k,card:copy(changed.get(k)||rows.get(k))}));
     // Reused nodes may be outside the explicit seed selection.
-    for(const c of cards.filter(c=>c.family==='elems'))for(const n of c.value.n)if(rows.has('node:'+n)&&!sourceKeys.has('node:'+n)){if(rows.get('node:'+n).value.cp||rows.get('node:'+n).value.cd)throw Error('Reused nodes must use basic coordinates.');sourceKeys.add('node:'+n);inputs.push({key:'node:'+n,card:copy(rows.get('node:'+n))});}
+    for(const c of cards.filter(c=>c.family==='elems'))for(const n of c.value.n)if(rows.has('node:'+n)&&!sourceKeys.has('node:'+n)){if(rows.get('node:'+n).value.cp)throw Error('Reused nodes must use basic coordinates.');sourceKeys.add('node:'+n);inputs.push({key:'node:'+n,card:copy(rows.get('node:'+n))});}
     const excluded=input.excludeElements||[],analysisExcluded=excluded.map(id=>{const e=rows.get('element:'+id)?.value;if(!e)throw Error('Missing element to exclude: '+id);return {id,type:e.type,n:e.n};});
     const object={id:input.id,name:input.name.trim(),kind:'mesh',dependsOn:dependencies(state,cards,[...sourceKeys,...excluded.map(id=>'element:'+id)]),definition:{generator:GENERATOR,actions:result.trace,inputs,modifiedOwners,analysisExcluded,cards}};
     return {request:{label:'Mesh action: '+object.name,objects:[...modifiedOwners.map(m=>m.after),object]},mesh:result.mesh,object};

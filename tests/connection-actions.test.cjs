@@ -19,9 +19,10 @@ test('CONM2 inertia and offsets are validated physically about the mass COM',()=
   for(const m of [0,-1,NaN,Infinity])assert.throws(()=>A.massValue({id:1,node:1,mass:m}));
   assert.deepEqual(A.inertia([1,0,1,0,0,0]),[1,0,1,0,0,0]);
 });
-test('RBE3 rejects invalid groups, overlap, self-support, nonbasic and collinear nodes',()=>{
+test('RBE3 rejects invalid groups, overlap, self-support, nonbasic positions and collinear nodes',()=>{
   const base={action:'rbe3',id:2,node:5,groups:[{wt:1,c:'123',gids:[1,2,3]}]},source=[...nodes,{id:5,x:10,y:10,z:200}];
   for(const groups of [[{wt:0,c:'123',gids:[1,2,3]}],[{wt:1,c:'456',gids:[1,2,3]}],[{wt:1,c:'123',gids:[1,2,5]}],[{wt:1,c:'123',gids:[1,2,3]},{wt:1,c:'123',gids:[3,4]}]])assert.throws(()=>A.execute(source,[{...base,groups}]));
   assert.throws(()=>A.execute(source.map(n=>({...n,y:0})),[base]),/collinear/);
-  assert.throws(()=>A.execute(source.map(n=>({...n,cd:1})),[base]),/basic/);
+  assert.throws(()=>A.execute(source.map(n=>({...n,cp:1})),[base]),/basic/);
+  assert.doesNotThrow(()=>A.execute(source.map(n=>({...n,cd:1})),[base]),'all translational DOFs are independent of the rectangular output basis');
 });

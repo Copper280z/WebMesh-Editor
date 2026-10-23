@@ -13,10 +13,11 @@
   function remove(s,family,sid){if(family==='loadSets'){for(const b of Object.keys(s.loads||{}))s.loads[b]=s.loads[b].filter(v=>v.sid!==sid);}else for(const b of ['spc','spc1'])s[b]=(s[b]||[]).filter(v=>v.sid!==sid);}
   function put(s,c){remove(s,c.family,c.id);for(const e of c.value.entries){if(c.family==='loadSets')((s.loads||={})[e.bucket]||=[]).push(copy(e.value));else(s[e.bucket]||=[]).push(copy(e.value));}}
   function execute(a){
-    id(a.sid);let value,bucket,family;
-    if(a.action==='acceleration'){
+    id(a.sid);if(a.cid)id(a.cid);let value,bucket,family;
+    if(a.action==='acceleration'||a.action==='force'){
       if(!Array.isArray(a.vector)||a.vector.length!==3||!a.vector.every(Number.isFinite)||!Math.hypot(...a.vector))throw Error('Enter a finite, nonzero acceleration vector in model length/time².');
-      value={type:'GRAV',sid:a.sid,cid:0,scale:1,vector:a.vector.slice(),mb:0};bucket='gravity';family='loadSets';
+      if(a.action==='force'){id(a.node);value={sid:a.sid,nid:a.node,mag:1,cid:a.cid||0,dir:a.vector.slice()};bucket='force';}
+      else {value={type:'GRAV',sid:a.sid,cid:a.cid||0,scale:1,vector:a.vector.slice(),mb:0};bucket='gravity';}family='loadSets';
     }else if(a.action==='support'){
       if(!/^[1-6]+$/.test(a.components)||new Set(a.components).size!==a.components.length)throw Error('Support DOFs must be distinct digits 1–6.');
       if(!Array.isArray(a.nodes)||!a.nodes.length||new Set(a.nodes).size!==a.nodes.length)throw Error('Select distinct support GRIDs.');a.nodes.forEach(id);
@@ -27,7 +28,7 @@
   function validateSet(c,kind){
     if(kind!=='load'&&kind!=='support')throw Error('Load/support sets require their own project objects.');
     const entries=c.value?.entries;if(!Array.isArray(entries)||entries.length!==1)throw Error('An authored set requires one explicit action.');
-    const e=entries[0],v=e.value,a=c.family==='loadSets'?{action:'acceleration',sid:c.id,vector:v.vector}:{action:'support',sid:c.id,nodes:v.nodes,components:v.components};
+    const e=entries[0],v=e.value,a=c.family==='loadSets'?(e.bucket==='force'?{action:'force',sid:c.id,node:v.nid,vector:v.dir,cid:v.cid}:{action:'acceleration',sid:c.id,vector:v.vector,cid:v.cid}):{action:'support',sid:c.id,nodes:v.nodes,components:v.components};
     const expected=execute(a);
     if(kind!==(c.family==='loadSets'?'load':'support')||canonical(expected.value)!==canonical(c.value))throw Error('Invalid authored load/support set.');
   }
