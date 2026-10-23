@@ -1,0 +1,44 @@
+Eigen CPU threads: 8 (OpenMP default)
+Reading: case.bdf
+  Nodes:    125
+  Elements: 90
+  Materials:2
+  Subcases: 2
+[quality] Element 283 (CQUAD4): taper ratio 0.586 > threshold 0.500
+[quality] Element 284 (CQUAD4): taper ratio 0.671 > threshold 0.500
+[quality] Element 285 (CQUAD4): taper ratio 0.570 > threshold 0.500
+quality checks: 0.427 ms
+Solving with: Apple Accelerate (CPU)
+[subcase 1] build_dof_map: 0.031 ms  (561 free DOFs)
+[subcase 1] build_mpc_system: 0.018 ms  (561 reduced DOFs)
+[subcase 1] assemble K: 1.305 ms
+[subcase 1] apply_point_loads: 0.005 ms
+[subcase 1] apply_pressure_loads: 0.007 ms
+[subcase 1] apply_inertial_loads: 0.002 ms
+[subcase 1] apply_thermal_loads: 0.001 ms
+[subcase 1] build_csr: 0.213 ms  (9420 nnz)
+[cpu-direct] skipping MAXRATIO check for accelerate-llt because factor diagonal is unavailable
+[cpu-direct] backend=accelerate-llt, order=metis, storage=lower, n=561, nnz(input)=9420, nnz(lower)=9420, convert CSR->Eigen: 0.021 ms, build lower: 0.000 ms, factorization: 0.836 ms, solve: 0.043 ms
+[subcase 1] linear solve: 0.916 ms
+[subcase 1] epsilon 1.993e-14, relative residual ||F - K*u|| / ||F|| = 1.014e-12, backward error 2.121e-18
+[subcase 1] recover_results: 0.769 ms
+[subcase 1] compute_spc_forces: 1.029 ms
+[subcase 1] total: 3.268 ms
+[subcase 2] build_dof_map: 0.029 ms  (561 free DOFs)
+[subcase 2] build_mpc_system: 0.008 ms  (561 reduced DOFs)
+[subcase 2] assemble K: 1.112 ms
+[subcase 2] apply_point_loads: 0.003 ms
+[subcase 2] apply_pressure_loads: 0.005 ms
+[subcase 2] apply_inertial_loads: 0.001 ms
+[subcase 2] apply_thermal_loads: 0.001 ms
+[subcase 2] build_csr: 0.194 ms  (9420 nnz)
+[cpu-direct] skipping MAXRATIO check for accelerate-llt because factor diagonal is unavailable
+[cpu-direct] backend=accelerate-llt, order=metis, storage=lower, n=561, nnz(input)=9420, nnz(lower)=9420, convert CSR->Eigen: 0.016 ms, build lower: 0.000 ms, factorization: 0.701 ms, solve: 0.034 ms
+[subcase 2] linear solve: 0.764 ms
+[subcase 2] epsilon 2.525e-14, relative residual ||F - K*u|| / ||F|| = 1.742e-14, backward error 1.887e-18
+[subcase 2] recover_results: 0.801 ms
+[subcase 2] compute_spc_forces: 1.012 ms
+[subcase 2] total: 2.917 ms
+Solution complete in 0.009 s
+F06 written: case.F06
+OP2 written: case.op2

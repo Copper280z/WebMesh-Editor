@@ -8170,6 +8170,7 @@ function handleParseRequest(msg) {
 /** @param {WorkerMessage} msg */
 function handleWriteRequest(msg) {
   const options = msg && msg.options ? msg.options : {};
+  const excludedElements = new Set(options.excludeElements || []);
   const normalizeWriteFormat = (v) => {
     const s = String(v ?? '').trim().toLowerCase();
     if (!s) return 'source';
@@ -10315,6 +10316,7 @@ function handleWriteRequest(msg) {
         continue;
       }
       const kind = String(rec.kind || '');
+      if (kind === 'card' && semanticFamilyForCardName(rec.name) === 'elements' && excludedElements.has(parseNastranInt(getHydrationTokens(rec)[1]))) continue;
 
       if (kind === 'blank') {
         outLines.push('');

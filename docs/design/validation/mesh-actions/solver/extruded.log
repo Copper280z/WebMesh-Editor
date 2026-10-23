@@ -1,0 +1,27 @@
+Eigen CPU threads: 8 (OpenMP default)
+Reading: case.bdf
+  Nodes:    24
+  Elements: 8
+  Materials:1
+  Subcases: 1
+[quality] Property 1: defined but not used by any element
+quality checks: 1.052 ms
+Solving with: Apple Accelerate (CPU)
+[subcase 1] build_dof_map: 0.021 ms  (54 free DOFs)
+[subcase 1] build_mpc_system: 0.109 ms  (54 reduced DOFs)
+[subcase 1] assemble K: 1.904 ms
+[subcase 1] apply_point_loads: 0.009 ms
+[subcase 1] apply_pressure_loads: 0.028 ms
+[subcase 1] apply_inertial_loads: 0.003 ms
+[subcase 1] apply_thermal_loads: 0.001 ms
+[subcase 1] build_csr: 0.041 ms  (846 nnz)
+[cpu-direct] skipping MAXRATIO check for accelerate-llt because factor diagonal is unavailable
+[cpu-direct] backend=accelerate-llt, order=metis, storage=lower, n=54, nnz(input)=846, nnz(lower)=846, convert CSR->Eigen: 0.016 ms, build lower: 0.000 ms, factorization: 0.394 ms, solve: 0.012 ms
+[subcase 1] linear solve: 0.437 ms
+[subcase 1] epsilon -6.760e-12, relative residual ||F - K*u|| / ||F|| = 5.356e-11, backward error 2.914e-17
+[subcase 1] recover_results: 0.130 ms
+[subcase 1] compute_spc_forces: 0.198 ms
+[subcase 1] total: 2.682 ms
+Solution complete in 0.005 s
+F06 written: case.F06
+OP2 written: case.op2

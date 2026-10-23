@@ -19,6 +19,7 @@
     const d=object.definition,fail=reason=>{throw Error('Shell–solid interface “'+object.name+'”: '+reason);};
     const shell=map.get(d.shell),solid=map.get(d.solid),source=map.get(shell?.definition.source);
     if(shell?.definition.generator!=='cad-shell-v1'||solid?.definition.generator!=='cad-mapped-v1')fail('select an owned CAD shell mesh and mapped solid mesh.');
+    if(shell.definition.embeddedBy)fail('remove the existing embedded interface before adding an RBE3 tie to this shell region.');
     if(shell.definition.source!==solid.definition.source||source?.definition.geometryKey!==d.geometryKey)fail('both meshes must use the same unchanged CAD source.');
     if(shell.facts?.suspendedReason||solid.facts?.suspendedReason)fail('a mesh region is suspended.');
     if(!Number.isFinite(d.radius)||d.radius<=0||!Number.isFinite(d.gap)||d.gap<0)fail('enter a positive support radius and nonnegative gap tolerance in model length units.');

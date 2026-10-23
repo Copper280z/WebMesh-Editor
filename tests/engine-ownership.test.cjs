@@ -36,13 +36,13 @@ function fixture() {
   vm.runInContext(source.slice(bridge, source.indexOf('  // Small public bridge:', bridge)), c);
   return c;
 }
-async function exportParsed(c, format='free', retainedDeck=null) {
+async function exportParsed(c, format='free', retainedDeck=null, writeOptions={}) {
   const messages = [];
   const worker = vm.createContext({ Map, Set, self: { postMessage: m => messages.push(m) }, console, TextEncoder, TextDecoder, performance, setTimeout, clearTimeout });
   vm.runInContext(require('./helpers/worker-source.cjs'), worker);
   let writeModel=c.workerModel;
   if(retainedDeck){const retained=await worker.parseDeckToCardStream(retainedDeck,'reopened.bdf',{}, {strictMode:true,retainParseSession:true,retainSourceSession:true});writeModel={...writeModel,parseSessionId:retained.model.parseSessionId};}
-  worker.handleWriteRequest({ model: writeModel, options: { writeFormat: format } });
+  worker.handleWriteRequest({ model: writeModel, options: { writeFormat: format, ...writeOptions } });
   const deck = messages.find(m => m.type === 'WRITE_COMPLETE').text;
   const result = await worker.parseDeckToCardStream(deck, 'ownership.bdf', {}, { strictMode: true, retainParseSession: true, retainSourceSession: false });
   assert.deepEqual(copy(result.errors), []);
@@ -661,4 +661,109 @@ test('mixed meshes and RBE3 survive actual writers, both remesh directions, hist
     assert.ok(deck.includes('PSHELL'));assert.ok(deck.includes('PSOLID'));
   }
   c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();c.loadFromText=async()=>{};await c.loadProjectModel(saved);O.validate(c.model.projectOwnership,O.snapshot(c.model));
+});
+
+const Actions=require('../app/mesh-actions.js'),ActionProject=require('../app/mesh-action-project.js'),Embedded=require('../app/embedded-interface.js');
+const embeddedInput={...interfaceInput,id:'embedded',name:'Embedded root',direction:[-1,0,0],rows:2,tolerance:1e-6};
+function embeddedMeshInput(kind='solid',n=2){
+  const input=mixedInput(kind,n);if(kind==='shell')for(const e of input.mesh.elements)e.zoffs=0;
+  else {const H=require('../app/hex-mapping.js'),data=require('./fixtures/mapping/split-box.json'),a=H.analyze(data.topology);input.mesh=H.generateMesh(a,H.solveIntervals(a,{size:6/n,minCount:2}),H.createGeometry(data.topology,data.preview),{volumes:[1]});}
+  return input;
+}
+async function embeddedModel(){let a=await cadPreview(embeddedMeshInput());a=await cadPreview(embeddedMeshInput('shell'),a.ownership,a.semantic);return O.preview(a.semantic,a.ownership,Embedded.build(embeddedInput,a.ownership,nextPlateIds));}
+test('embedded one/two-row recipe composes public actions, exports canonical nodes and restores boundary on removal',async()=>{
+  for(const rows of [1,2]){
+    let a=await cadPreview(embeddedMeshInput());a=await cadPreview(embeddedMeshInput('shell'),a.ownership,a.semantic);const original=copy(a),request=Embedded.build({...embeddedInput,rows},a.ownership,nextPlateIds);
+    a=O.preview(a.semantic,a.ownership,Embedded.rebuild(a.ownership,request,nextPlateIds));
+    const d=a.ownership.project.objects.find(o=>o.id==='embedded').definition;
+    assert.equal(d.cards.length,2*rows);assert.equal(d.actions[0].action,'share-nodes');assert.ok(d.actions.slice(1).every(a=>a.action==='shells-on-faces'));
+    assert.equal(a.semantic.elems.rbe3.length,0);assert.equal(d.resolved.pairs.length,3);assert.equal(a.semantic.nodes.length,original.semantic.nodes.length-3);
+    for(const c of d.cards)for(const n of c.value.n)assert.equal(a.ownership.owners.find(e=>e.key==='node:'+n).owner,'cad');
+    const removed=O.preview(a.semantic,a.ownership,Embedded.removal(a.ownership,'embedded'));assert.deepEqual(removed.semantic.nodes,original.semantic.nodes);assert.deepEqual(removed.semantic.elems.quad,original.semantic.elems.quad);
+  }
+});
+test('embedded remesh is atomic, preserves unaffected cards and rejects incompatible geometry/order/references',async()=>{
+  const a=await embeddedModel(),before=JSON.stringify(a);
+  for(const kind of ['solid','shell']){
+    const request=(await Cad.build(embeddedMeshInput(kind),a.ownership,nextPlateIds)).request;
+    const b=O.preview(a.semantic,a.ownership,Embedded.rebuild(a.ownership,request,nextPlateIds));assert.equal(b.changes.length,0);
+    const incompatible=(await Cad.build(embeddedMeshInput(kind,3),a.ownership,nextPlateIds)).request;
+    assert.throws(()=>Embedded.rebuild(a.ownership,incompatible,nextPlateIds),/matching|conforming/);
+  }
+  for(const bad of [{direction:[0,0,1]},{direction:[1,0,0]},{rows:3},{faces:[999]}])assert.throws(()=>Embedded.build({...embeddedInput,...bad},a.ownership,nextPlateIds));
+  const dangling=copy(a);dangling.semantic.loads.force.push({sid:1,nid:a.ownership.project.objects.find(o=>o.id==='embedded').definition.cards[0].value.n[0],mag:1,dir:[0,0,1]});
+  assert.equal(JSON.stringify(a),before);
+});
+test('embedded interfaces round-trip all real writers and participate in history/save/reopen',async()=>{
+  const c=fixture();for(const input of [embeddedMeshInput(),embeddedMeshInput('shell')])(await c.previewProjectChange((await Cad.build(input,c.model.projectOwnership,nextPlateIds)).request)).commit();
+  const before=copy(c.model.projectOwnership),request=Embedded.build(embeddedInput,c.model.projectOwnership,nextPlateIds),discard=await c.previewProjectChange(request);discard.discard();assert.deepEqual(copy(c.model.projectOwnership),before);
+  (await c.previewProjectChange(request)).commit();const after=copy(c.model.projectOwnership);c.historyManager.undo();assert.deepEqual(copy(c.model.projectOwnership),before);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),after);
+  const original=await exportParsed(c);for(const format of ['source','free','small','large']){const {indexes}=await exportParsed(c,format,original.deck);assert.equal(indexes.nodes.size,c.model.nodes.size);assert.equal(indexes.elements.size,Object.values(c.model.elems).flat().length);}
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();c.loadFromText=async()=>{};await c.loadProjectModel(saved);O.validate(c.model.projectOwnership,O.snapshot(c.model));
+});
+
+test('shell-to-solid actions include wedges, history and all-format export filtering without deleting source cards',async()=>{
+  for(const topology of ['tri','quad']){
+    const c=fixture(),input=plateInput();input.parameters.topology=topology;input.parameters.order=1;input.parameters.divisions=[2,2,1];
+    (await c.previewProjectChange(Plate.build(input,null,nextPlateIds).request)).commit();
+    const ps=definition('solid-section','section',[{family:'properties',id:2,role:'solid',value:{type:'PSOLID',pid:2,mid:1}}],['plate/material']);(await c.previewProjectChange({objects:[ps]})).commit();
+    const elements=Object.values(c.model.elems).flat().map(e=>e.eid),s=O.snapshot(c.model),build=ActionProject.build({id:'extrude',name:'Solid from shell',steps:[{action:'extrude-shells',elements,pid:2,vector:[0,0,10],layers:2}],excludeElements:elements},c.model.projectOwnership,s,{node:200,element:200});
+    const before=copy(c.model.projectOwnership);(await c.previewProjectChange(build.request)).commit();const after=copy(c.model.projectOwnership);
+    c.historyManager.undo();assert.deepEqual(copy(c.model.projectOwnership),before);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),after);
+    const source=await exportParsed(c),excluded=O.analysisExclusions(c.model.projectOwnership,O.snapshot(c.model));assert.deepEqual(excluded,elements.sort((a,b)=>a-b));
+    for(const format of ['source','free','small','large']){const out=await exportParsed(c,format,source.deck,{excludeElements:excluded});assert.equal(out.indexes.elements.size,elements.length*2);assert.equal(out.indexes.nodes.size,c.model.nodes.size);assert.ok([...out.indexes.elements.values()].every(e=>e.type===(topology==='tri'?'CPENTA':'CHEXA')));}
+    c.writeCardEngine=async(_,options)=>{assert.equal(options.projectSave,true);return(await exportParsed(c)).deck;};const saved=await c.saveProjectModel();assert.ok(saved.deck.includes(topology==='tri'?'CTRIA3':'CQUAD4'));c.loadFromText=async()=>{};await c.loadProjectModel(saved);assert.deepEqual(O.analysisExclusions(c.model.projectOwnership,O.snapshot(c.model)),excluded);
+  }
+});
+
+test('compatible solid-only and shell-only refinement re-resolves embedded nodes while retaining the sibling interior',async()=>{
+  const a=await embeddedModel(),solid=embeddedMeshInput(),H=require('../app/hex-mapping.js'),data=require('./fixtures/mapping/split-box.json'),analysis=H.analyze(data.topology);
+  solid.mesh=H.generateMesh(analysis,H.solveIntervals(analysis,{size:3,minCount:2,controls:new Map([[9,{count:3}]])}),H.createGeometry(data.topology,data.preview),{volumes:[1]});
+  const request=(await Cad.build(solid,a.ownership,nextPlateIds)).request,b=O.preview(a.semantic,a.ownership,Embedded.rebuild(a.ownership,request,nextPlateIds));
+  assert.ok(b.semantic.elems.hex.length>a.semantic.elems.hex.length);
+  const originalShell=a.ownership.project.objects.find(o=>o.id==='skin'),newShell=b.ownership.project.objects.find(o=>o.id==='skin');
+  assert.deepEqual(newShell.definition.cards.filter(c=>c.family==='nodes'),originalShell.definition.cards.filter(c=>c.family==='nodes'));
+  assert.deepEqual(newShell.definition.cards.filter(c=>c.family==='elems').map(c=>c.id),originalShell.definition.cards.filter(c=>c.family==='elems').map(c=>c.id));
+  assert.notDeepEqual(newShell.definition.edges.find(e=>e.id===6).nodes,originalShell.definition.edges.find(e=>e.id===6).nodes);
+  const shell=embeddedMeshInput('shell'),nodes=[],elements=[],boundary=[];
+  for(let i=0;i<=4;i++)for(let j=0;j<=2;j++){const id=nodes.length+1;nodes.push({id,x:4+1.5*i,y:3*j,z:2});if(i===0)boundary.push(id);}
+  for(let i=0;i<4;i++)for(let j=0;j<2;j++){const n=i*3+j+1;elements.push({id:elements.length+1,type:'CQUAD4',pid:1,face:11,nodes:[n,n+3,n+4,n+1],zoffs:0});}
+  shell.mesh={nodes,elements,faceNodes:{11:nodes.map(n=>n.id)},edgeNodes:{6:boundary}};
+  const c=O.preview(b.semantic,b.ownership,Embedded.rebuild(b.ownership,(await Cad.build(shell,b.ownership,nextPlateIds)).request,nextPlateIds));
+  assert.deepEqual(c.ownership.owners.filter(o=>o.owner==='cad'),b.ownership.owners.filter(o=>o.owner==='cad'));
+  assert.deepEqual(c.ownership.project.objects.find(o=>o.id==='skin').definition.edges.find(e=>e.id===6).nodes,newShell.definition.edges.find(e=>e.id===6).nodes);
+  assert.equal(c.project.checks.some(c=>c.status==='invalid'),false);
+});
+test('manual node sharing can retire owned duplicates atomically and removal restores them; hand loads block retirement',()=>{
+  const s=O.snapshot(model()),mat=request().objects[0],section=request().objects[1];
+  const one=definition('one','mesh',[{...node(1),value:{x:0,y:0,z:0,cp:0,cd:0,ps:''}},{...node(2),value:{x:1,y:0,z:0,cp:0,cd:0,ps:''}},{...node(3),value:{x:0,y:1,z:0,cp:0,cd:0,ps:''}},{family:'elems',id:1,role:'tri',bucket:'tri',value:{type:'CTRIA3',eid:1,pid:1,n:[1,2,3]}}],['skin']);
+  const two=definition('two','mesh',[{...node(4),value:{x:0,y:0,z:0,cp:0,cd:0,ps:''}}]);
+  const a=O.preview(s,null,{objects:[mat,section,one,two]});
+  const request2=ActionProject.build({id:'share',name:'Share root',steps:[{action:'share-nodes',elements:[1],pairs:[[1,4]],tolerance:1e-8,retireSources:true}]},a.ownership,a.semantic,nextPlateIds).request;
+  const b=O.preview(a.semantic,a.ownership,request2);assert.deepEqual(b.semantic.elems.tri[0].n,[4,2,3]);assert.ok(!b.semantic.nodes.some(([id])=>id===1));
+  const back=O.preview(b.semantic,b.ownership,ActionProject.removal(b.ownership,'share'));assert.deepEqual(back.semantic,a.semantic);
+  a.semantic.loads.force.push({sid:9,nid:1,mag:1,dir:[0,0,1]});assert.throws(()=>O.preview(a.semantic,a.ownership,request2),/Dangling reference/);
+});
+test('a hand reference to an entry shell node prevents silent reassignment by the embedded guide',async()=>{
+  let a=await cadPreview(embeddedMeshInput());a=await cadPreview(embeddedMeshInput('shell'),a.ownership,a.semantic);
+  const n=a.ownership.project.objects.find(o=>o.id==='skin').definition.edges[0].nodes[0];a.semantic.loads.force.push({sid:1,nid:n,mag:1,dir:[0,0,1]});
+  assert.throws(()=>O.preview(a.semantic,a.ownership,Embedded.build(embeddedInput,a.ownership,nextPlateIds)),/Dangling reference/);
+});
+
+test('saved projects restore protected plain-input precision before validating action snapshots',async()=>{
+  const c=fixture(),s=O.snapshot(c.model);s.nodes.push([1,{x:0.12345678901234567,y:0,z:0,cp:0,cd:0,ps:''}],[2,{x:1,y:0,z:0,cp:0,cd:0,ps:''}],[3,{x:0,y:1,z:0,cp:0,cd:0,ps:''}]);s.properties.push([1,{type:'PSHELL',pid:1,mid1:1,t:1}]);s.materials.push([1,{type:'MAT1',mid:1,E:100,nu:.3,rho:1}]);
+  for(const family of ['nodes','properties','materials'])c.model[family]=new Map(s[family]);
+  const build=ActionProject.build({id:'manual',name:'Precise inputs',steps:[{action:'create-elements',type:'CTRIA3',pid:1,connectivity:[[1,2,3]]}]},null,s,{element:10});(await c.previewProjectChange(build.request)).commit();
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();
+  c.loadFromText=async()=>{c.model.nodes.get(1).x=0.123456789012;};await c.loadProjectModel(saved);assert.equal(c.model.nodes.get(1).x,s.nodes.find(([id])=>id===1)[1].x);assert.doesNotThrow(()=>O.analysisExclusions(c.model.projectOwnership,O.snapshot(c.model)));
+});
+
+test('the production writer bridge projects active analysis cards but project saving keeps the editable deck',async()=>{
+  const c=fixture(),input=plateInput();(await c.previewProjectChange(Plate.build(input,null,nextPlateIds).request)).commit();
+  const e=c.model.elems.quad[0].eid;(await c.previewProjectChange(ActionProject.participation({id:'reference',elements:[e]},c.model.projectOwnership,O.snapshot(c.model)))).commit();
+  let sent,listener;c.ensureCardEngineWorker=()=>({addEventListener(_,fn){listener=fn;},removeEventListener(){},postMessage(m){sent=m;listener({data:{type:'WRITE_COMPLETE',text:'deck'}});}});c.assertCoordinateContractBeforeExport=()=>{};c.document={getElementById:()=>null};
+  const start=source.indexOf('  function writeCardEngine(');vm.runInContext(source.slice(start,source.indexOf('  function ensureWorkerBackedModelReady()',start)),c);
+  await c.writeCardEngine(c.workerModel,{writeFormat:'large'});assert.deepEqual(copy(sent.options.excludeElements),[e]);
+  await c.writeCardEngine(c.workerModel,{writeFormat:'free',projectSave:true});assert.deepEqual(copy(sent.options.excludeElements),[]);
+  assert.throws(()=>O.preview(O.snapshot(c.model),c.model.projectOwnership,{convertToPlain:['reference']}),/participation/);
 });

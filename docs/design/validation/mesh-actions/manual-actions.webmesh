@@ -1,0 +1,1954 @@
+{
+  "format": "webmesh-project",
+  "version": 2,
+  "name": "source-shells",
+  "deck": "CEND\nBEGIN BULK\nMAT1,1,3000.,,0.35,1.24e-9,,,\n+\nPSHELL,1,1,2.,1,,1,,\n+\nPSOLID,2,1,0,,GRID,,SMECH\nGRID,1,0,0.,0.,0.,0\nGRID,2,0,10.,0.,0.,0\nGRID,3,0,20.,0.,0.,0\nGRID,4,0,30.,0.,0.,0\nGRID,5,0,0.,10.,0.,0\nGRID,6,0,10.,10.,0.,0\nGRID,7,0,20.,10.,0.,0\nGRID,8,0,30.,10.,0.,0\nCQUAD4,1,1,1,2,6,5,,\n+\nCQUAD4,2,1,2,3,7,6,,\n+\nCTRIA3,3,1,3,4,8,,,\n+\nCTRIA3,4,1,3,8,7,,,\n+\nGRID,9,0,0.,0.,1.,0\nGRID,10,0,10.,0.,1.,0\nGRID,11,0,10.,10.,1.,0\nGRID,12,0,0.,10.,1.,0\nGRID,13,0,20.,0.,1.,0\nGRID,14,0,20.,10.,1.,0\nGRID,15,0,30.,0.,1.,0\nGRID,16,0,30.,10.,1.,0\nGRID,17,0,0.,0.,2.,0\nGRID,18,0,10.,0.,2.,0\nGRID,19,0,10.,10.,2.,0\nGRID,20,0,0.,10.,2.,0\nGRID,21,0,20.,0.,2.,0\nGRID,22,0,20.,10.,2.,0\nGRID,23,0,30.,0.,2.,0\nGRID,24,0,30.,10.,2.,0\nCHEXA,5,2,1,2,6,5,9,10\n+,11,12\nCHEXA,6,2,9,10,11,12,17,18\n+,19,20\nCHEXA,7,2,2,3,7,6,10,13\n+,14,11\nCHEXA,8,2,10,13,14,11,18,21\n+,22,19\nCPENTA,9,2,3,4,8,13,15,16\nCPENTA,10,2,13,15,16,21,23,24\nCPENTA,11,2,3,8,7,13,16,14\nCPENTA,12,2,13,16,14,21,24,22\nCQUAD4,13,1,9,10,11,12,,\n+\nCQUAD4,14,1,1,2,10,9,,\n+\nCQUAD4,15,1,9,10,18,17,,\n+\nCQUAD4,16,1,5,6,11,12,,\n+\nENDDATA\n",
+  "ownership": {
+    "format": "webmesh-engine-ownership",
+    "version": 1,
+    "project": {
+      "format": "webmesh-project-core",
+      "version": 1,
+      "name": "Untitled project",
+      "revision": 4,
+      "units": {
+        "length": "mm",
+        "force": "N",
+        "time": "s",
+        "mass": "t"
+      },
+      "objects": [
+        {
+          "id": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "kind": "mesh",
+          "name": "Extrude shells into solids",
+          "dependsOn": [],
+          "definition": {
+            "generator": "mesh-actions-v1",
+            "actions": [
+              {
+                "action": "extrude-shells",
+                "pid": 2,
+                "vector": [
+                  0,
+                  0,
+                  2
+                ],
+                "layers": 2,
+                "reuse": false,
+                "tolerance": 0.000001,
+                "elements": [
+                  1,
+                  2,
+                  3,
+                  4
+                ],
+                "createdNodes": 16,
+                "createdElements": 8
+              }
+            ],
+            "inputs": [
+              {
+                "key": "element:1",
+                "card": {
+                  "family": "elems",
+                  "id": 1,
+                  "bucket": "quad",
+                  "value": {
+                    "eid": 1,
+                    "pid": 1,
+                    "n": [
+                      1,
+                      2,
+                      6,
+                      5
+                    ],
+                    "type": "CQUAD4"
+                  }
+                }
+              },
+              {
+                "key": "node:1",
+                "card": {
+                  "family": "nodes",
+                  "id": 1,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:2",
+                "card": {
+                  "family": "nodes",
+                  "id": 2,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:6",
+                "card": {
+                  "family": "nodes",
+                  "id": 6,
+                  "value": {
+                    "x": 10,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:5",
+                "card": {
+                  "family": "nodes",
+                  "id": 5,
+                  "value": {
+                    "x": 0,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "element:2",
+                "card": {
+                  "family": "elems",
+                  "id": 2,
+                  "bucket": "quad",
+                  "value": {
+                    "eid": 2,
+                    "pid": 1,
+                    "n": [
+                      2,
+                      3,
+                      7,
+                      6
+                    ],
+                    "type": "CQUAD4"
+                  }
+                }
+              },
+              {
+                "key": "node:3",
+                "card": {
+                  "family": "nodes",
+                  "id": 3,
+                  "value": {
+                    "x": 20,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:7",
+                "card": {
+                  "family": "nodes",
+                  "id": 7,
+                  "value": {
+                    "x": 20,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "element:3",
+                "card": {
+                  "family": "elems",
+                  "id": 3,
+                  "bucket": "tri",
+                  "value": {
+                    "eid": 3,
+                    "pid": 1,
+                    "n": [
+                      3,
+                      4,
+                      8
+                    ],
+                    "type": "CTRIA3"
+                  }
+                }
+              },
+              {
+                "key": "node:4",
+                "card": {
+                  "family": "nodes",
+                  "id": 4,
+                  "value": {
+                    "x": 30,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:8",
+                "card": {
+                  "family": "nodes",
+                  "id": 8,
+                  "value": {
+                    "x": 30,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "element:4",
+                "card": {
+                  "family": "elems",
+                  "id": 4,
+                  "bucket": "tri",
+                  "value": {
+                    "eid": 4,
+                    "pid": 1,
+                    "n": [
+                      3,
+                      8,
+                      7
+                    ],
+                    "type": "CTRIA3"
+                  }
+                }
+              }
+            ],
+            "modifiedOwners": [],
+            "analysisExcluded": [
+              {
+                "id": 1,
+                "type": "CQUAD4",
+                "n": [
+                  1,
+                  2,
+                  6,
+                  5
+                ]
+              },
+              {
+                "id": 2,
+                "type": "CQUAD4",
+                "n": [
+                  2,
+                  3,
+                  7,
+                  6
+                ]
+              },
+              {
+                "id": 3,
+                "type": "CTRIA3",
+                "n": [
+                  3,
+                  4,
+                  8
+                ]
+              },
+              {
+                "id": 4,
+                "type": "CTRIA3",
+                "n": [
+                  3,
+                  8,
+                  7
+                ]
+              }
+            ],
+            "cards": [
+              {
+                "family": "nodes",
+                "id": 9,
+                "role": "grid-9",
+                "value": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 10,
+                "role": "grid-10",
+                "value": {
+                  "x": 10,
+                  "y": 0,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 11,
+                "role": "grid-11",
+                "value": {
+                  "x": 10,
+                  "y": 10,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 12,
+                "role": "grid-12",
+                "value": {
+                  "x": 0,
+                  "y": 10,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 13,
+                "role": "grid-13",
+                "value": {
+                  "x": 20,
+                  "y": 0,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 14,
+                "role": "grid-14",
+                "value": {
+                  "x": 20,
+                  "y": 10,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 15,
+                "role": "grid-15",
+                "value": {
+                  "x": 30,
+                  "y": 0,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 16,
+                "role": "grid-16",
+                "value": {
+                  "x": 30,
+                  "y": 10,
+                  "z": 1,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 17,
+                "role": "grid-17",
+                "value": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 18,
+                "role": "grid-18",
+                "value": {
+                  "x": 10,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 19,
+                "role": "grid-19",
+                "value": {
+                  "x": 10,
+                  "y": 10,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 20,
+                "role": "grid-20",
+                "value": {
+                  "x": 0,
+                  "y": 10,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 21,
+                "role": "grid-21",
+                "value": {
+                  "x": 20,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 22,
+                "role": "grid-22",
+                "value": {
+                  "x": 20,
+                  "y": 10,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 23,
+                "role": "grid-23",
+                "value": {
+                  "x": 30,
+                  "y": 0,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "nodes",
+                "id": 24,
+                "role": "grid-24",
+                "value": {
+                  "x": 30,
+                  "y": 10,
+                  "z": 2,
+                  "cp": 0,
+                  "cd": 0,
+                  "ps": ""
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 5,
+                "role": "element-5",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 5,
+                  "pid": 2,
+                  "n": [
+                    1,
+                    2,
+                    6,
+                    5,
+                    9,
+                    10,
+                    11,
+                    12
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 6,
+                "role": "element-6",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 6,
+                  "pid": 2,
+                  "n": [
+                    9,
+                    10,
+                    11,
+                    12,
+                    17,
+                    18,
+                    19,
+                    20
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 7,
+                "role": "element-7",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 7,
+                  "pid": 2,
+                  "n": [
+                    2,
+                    3,
+                    7,
+                    6,
+                    10,
+                    13,
+                    14,
+                    11
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "hex",
+                "id": 8,
+                "role": "element-8",
+                "value": {
+                  "type": "CHEXA",
+                  "eid": 8,
+                  "pid": 2,
+                  "n": [
+                    10,
+                    13,
+                    14,
+                    11,
+                    18,
+                    21,
+                    22,
+                    19
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "penta",
+                "id": 9,
+                "role": "element-9",
+                "value": {
+                  "type": "CPENTA",
+                  "eid": 9,
+                  "pid": 2,
+                  "n": [
+                    3,
+                    4,
+                    8,
+                    13,
+                    15,
+                    16
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "penta",
+                "id": 10,
+                "role": "element-10",
+                "value": {
+                  "type": "CPENTA",
+                  "eid": 10,
+                  "pid": 2,
+                  "n": [
+                    13,
+                    15,
+                    16,
+                    21,
+                    23,
+                    24
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "penta",
+                "id": 11,
+                "role": "element-11",
+                "value": {
+                  "type": "CPENTA",
+                  "eid": 11,
+                  "pid": 2,
+                  "n": [
+                    3,
+                    8,
+                    7,
+                    13,
+                    16,
+                    14
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "penta",
+                "id": 12,
+                "role": "element-12",
+                "value": {
+                  "type": "CPENTA",
+                  "eid": 12,
+                  "pid": 2,
+                  "n": [
+                    13,
+                    16,
+                    14,
+                    21,
+                    24,
+                    22
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 1,
+          "evaluatedAt": 1,
+          "verifiedAt": 1
+        },
+        {
+          "id": "action-1397fd64-30cd-4242-975a-2848d726c073",
+          "kind": "mesh",
+          "name": "Extrude node chain into shells",
+          "dependsOn": [
+            "action-127c6748-172d-4afb-bba4-5e2d5df1f27a"
+          ],
+          "definition": {
+            "generator": "mesh-actions-v1",
+            "actions": [
+              {
+                "action": "extrude-edges",
+                "pid": 1,
+                "vector": [
+                  0,
+                  0,
+                  2
+                ],
+                "layers": 2,
+                "reuse": true,
+                "tolerance": 0.000001,
+                "nodes": [
+                  1,
+                  2
+                ],
+                "createdNodes": 0,
+                "createdElements": 2
+              }
+            ],
+            "inputs": [
+              {
+                "key": "node:1",
+                "card": {
+                  "family": "nodes",
+                  "id": 1,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:2",
+                "card": {
+                  "family": "nodes",
+                  "id": 2,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:10",
+                "card": {
+                  "family": "nodes",
+                  "id": 10,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:9",
+                "card": {
+                  "family": "nodes",
+                  "id": 9,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:18",
+                "card": {
+                  "family": "nodes",
+                  "id": 18,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 2,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:17",
+                "card": {
+                  "family": "nodes",
+                  "id": 17,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 2,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              }
+            ],
+            "modifiedOwners": [],
+            "analysisExcluded": [],
+            "cards": [
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 14,
+                "role": "element-14",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 14,
+                  "pid": 1,
+                  "n": [
+                    1,
+                    2,
+                    10,
+                    9
+                  ]
+                }
+              },
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 15,
+                "role": "element-15",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 15,
+                  "pid": 1,
+                  "n": [
+                    9,
+                    10,
+                    18,
+                    17
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 3,
+          "evaluatedAt": 3,
+          "verifiedAt": 3
+        },
+        {
+          "id": "action-7049e5f9-09bb-4dfc-b2f5-84801c65add1",
+          "kind": "mesh",
+          "name": "Create elements from nodes",
+          "dependsOn": [
+            "action-127c6748-172d-4afb-bba4-5e2d5df1f27a"
+          ],
+          "definition": {
+            "generator": "mesh-actions-v1",
+            "actions": [
+              {
+                "action": "create-elements",
+                "pid": 1,
+                "type": "CQUAD4",
+                "connectivity": [
+                  [
+                    5,
+                    6,
+                    11,
+                    12
+                  ]
+                ],
+                "createdNodes": 0,
+                "createdElements": 1
+              }
+            ],
+            "inputs": [
+              {
+                "key": "node:5",
+                "card": {
+                  "family": "nodes",
+                  "id": 5,
+                  "value": {
+                    "x": 0,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:6",
+                "card": {
+                  "family": "nodes",
+                  "id": 6,
+                  "value": {
+                    "x": 10,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:11",
+                "card": {
+                  "family": "nodes",
+                  "id": 11,
+                  "value": {
+                    "x": 10,
+                    "y": 10,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:12",
+                "card": {
+                  "family": "nodes",
+                  "id": 12,
+                  "value": {
+                    "x": 0,
+                    "y": 10,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              }
+            ],
+            "modifiedOwners": [],
+            "analysisExcluded": [],
+            "cards": [
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 16,
+                "role": "element-16",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 16,
+                  "pid": 1,
+                  "n": [
+                    5,
+                    6,
+                    11,
+                    12
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 4,
+          "evaluatedAt": 4,
+          "verifiedAt": 4
+        },
+        {
+          "id": "action-a2c15918-46bb-41ec-9a97-52a49f9393bd",
+          "kind": "mesh",
+          "name": "Create shells on solid faces",
+          "dependsOn": [
+            "action-127c6748-172d-4afb-bba4-5e2d5df1f27a"
+          ],
+          "definition": {
+            "generator": "mesh-actions-v1",
+            "actions": [
+              {
+                "action": "shells-on-faces",
+                "pid": 1,
+                "facets": [
+                  {
+                    "element": 5,
+                    "face": 2
+                  }
+                ],
+                "createdNodes": 0,
+                "createdElements": 1
+              }
+            ],
+            "inputs": [
+              {
+                "key": "element:5",
+                "card": {
+                  "family": "elems",
+                  "id": 5,
+                  "bucket": "hex",
+                  "value": {
+                    "type": "CHEXA",
+                    "eid": 5,
+                    "pid": 2,
+                    "n": [
+                      1,
+                      2,
+                      6,
+                      5,
+                      9,
+                      10,
+                      11,
+                      12
+                    ]
+                  }
+                }
+              },
+              {
+                "key": "node:1",
+                "card": {
+                  "family": "nodes",
+                  "id": 1,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:2",
+                "card": {
+                  "family": "nodes",
+                  "id": 2,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:6",
+                "card": {
+                  "family": "nodes",
+                  "id": 6,
+                  "value": {
+                    "x": 10,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:5",
+                "card": {
+                  "family": "nodes",
+                  "id": 5,
+                  "value": {
+                    "x": 0,
+                    "y": 10,
+                    "z": 0,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": "",
+                    "seid": null
+                  }
+                }
+              },
+              {
+                "key": "node:9",
+                "card": {
+                  "family": "nodes",
+                  "id": 9,
+                  "value": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:10",
+                "card": {
+                  "family": "nodes",
+                  "id": 10,
+                  "value": {
+                    "x": 10,
+                    "y": 0,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:11",
+                "card": {
+                  "family": "nodes",
+                  "id": 11,
+                  "value": {
+                    "x": 10,
+                    "y": 10,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              },
+              {
+                "key": "node:12",
+                "card": {
+                  "family": "nodes",
+                  "id": 12,
+                  "value": {
+                    "x": 0,
+                    "y": 10,
+                    "z": 1,
+                    "cp": 0,
+                    "cd": 0,
+                    "ps": ""
+                  }
+                }
+              }
+            ],
+            "modifiedOwners": [],
+            "analysisExcluded": [],
+            "cards": [
+              {
+                "family": "elems",
+                "bucket": "quad",
+                "id": 13,
+                "role": "element-13",
+                "value": {
+                  "type": "CQUAD4",
+                  "eid": 13,
+                  "pid": 1,
+                  "n": [
+                    9,
+                    10,
+                    11,
+                    12
+                  ]
+                }
+              }
+            ]
+          },
+          "overrides": {},
+          "facts": {
+            "defined": true,
+            "issues": [],
+            "suspendedReason": null,
+            "unverifiedReason": null
+          },
+          "changedAt": 2,
+          "evaluatedAt": 2,
+          "verifiedAt": 2
+        }
+      ],
+      "reservations": [
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-9",
+          "start": 9,
+          "end": 9
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-10",
+          "start": 10,
+          "end": 10
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-11",
+          "start": 11,
+          "end": 11
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-12",
+          "start": 12,
+          "end": 12
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-13",
+          "start": 13,
+          "end": 13
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-14",
+          "start": 14,
+          "end": 14
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-15",
+          "start": 15,
+          "end": 15
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-16",
+          "start": 16,
+          "end": 16
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-17",
+          "start": 17,
+          "end": 17
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-18",
+          "start": 18,
+          "end": 18
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-19",
+          "start": 19,
+          "end": 19
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-20",
+          "start": 20,
+          "end": 20
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-21",
+          "start": 21,
+          "end": 21
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-22",
+          "start": 22,
+          "end": 22
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-23",
+          "start": 23,
+          "end": 23
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "node",
+          "role": "grid-24",
+          "start": 24,
+          "end": 24
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-5",
+          "start": 5,
+          "end": 5
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-6",
+          "start": 6,
+          "end": 6
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-7",
+          "start": 7,
+          "end": 7
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-8",
+          "start": 8,
+          "end": 8
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-9",
+          "start": 9,
+          "end": 9
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-10",
+          "start": 10,
+          "end": 10
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-11",
+          "start": 11,
+          "end": 11
+        },
+        {
+          "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+          "namespace": "element",
+          "role": "element-12",
+          "start": 12,
+          "end": 12
+        },
+        {
+          "owner": "action-a2c15918-46bb-41ec-9a97-52a49f9393bd",
+          "namespace": "element",
+          "role": "element-13",
+          "start": 13,
+          "end": 13
+        },
+        {
+          "owner": "action-1397fd64-30cd-4242-975a-2848d726c073",
+          "namespace": "element",
+          "role": "element-14",
+          "start": 14,
+          "end": 14
+        },
+        {
+          "owner": "action-1397fd64-30cd-4242-975a-2848d726c073",
+          "namespace": "element",
+          "role": "element-15",
+          "start": 15,
+          "end": 15
+        },
+        {
+          "owner": "action-7049e5f9-09bb-4dfc-b2f5-84801c65add1",
+          "namespace": "element",
+          "role": "element-16",
+          "start": 16,
+          "end": 16
+        }
+      ],
+      "retiredObjectIds": []
+    },
+    "owners": [
+      {
+        "key": "element:10",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-10",
+        "card": {
+          "family": "elems",
+          "id": 10,
+          "value": {
+            "type": "CPENTA",
+            "eid": 10,
+            "pid": 2,
+            "n": [
+              13,
+              15,
+              16,
+              21,
+              23,
+              24
+            ]
+          },
+          "bucket": "penta"
+        }
+      },
+      {
+        "key": "element:11",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-11",
+        "card": {
+          "family": "elems",
+          "id": 11,
+          "value": {
+            "type": "CPENTA",
+            "eid": 11,
+            "pid": 2,
+            "n": [
+              3,
+              8,
+              7,
+              13,
+              16,
+              14
+            ]
+          },
+          "bucket": "penta"
+        }
+      },
+      {
+        "key": "element:12",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-12",
+        "card": {
+          "family": "elems",
+          "id": 12,
+          "value": {
+            "type": "CPENTA",
+            "eid": 12,
+            "pid": 2,
+            "n": [
+              13,
+              16,
+              14,
+              21,
+              24,
+              22
+            ]
+          },
+          "bucket": "penta"
+        }
+      },
+      {
+        "key": "element:13",
+        "owner": "action-a2c15918-46bb-41ec-9a97-52a49f9393bd",
+        "role": "element-13",
+        "card": {
+          "family": "elems",
+          "id": 13,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 13,
+            "pid": 1,
+            "n": [
+              9,
+              10,
+              11,
+              12
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:14",
+        "owner": "action-1397fd64-30cd-4242-975a-2848d726c073",
+        "role": "element-14",
+        "card": {
+          "family": "elems",
+          "id": 14,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 14,
+            "pid": 1,
+            "n": [
+              1,
+              2,
+              10,
+              9
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:15",
+        "owner": "action-1397fd64-30cd-4242-975a-2848d726c073",
+        "role": "element-15",
+        "card": {
+          "family": "elems",
+          "id": 15,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 15,
+            "pid": 1,
+            "n": [
+              9,
+              10,
+              18,
+              17
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:16",
+        "owner": "action-7049e5f9-09bb-4dfc-b2f5-84801c65add1",
+        "role": "element-16",
+        "card": {
+          "family": "elems",
+          "id": 16,
+          "value": {
+            "type": "CQUAD4",
+            "eid": 16,
+            "pid": 1,
+            "n": [
+              5,
+              6,
+              11,
+              12
+            ]
+          },
+          "bucket": "quad"
+        }
+      },
+      {
+        "key": "element:5",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-5",
+        "card": {
+          "family": "elems",
+          "id": 5,
+          "value": {
+            "type": "CHEXA",
+            "eid": 5,
+            "pid": 2,
+            "n": [
+              1,
+              2,
+              6,
+              5,
+              9,
+              10,
+              11,
+              12
+            ]
+          },
+          "bucket": "hex"
+        }
+      },
+      {
+        "key": "element:6",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-6",
+        "card": {
+          "family": "elems",
+          "id": 6,
+          "value": {
+            "type": "CHEXA",
+            "eid": 6,
+            "pid": 2,
+            "n": [
+              9,
+              10,
+              11,
+              12,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          "bucket": "hex"
+        }
+      },
+      {
+        "key": "element:7",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-7",
+        "card": {
+          "family": "elems",
+          "id": 7,
+          "value": {
+            "type": "CHEXA",
+            "eid": 7,
+            "pid": 2,
+            "n": [
+              2,
+              3,
+              7,
+              6,
+              10,
+              13,
+              14,
+              11
+            ]
+          },
+          "bucket": "hex"
+        }
+      },
+      {
+        "key": "element:8",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-8",
+        "card": {
+          "family": "elems",
+          "id": 8,
+          "value": {
+            "type": "CHEXA",
+            "eid": 8,
+            "pid": 2,
+            "n": [
+              10,
+              13,
+              14,
+              11,
+              18,
+              21,
+              22,
+              19
+            ]
+          },
+          "bucket": "hex"
+        }
+      },
+      {
+        "key": "element:9",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "element-9",
+        "card": {
+          "family": "elems",
+          "id": 9,
+          "value": {
+            "type": "CPENTA",
+            "eid": 9,
+            "pid": 2,
+            "n": [
+              3,
+              4,
+              8,
+              13,
+              15,
+              16
+            ]
+          },
+          "bucket": "penta"
+        }
+      },
+      {
+        "key": "node:10",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-10",
+        "card": {
+          "family": "nodes",
+          "id": 10,
+          "value": {
+            "x": 10,
+            "y": 0,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:11",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-11",
+        "card": {
+          "family": "nodes",
+          "id": 11,
+          "value": {
+            "x": 10,
+            "y": 10,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:12",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-12",
+        "card": {
+          "family": "nodes",
+          "id": 12,
+          "value": {
+            "x": 0,
+            "y": 10,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:13",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-13",
+        "card": {
+          "family": "nodes",
+          "id": 13,
+          "value": {
+            "x": 20,
+            "y": 0,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:14",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-14",
+        "card": {
+          "family": "nodes",
+          "id": 14,
+          "value": {
+            "x": 20,
+            "y": 10,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:15",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-15",
+        "card": {
+          "family": "nodes",
+          "id": 15,
+          "value": {
+            "x": 30,
+            "y": 0,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:16",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-16",
+        "card": {
+          "family": "nodes",
+          "id": 16,
+          "value": {
+            "x": 30,
+            "y": 10,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:17",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-17",
+        "card": {
+          "family": "nodes",
+          "id": 17,
+          "value": {
+            "x": 0,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:18",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-18",
+        "card": {
+          "family": "nodes",
+          "id": 18,
+          "value": {
+            "x": 10,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:19",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-19",
+        "card": {
+          "family": "nodes",
+          "id": 19,
+          "value": {
+            "x": 10,
+            "y": 10,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:20",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-20",
+        "card": {
+          "family": "nodes",
+          "id": 20,
+          "value": {
+            "x": 0,
+            "y": 10,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:21",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-21",
+        "card": {
+          "family": "nodes",
+          "id": 21,
+          "value": {
+            "x": 20,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:22",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-22",
+        "card": {
+          "family": "nodes",
+          "id": 22,
+          "value": {
+            "x": 20,
+            "y": 10,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:23",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-23",
+        "card": {
+          "family": "nodes",
+          "id": 23,
+          "value": {
+            "x": 30,
+            "y": 0,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:24",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-24",
+        "card": {
+          "family": "nodes",
+          "id": 24,
+          "value": {
+            "x": 30,
+            "y": 10,
+            "z": 2,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      },
+      {
+        "key": "node:9",
+        "owner": "action-127c6748-172d-4afb-bba4-5e2d5df1f27a",
+        "role": "grid-9",
+        "card": {
+          "family": "nodes",
+          "id": 9,
+          "value": {
+            "x": 0,
+            "y": 0,
+            "z": 1,
+            "cp": 0,
+            "cd": 0,
+            "ps": ""
+          }
+        }
+      }
+    ]
+  },
+  "snapshotDigest": "752a9b8f3bdda3a8c1e0c32e94c8e2efdb08ec1d2375a336538f18ace4a0be6b",
+  "cad": null,
+  "history": [
+    {
+      "text": "Create Create elements from nodes",
+      "time": "10:31 AM"
+    },
+    {
+      "text": "Create Extrude node chain into shells",
+      "time": "10:30 AM"
+    },
+    {
+      "text": "Create Create shells on solid faces",
+      "time": "10:30 AM"
+    },
+    {
+      "text": "Include source elements in analysis",
+      "time": "10:29 AM"
+    },
+    {
+      "text": "Create Extrude shells into solids",
+      "time": "10:28 AM"
+    }
+  ]
+}

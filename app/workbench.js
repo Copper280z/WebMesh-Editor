@@ -124,6 +124,7 @@
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
+  const actionWorkspace=window.WebMeshActionWorkspace.create({engine,run,dialog,review:reviewProject});
   const interfaceWorkspace=window.WebMeshInterfaceWorkspace.create({engine,run,dialog,review:reviewProject});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
   function setTab(tab) {
@@ -169,7 +170,8 @@
     } else if(activeTab==='setup') {
       html=section('Physical definitions',`<div class="wb-tool-list">${tool('material','Materials','Isotropic elasticity, density and material IDs','material')}${tool('property','Element properties','Shell thickness, solid regions and beam sections','plate')}</div>`);
       html+=section('Boundary conditions',`<div class="wb-tool-list">${tool('load','Loads','Forces, moments, pressure and load combinations','load')}${tool('constraint','Constraints','Single-point constraints and constrained DOFs','lock')}${tool('coordinate','Coordinate systems','Define local rectangular or cylindrical frames','cube')}</div>`);
-      html+=section('Connections',`<button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>CAD boundary edges to solid faces · RBE3 · independent remeshing</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
+      html+=section('Mesh authoring',`<button class="wb-tool-card" id="wb-mesh-actions"><span><strong>Mesh actions</strong><small>Create from nodes · faces · extrude shells or solids · analysis inclusion</small></span></button>`);
+      html+=section('Connections',`<button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>RBE3 distributed tie or conforming embedded shells</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
       html+=section('Model editing',`<div class="wb-tool-list">${tool('cards','Create nodes','Individual GRID cards and coordinate references','node')}${tool('element','Create elements','Shells, solids, beams, rods and rigid elements','mesh')}${tool('modify','Modify entities','Edit existing cards with schema-driven forms','setup')}${tool('selection','Selection & inspection','Pick, select by ID, filter and edit node coordinates','select')}${tool('transform','Transform mesh','Move, rotate, reflect and merge nodes','rotate')}</div>`)+`<div id="wb-report"></div>`;
       foot=button('wb-check-mesh','Check mesh connectivity','check','primary');
     } else {
@@ -241,12 +243,13 @@
     const note=(old?'Replace this mesh region. ':'Create a separate mesh region. ')+
       'Source: '+input.snapshot.filename+'. '+(oldSource?(oldSource.definition.geometryKey===source.definition.geometryKey?'Source geometry is unchanged. ':'Source geometry changed. '):'Original and prepared CAD snapshots are saved. ')+
       (input.kind==='shell'?'Shell faces: '+input.faces.join(', ')+'. Thickness and offsets are retained in the shell sections. ':'Solids: '+input.volumes.join(', ')+'. ')+
-      'Other mesh regions retain their nodes, elements and sections. Dependent interfaces are resolved in this review.';
+      'Dependent interfaces are resolved in this review. Embedded interfaces may also change neighboring shell boundary connectivity; review every affected owner.';
     return reviewProject(built.request,{...built,...callbacks,note});
   }
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    if(actionWorkspace.open(id))return;
     if(interfaceWorkspace.open(id))return;
     if(attachmentWorkspace.open(id))return;
     const cadRoot=window.WebMeshCadProject.rootFor(state,id);if(cadRoot){openCadOwner(state,cadRoot);return;}
@@ -274,8 +277,10 @@
   }
   async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,note}={}){
     const state=engine().getProjectOwnership();
+    request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshInterfaceProject.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshAttachmentProject.rebuild(state,request);
+    request=window.WebMeshActionProject.rebuild(state,request);
     const attachmentNote=window.WebMeshAttachmentProject.describe(state,request);
     if(attachmentNote)note=[note,attachmentNote].filter(Boolean).join(' ');
     if(!mesh){
@@ -284,6 +289,12 @@
         const used=new Set(connections.flatMap(c=>c.value.type==='RBE3'?[c.value.gn,...c.value.inds]:c.value.type==='RBE2'?[c.value.gn,...c.value.deps]:c.value.n));
         mesh={name:'Attachment preview',nodes:[...nodes.values()].filter(n=>used.has(n.id)),elements:connections.map(c=>({...c.value,id:c.id,nodes:c.value.type==='RBE3'?[c.value.gn,...c.value.inds]:c.value.type==='RBE2'?[c.value.gn,...c.value.deps]:c.value.n}))};}
     }
+    if((request.objects||[]).some(o=>o.definition.generator===window.WebMeshEmbeddedInterface.GENERATOR)){
+      const cards=(request.objects||[]).flatMap(o=>o.definition.cards||[]),nodes=new Map(engine().getMesh().nodes.map(n=>[n.id,n]));
+      for(const c of cards.filter(c=>c.family==='nodes'))nodes.set(c.id,{id:c.id,...c.value});
+      const elements=cards.filter(c=>c.family==='elems').map(c=>({id:c.id,type:c.value.type,pid:c.value.pid,nodes:c.value.n}));
+      const used=new Set(elements.flatMap(e=>e.nodes));mesh={name:'Embedded interface',nodes:[...nodes.values()].filter(n=>used.has(n.id)),elements};
+    }
     const candidate=await engine().previewProjectChange(request),report=candidate.preview();
     const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
     const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
@@ -291,6 +302,8 @@
     const value=v=>v===undefined?'—':JSON.stringify(v);
     const diff=changes=>changes.map(c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<details class="wb-card-diff"><summary>${esc(c.key)} · ${esc(c.action)}</summary><table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table></details>`;}).join('');
     dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change · ${report.project.changes.length} project objects change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?[...groups].map(([id,changes])=>`<details class="wb-owner-diff"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary>${diff(changes)}</details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?'<h3>Affected project checks</h3>'+checksHtml(affected):''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    const actions=(request.objects||[]).flatMap(o=>o.definition.actions||[]);
+    if(actions.length){const details=document.createElement('details');details.innerHTML='<summary>Composed mesh actions ('+actions.length+')</summary><pre>'+esc(JSON.stringify(actions,null,2))+'</pre>';$('wb-dialog-body').prepend(details);}
     if(note){const p=document.createElement('p');p.textContent=note;$('wb-dialog-body').prepend(p);}
     pendingProject=candidate;bindOwnerButtons($('wb-dialog-body'));if(mesh)try{previewInfo(mesh,true);}catch(error){closeDialog();throw error;}
     $('wb-apply-project').disabled=blocked;
@@ -311,6 +324,7 @@
     return mesh;
   }
   function bindPanel() {
+    $('wb-mesh-actions')?.addEventListener('click',()=>{if(!busy)actionWorkspace.list();});
     $('wb-interface-tool')?.addEventListener('click',()=>{if(!busy)interfaceWorkspace.list();});
     $('wb-mounting-tool')?.addEventListener('click',()=>{if(!busy)attachmentWorkspace.list();});
     $('wb-bolt-tool')?.addEventListener('click',()=>{if(!busy){patternKind='bolts';setTab('pattern');}});
@@ -401,7 +415,7 @@
     $('wb-selection-info').innerHTML=selectedNodes.length||selectedElements.length?`${selectedNodes.length.toLocaleString()} nodes · ${selectedElements.length.toLocaleString()} elements selected<br><span style="color:#5cd9bb">Ready to inspect or pattern.</span>`:'Click an entity to inspect it.<br>Alt + drag to select a region.';
     $('wb-selection-info').innerHTML+=selectionOwners(selection).map(o=>ownerButton(o.id)).join('');bindOwnerButtons($('wb-selection-info'));
     const rows=[['cube','Elements',elements,'selection'],['node','Nodes',nodes,'selection'],['plate','Properties',properties.length,'property'],['material','Materials',materials.length,'material'],['load','Loads',counts.loads||0,'load'],['lock','Constraints',counts.constraints||0,'constraint']];
-    $('wb-tree').innerHTML=(project.objects.length?'<div class="wb-tree-label">Project objects</div>'+project.objects.map(o=>`<button class="wb-tree-row wb-owner-row" data-owner-edit="${esc(o.id)}"><span>${esc(o.name)} <small>${esc(o.kind)} · ${o.cards} card${o.cards===1?'':'s'}</small></span>${checkBadge(project.checks.find(c=>c.id===o.id))}</button>`).join('')+'<div class="wb-tree-label">Solver cards</div>':'')+rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
+    $('wb-tree').innerHTML=(project.objects.length?'<div class="wb-tree-label">Project objects</div>'+project.objects.map(o=>`<button class="wb-tree-row wb-owner-row" data-owner-edit="${esc(o.id)}"><span>${esc(o.name)} <small>${esc(o.kind)} · ${o.cards} card${o.cards===1?'':'s'}${o.excluded?' · '+o.excluded+' excluded from analysis':''}</small></span>${checkBadge(project.checks.find(c=>c.id===o.id))}</button>`).join('')+'<div class="wb-tree-label">Solver cards</div>':'')+rows.map(([name,label,count,toolKey])=>`<button class="wb-tree-row" data-outline-tool="${toolKey}">${icon(name)}${label}<span class="count">${count.toLocaleString()}</span></button>`).join('')+(properties.length?`<div class="wb-body-list">${properties.slice(0,8).map(p=>`<button data-property-id="${p.id??p.pid}">↳ ${esc(p.type||'Property')} · ${esc(p.id??p.pid)}</button>`).join('')}</div>`:'');
     bindOwnerButtons($('wb-tree'));filterTree();
     $('wb-tree').querySelectorAll('[data-outline-tool]').forEach(el=>el.onclick=()=>openTool(el.dataset.outlineTool));
     $('wb-tree').querySelectorAll('[data-property-id]').forEach(el=>el.onclick=async()=>{if(busy)return;const id=Number(el.dataset.propertyId),property=properties.find(p=>Number(p.id??p.pid)===id);engine().select?.({props:[id],mode:'property'});const owner=engine().getCardOwner?.('property',id);if(owner){openProjectOwner(owner.id);return;}mountLegacy('schemaEditCardPanel',`Property ${id}`);try{await engine().editCard(property.type,'modify');}catch(error){message(error.message,true);}});

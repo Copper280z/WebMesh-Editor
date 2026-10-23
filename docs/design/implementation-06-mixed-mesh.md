@@ -48,9 +48,11 @@ Implemented through `app/cad-project.js`, `app/interface-project.js`, `app/inter
 
 ![Pure-moment case: deformed mixed mesh and von Mises contours](images/mixed-stress-case2.png)
 
-## Next milestone: embedded conforming shell–solid interfaces
+## Follow-on milestone: mesh actions and embedded conforming interfaces
 
-The analyst requested a second supported formulation: extend the shell one or two element rows into the solid and share GRID IDs in the overlap. This deliberately retains shell material within an already meshed solid. It is distinct from the implemented nonmatching RBE3 tie and is **planned, not implemented**. The current double-idealization guard rejects it.
+The expanded, actionable plan is [implementation 07](implementation-07-mesh-actions.md). It retains this guided interface and adds general analyst-authored tools alongside it.
+
+The analyst requested a second supported formulation: extend the shell one or two element rows into the solid and share GRID IDs in the overlap. This deliberately retains shell material within an already meshed solid. It is distinct from the nonmatching RBE3 tie and is now implemented, together with general mesh actions, in [implementation 07](implementation-07-mesh-actions.md). The historical outline below explains the intended progression; implementation 07 records the delivered bounds and validation. Ordinary accidental double idealization remains blocked.
 
 1. Add an explicit interface formulation selector: distributed RBE3 tie or embedded shared-node strip. For the embedded option, select the shell boundary, receiving solid region, penetration direction and depth in element rows. Show the actual overlap dimensions, participating elements and added shell mass/stiffness assumption in the review. Never infer or silently permit general overlapping idealizations.
 2. Start with a planar structured strip and compatible HEX8/CQUAD4 connectivity. The shell must extend to an internal nodal plane of the solid, with matching subdivisions throughout the strip. Reject incompatible placement, topology or order with an actionable diagnostic. HEX20 requires a matching CQUAD8 path with corresponding midside nodes before enabling that combination.

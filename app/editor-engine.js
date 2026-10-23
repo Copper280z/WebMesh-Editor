@@ -2938,6 +2938,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
       const gate = project.readiness({ action: "export-analysis" });
       if (!gate.allowed && !(optionsOverride && optionsOverride.projectSave)) throw Error(gate.blockers.map(b => b.name + ": " + b.reason).join("; "));
     }
+    const excludeElements = window.WebMeshOwnership.analysisExclusions(model.projectOwnership, window.WebMeshOwnership.snapshot(model), workerModel && workerModel.cardStream || []);
     const w = ensureCardEngineWorker();
     assertCoordinateContractBeforeExport(modelToWrite);
     const exportFormatEl2 = document.getElementById("exportFormat");
@@ -2968,7 +2969,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
         }
       };
       w.addEventListener("message", onMessage);
-      w.postMessage({ type: "WRITE_REQUEST", model: payloadModel, options: { writeFormat } });
+      w.postMessage({ type: "WRITE_REQUEST", model: payloadModel, options: { writeFormat, excludeElements: optionsOverride && optionsOverride.projectSave ? [] : excludeElements } });
     });
   }
   function ensureWorkerBackedModelReady() {
@@ -28444,7 +28445,7 @@ ${formatRanges(v.ranges, 500)}`;
       projectOwnerIndex = new Map(model.projectOwnership.owners.map(entry => [entry.key, entry]));
       const counts = new Map();
       for (const entry of model.projectOwnership.owners) counts.set(entry.owner, (counts.get(entry.owner) || 0) + 1);
-      projectSummaryCache = { checks: project.checks(), objects: model.projectOwnership.project.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, dependsOn: o.dependsOn, generator: o.definition.generator || null, cards: counts.get(o.id) || 0 })) };
+      projectSummaryCache = { checks: project.checks(), objects: model.projectOwnership.project.objects.map(o => ({ id: o.id, name: o.name, kind: o.kind, dependsOn: o.dependsOn, generator: o.definition.generator || null, cards: counts.get(o.id) || 0, excluded: (o.definition.analysisExcluded || []).length })) };
     }
     return structuredClone(projectSummaryCache);
   }
@@ -28530,6 +28531,9 @@ ${formatRanges(v.ranges, 500)}`;
       // Restore exact authored precision after the writer/parser round trip.
       // The digest binds this metadata to the saved deck; no cards are inferred.
       const semantic = window.WebMeshOwnership.snapshot(model);
+      // Protected manual inputs also retain authored precision/defaults. The
+      // digest binds these snapshots to the saved deck just like owned cards.
+      for (const object of data.ownership.project.objects) for (const input of object.definition.inputs || []) window.WebMeshOwnership.put(semantic, input.card);
       for (const entry of data.ownership.owners) window.WebMeshOwnership.put(semantic, entry.card);
       window.WebMeshOwnership.validate(data.ownership, semantic);
       for (const family of HISTORY_SEMANTIC_FAMILIES) if (family !== "projectOwnership") applyHistorySemanticFamilySnapshot(family, semantic[family]);
@@ -28589,6 +28593,7 @@ ${formatRanges(v.ranges, 500)}`;
     const elements = all.filter((e) => !chosenIds || chosenIds.has(Number(e.eid))).map((e) => ({
       id: Number(e.eid), type: String(e.type), pid: Number(e.pid) || 0,
       nodes: Array.isArray(e.n) ? e.n.slice() : collectSemanticElementNodeIds(e),
+      ...(e.zoffs != null ? { zoffs: e.zoffs } : {}),
       ...(e.orient ? { orient: structuredClone(e.orient) } : {}),
       ...(e.type === "RBE2" ? { cm: String(e.cm || "123456") } : {}),
       ...(e.type === "CBUSH" ? Object.fromEntries(["cid", "s", "ocid", "si"].filter(key => e[key] != null).map(key => [key, e[key]])) : {}),
@@ -28678,7 +28683,7 @@ ${formatRanges(v.ranges, 500)}`;
       if (model.nodes.has(id) || newNodes.has(id)) throw new Error(`Node ID ${id} already exists. Regenerate the mesh to refresh IDs.`);
       newNodes.set(id, { x: finite(row.x, "X"), y: finite(row.y, "Y"), z: finite(row.z, "Z"), cp: 0, cd: 0, ps: "" });
     }
-    const connectivity = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CROD: [2], CBUSH: [2], RBE2: [] };
+    const connectivity = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CPENTA: [6], CROD: [2], CBUSH: [2], RBE2: [] };
     const providedProperties = new Map();
     if (mesh.properties != null && !Array.isArray(mesh.properties)) throw new Error("Mesh properties must be an array.");
     for (const p of mesh.properties || []) {
@@ -28700,7 +28705,7 @@ ${formatRanges(v.ranges, 500)}`;
       if (model.masses.has(eid) || existingElements.has(eid) && !replacements.has(eid) || newElementIds.has(eid)) throw new Error(`Element ID ${eid} already exists. Regenerate the mesh to refresh IDs.`);
       newElementIds.add(eid);
       const inputType = String(row.type || "").toUpperCase();
-      const type = ({ CHEXA20: "CHEXA", CHEXA8: "CHEXA", CTETRA10: "CTETRA", CTETRA4: "CTETRA" })[inputType] || inputType;
+      const type = ({ CHEXA20: "CHEXA", CHEXA8: "CHEXA", CTETRA10: "CTETRA", CTETRA4: "CTETRA", CPENTA6: "CPENTA" })[inputType] || inputType;
       const expected = connectivity[type];
       if (!expected) throw new Error(`Unsupported generated element type ${inputType}.`);
       const nodes = Array.isArray(row.nodes) ? row.nodes.map((id) => validId(id, "Connectivity node")) : [];
@@ -28713,7 +28718,7 @@ ${formatRanges(v.ranges, 500)}`;
         return { eid, type, gn: nodes[0], cm, deps: nodes.slice(1), ...(ownerTag ? { webmeshOwner: ownerTag } : {}) };
       }
       const pid = validId(row.pid, "Property ID");
-      const propertyType = type === "CHEXA" || type === "CTETRA" ? "PSOLID" : type === "CROD" ? "PROD" : type === "CBUSH" ? "PBUSH" : "PSHELL";
+      const propertyType = type === "CHEXA" || type === "CTETRA" || type === "CPENTA" ? "PSOLID" : type === "CROD" ? "PROD" : type === "CBUSH" ? "PBUSH" : "PSHELL";
       if (propertyTypes.has(pid) && propertyTypes.get(pid) !== propertyType) throw new Error(`Property ${pid} is shared by incompatible element dimensions.`);
       propertyTypes.set(pid, propertyType);
       const old = model.properties.get(pid) || providedProperties.get(pid);
@@ -28856,6 +28861,7 @@ ${formatRanges(v.ranges, 500)}`;
     const patterns = {
       CTRIA3: [[0, 1], [1, 2], [2, 0]], CTRIA6: [[0, 3], [3, 1], [1, 4], [4, 2], [2, 5], [5, 0]],
       CQUAD4: [[0, 1], [1, 2], [2, 3], [3, 0]], CQUAD8: [[0, 4], [4, 1], [1, 5], [5, 2], [2, 6], [6, 3], [3, 7], [7, 0]],
+      CPENTA: [[0, 1], [1, 2], [2, 0], [3, 4], [4, 5], [5, 3], [0, 3], [1, 4], [2, 5]],
       CTETRA: [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]],
       CHEXA: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 5], [2, 6], [3, 7], [4, 5], [5, 6], [6, 7], [7, 4]], CROD: [[0, 1]], CBUSH: [[0, 1]]
     };
@@ -28906,6 +28912,7 @@ ${formatRanges(v.ranges, 500)}`;
     canvas.addEventListener("mousedown", () => { cadHoverEvent = null; if (cadViewport.isPicking()) cadViewport.hover(null); });
   }
   window.WebMeshAPI = Object.freeze({
+    getAuthoringModel: async () => { await ensureRichEditableSemanticElementAuthority("mesh-authoring"); return window.WebMeshOwnership.snapshot(model); },
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
     previewProjectChange: (request) => previewProjectChange(request),
     getProjectSummary: () => workbenchProjectSummary(),

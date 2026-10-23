@@ -2,6 +2,12 @@
 
 WebMesh Studio is a modular, browser-based finite element pre/post processor for Nastran `.bdf` and `.dat` decks. Build connected meshes from primitives, assemble them with patterns, prepare and mesh CAD through a local OpenCASCADE service, define model cards, and review MYSTRAN F06 results.
 
+## Primary project goal: analyst-accessible actions
+
+Automatic and guided workflows must be compositions of actions the analyst can also invoke directly. The same actions use the same validation, preview, ownership, undo and export contracts in either context. Guidance supplies selection and sequencing; it must not hide essential modeling capabilities behind a special-purpose generator. An analyst must be able to inspect, adjust and complete a model when a guide cannot finish it. Existing workflows will be brought into this architecture incrementally.
+
+The first implementation of this rule is [mesh actions and embedded interfaces](docs/design/implementation-07-mesh-actions.md).
+
 ## Start the editor
 
 **Browser only:** open `WebMeshEditor.html` in a current desktop browser with WebGL enabled. Keep the `app/`, `styles/`, and `vendor/` folders beside it. Scratch modeling, patterns, deck editing, export, and results review run locally without an installation, build step, CDN, or server.

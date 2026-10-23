@@ -8,7 +8,7 @@
   // Unknown hand-card references fail closed, rather than guessing from integers.
   const FORMAT = 'webmesh-engine-ownership';
   const families = { nodes: 'node', elems: 'element', masses: 'element', properties: 'property', materials: 'material', coords: 'coordinate' };
-  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2', RBE3: 'rbe3' };
+  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CPENTA: 'penta', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2', RBE3: 'rbe3' };
   const known = new Set(('GRID CORD1R CORD1C CORD2R CORD2C CORD2S CTRIA3 CTRIA6 CQUAD4 CQUAD8 CTETRA CHEXA CPENTA CPYRAM CROD CBAR CBEAM CBUSH RBE2 RBE3 CONM2 PSHELL PSOLID PROD PBAR PBEAM PCOMP PBUSH MAT1 MAT8 FORCE MOMENT PLOAD2 PLOAD4 LOAD SPC SPC1 TEMP TEMPD ENDDATA').split(' '));
   known.add('CEND'); known.add('BEGIN BULK');
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -82,7 +82,7 @@
     }
     if (card.family === 'elems') {
       const ns = type === 'RBE3' ? [v.gn, ...(v.inds || [])] : type === 'RBE2' ? [v.gn, ...(v.deps || [])] : v.n;
-      const counts = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CROD: [2], CBUSH: [2] };
+      const counts = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CPENTA: [6, 15], CROD: [2], CBUSH: [2] };
       if (!Array.isArray(ns) || (['RBE2','RBE3'].includes(type) ? ns.length < 2 : !counts[type].includes(ns.length))) fail(k + ': incorrect connectivity count.');
       ns.forEach(id); if (new Set(ns).size !== ns.length) fail(k + ': repeated connectivity.');
       if (type === 'RBE2' && (!/^[1-6]+$/.test(v.cm) || new Set(v.cm).size !== v.cm.length)) fail(k + ': invalid dependent components.');
@@ -188,6 +188,14 @@
       if (all && !equal(all.get(entry.key), card)) fail(entry.key + ' is owned by ' + object.name + ' (' + entry.role + '). Edit its owner or explicitly convert the object to plain cards.');
     }
     for (const object of objects.values()) {
+      if (object.definition.embeddedBy) {
+        const guide = objects.get(object.definition.embeddedBy);
+        if (guide?.definition.generator !== 'shell-solid-embedded-v1' || guide.definition.shell !== object.id) fail(object.name + ': remove the embedded interface through its editor to restore boundary connectivity, or convert both connected meshes together.');
+      }
+      for (const edit of object.definition.actionEdits || []) if (!objects.get(edit)?.definition.modifiedOwners?.some(m => m.before.id === object.id)) fail(object.name + ': remove its node-sharing action through the action editor to restore connectivity.');
+      for (const input of object.definition.inputs || []) {
+        if (!input.card || !['nodes','elems'].includes(input.card.family) || input.key !== key(input.card.family,input.card.id) || !input.card.value || typeof input.card.value !== 'object') fail('Invalid mesh input snapshot: ' + object.id);
+      }
       const expected = object.facts.suspendedReason ? [] : object.definition.cards || [];
       const definedRoles = new Set();
       for (const card of expected) {
@@ -197,12 +205,38 @@
         if (!roles.has(JSON.stringify([object.id, card.role]))) fail('Owner definition is missing a generated card: ' + object.id + '/' + card.role);
       }
     }
+    if (semantic) analysisExclusions(s, semantic);
     return project;
+  }
+  // Analysis participation is metadata, never display visibility or deletion.
+  function analysisExclusions(state, semantic, opaque = []) {
+    const index = references(semantic, opaque), excluded = new Set();
+    const owners = new Map((state?.owners || []).map(e => [e.key, e.owner]));
+    for (const object of state?.project.objects || []) {
+      for (const input of object.definition.inputs || []) {
+        const actual = index.cards.get(input.key), expected = input.card;
+        if (!actual || !equal(actual.value, expected.value)) fail(object.name + ': explicit mesh input ' + input.key + ' changed. Remove/recreate the action with a repaired selection before remeshing.');
+      }
+      for (const e of object.definition.analysisExcluded || []) {
+        const actual = index.cards.get('element:' + e.id);
+        if (!actual || actual.family !== 'elems' || actual.value.type !== e.type || !equal(actual.value.n, e.n)) fail(object.name + ': excluded element ' + e.id + ' changed or is missing. Repair analysis participation before remeshing.');
+        const owner = owners.get('element:' + e.id);
+        if (owner && owner !== object.id && !object.dependsOn.includes(owner)) fail(object.name + ': exclusion must depend on ' + owner + '.');
+        excluded.add(e.id);
+      }
+    }
+    if (excluded.size) {
+      if (index.unsupported.length) fail('Cannot prove excluded-element references for ' + index.unsupported.join(', ') + '.');
+      const references = index.refs.filter(r => r.to.startsWith('element:') && excluded.has(Number(r.to.slice(8))));
+      if (references.length) fail('Repair loads/references before excluding elements: ' + references.map(r => r.from + ' → ' + r.to).join(', '));
+    }
+    return [...excluded].sort((a,b) => a-b);
   }
   function guard(state, before, after, opaque = []) {
     if (!state) return;
     validate(state, after);
     validateRigidDependents(after, new Map(state.owners.map(e => [e.key,e])));
+    analysisExclusions(state, after, opaque);
     const a = references(before, opaque), b = references(after, opaque);
     const removed = [...a.cards.keys()].filter(k => !b.cards.has(k));
     if (removed.length && b.unsupported.length) fail('Cannot prove references for ' + b.unsupported.join(', ') + '; removal is blocked.');
@@ -222,6 +256,7 @@
     const tx = project.begin(request.label || 'Change project cards');
     for (const object of objects) tx.putObject(object);
     for (const block of request.reservations || []) tx.reserveIds(block.owner, block.namespace, block.role, block.count, { start: block.start });
+    for (const owner of converted) if (project.getObject(owner)?.definition.analysisExcluded?.length) fail('Include excluded elements or transfer their participation definition before converting this action to plain cards.');
     for (const owner of [...removed, ...converted]) { if (!project.getObject(owner)) fail('Unknown owner: ' + owner); tx.removeObject(owner); }
     for (const [k, entry] of owners) if (touched.includes(entry.owner)) { owners.delete(k); if (!converted.includes(entry.owner)) nextCards.delete(k); }
     for (const object of objects) {
@@ -255,6 +290,7 @@
     const corePreview = tx.preview(); tx.commit();
     const next = { ...state, project: project.snapshot(), owners: [...owners.values()].sort((a, b) => a.key.localeCompare(b.key)) };
     validate(next, after);
+    analysisExclusions(next, after, opaque);
     const index = references(after, opaque);
     if (index.unsupported.length) fail('Cannot prove references for ' + index.unsupported.join(', ') + '; project generation is blocked.');
     if (index.missing.length) fail('Dangling reference: ' + index.missing.map(r => r.from + ' → ' + r.to).join(', '));
@@ -270,5 +306,5 @@
     const ownershipChanges = [...new Set([...previousOwners.keys(), ...nextOwners.keys()])].filter(k => !equal(previousOwners.get(k), nextOwners.get(k))).map(k => ({ key: k, before: previousOwners.get(k) || null, after: nextOwners.get(k) || null }));
     return copy({ semantic: after, ownership: next, changes, ownershipChanges, project: corePreview });
   }
-  return Object.freeze({ snapshot, rows, put, validate, preview, guard, references, empty, equal, canonical });
+  return Object.freeze({ analysisExclusions, snapshot, rows, put, validate, preview, guard, references, empty, equal, canonical });
 }));

@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.WebMeshModeling = factory();
-}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./mesh-actions.js'));
+  else root.WebMeshModeling = factory(root.WebMeshActions);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Actions) {
   'use strict';
 
   const MAX_NODES = 500000;
@@ -15,12 +15,14 @@
     CTRIA6: { corners: 3, edges: [[0,1],[1,2],[2,0]], solid: false },
     CQUAD4: { corners: 4, edges: [[0,1],[1,2],[2,3],[3,0]], solid: false },
     CQUAD8: { corners: 4, edges: [[0,1],[1,2],[2,3],[3,0]], solid: false },
+    CPENTA6: { corners: 6, edges: [[0,1],[1,2],[2,0],[3,4],[4,5],[5,3],[0,3],[1,4],[2,5]], solid: true },
     CTETRA4: { corners: 4, edges: [[0,1],[1,2],[2,0],[0,3],[1,3],[2,3]], solid: true },
     CTETRA10: { corners: 4, edges: [[0,1],[1,2],[2,0],[0,3],[1,3],[2,3]], solid: true },
     CHEXA8: { corners: 8, edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,5],[2,6],[3,7],[4,5],[5,6],[6,7],[7,4]], solid: true },
     CHEXA20: { corners: 8, edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,5],[2,6],[3,7],[4,5],[5,6],[6,7],[7,4]], solid: true }
   };
   const HEX_FACES = [[0,3,2,1],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]];
+  const PENTA_FACES = [[0,2,1],[3,4,5],[0,1,4,3],[1,2,5,4],[2,0,3,5]];
   const TET_FACES = [[0,2,1],[0,1,3],[1,2,3],[2,0,3]];
   const add = (a,b) => a.map((v,i) => v+b[i]);
   const sub = (a,b) => a.map((v,i) => v-b[i]);
@@ -33,6 +35,7 @@
   function resolvedType(element) {
     const type=String(element.type||'').toUpperCase(), count=Array.isArray(element.nodes)?element.nodes.length:0;
     if(type==='CHEXA') return count>8?'CHEXA20':'CHEXA8';
+    if(type==='CPENTA') return count===6?'CPENTA6':'CPENTA15';
     if(type==='CTETRA') return count>4?'CTETRA10':'CTETRA4';
     return type;
   }
@@ -377,7 +380,7 @@
       const spec=TYPES[resolvedType(e)];
       if(!spec||spec.line||!Array.isArray(e.nodes))continue;
       if(!spec.solid) {e.nodes.forEach(id=>boundary.add(id));continue;}
-      const templates=spec.corners===4?TET_FACES:HEX_FACES;
+      const templates=spec.corners===4?TET_FACES:spec.corners===6?PENTA_FACES:HEX_FACES;
       for(const face of templates) {
         const key=face.map(i=>e.nodes[i]).sort((a,b)=>a-b).join(':');
         if(faces.has(key)){faces.get(key).count++;continue;}
@@ -486,7 +489,7 @@
         continue;
       }
       if(!Number.isSafeInteger(e.pid)||e.pid<1||e.pid>MAX_ID) errors.push('Element '+e.id+' has an invalid property ID.');
-      if(!spec) {errors.push('Element '+e.id+' uses '+e.type+'. This mesh checker and pattern tool support triangles, quads, tetrahedra, hexes, CROD, CBUSH and RBE2; use the card editor for other structural types.');continue;}
+      if(!spec) {errors.push('Element '+e.id+' uses '+e.type+'. This mesh checker and pattern tool support triangles, quads, tetrahedra, hexes, linear wedges, CROD, CBUSH and RBE2; use the card editor for other structural types.');continue;}
       stats.topologies[type]=(stats.topologies[type]||0)+1;
       const quadratic=['CTRIA6','CQUAD8','CTETRA10','CHEXA20'].includes(type);
       const expected=spec.corners+(quadratic?spec.edges.length:0);
@@ -518,8 +521,9 @@
       } else {
         const epsV=Math.max(Number.MIN_VALUE,length*length*length*1e-12);
         if(spec.corners===4) {if(signedTet(p)<=epsV)degenerate=true;}
+        else if(spec.corners===6){try{Actions.validateElement(e,nodes);}catch{degenerate=true;}}
         else if(hexJacobians(p).some(j=>j<=epsV/8)) degenerate=true;
-        (spec.corners===4?TET_FACES:HEX_FACES).forEach(f=>{const key=f.map(i=>corner[i]).sort((a,b)=>a-b).join(':');faces.set(key,(faces.get(key)||0)+1);});
+        (spec.corners===4?TET_FACES:spec.corners===6?PENTA_FACES:HEX_FACES).forEach(f=>{const key=f.map(i=>corner[i]).sort((a,b)=>a-b).join(':');faces.set(key,(faces.get(key)||0)+1);});
       }
       if(quadratic) spec.edges.forEach(([a,b],i)=>{
         const key=edgeKey(corner[a],corner[b]), id=e.nodes[spec.corners+i];
@@ -576,7 +580,7 @@
       else if(type==='CBUSH') {
         const orientation=e.orient?.kind==='x'?e.orient.x.map(v=>{const text=number(v);return /[.eE]/.test(text)?text:text+'.';}):[e.orient?.g0??'','',''];
         card(type,[e.id,e.pid,...e.nodes,...orientation,e.cid??'']);
-      } else card(type.startsWith('CTETRA')?'CTETRA':type.startsWith('CHEXA')?'CHEXA':type,[e.id,e.pid,...e.nodes]);
+      } else card(type.startsWith('CTETRA')?'CTETRA':type.startsWith('CHEXA')?'CHEXA':type.startsWith('CPENTA')?'CPENTA':type,[e.id,e.pid,...e.nodes]);
     });
     lines.push('ENDDATA','');
     return lines.join('\n');
