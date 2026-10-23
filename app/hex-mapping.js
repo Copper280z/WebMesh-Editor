@@ -974,6 +974,10 @@
     if (nodes.length > MAX_NODES) throw Error(`The mapped mesh exceeds ${MAX_NODES.toLocaleString()} nodes. Increase the element size.`);
     const result = {
       nodes,
+      // Face grids contain unused face-center points for HEX20; only expose
+      // nodes actually referenced by elements. Preserve shared edge/midside IDs.
+      faceNodes: Object.fromEntries([...faceGrids].sort(([a], [b]) => a - b).map(([id, grid]) =>
+        [id, [...new Set(grid.ids.flat().map(n => used[n]).filter(n => n > 0))].sort((a, b) => a - b)])),
       elements: elements.map((e, i) => ({ id: i + 1, type: 'CHEXA', pid: Number(options.pidPerSolid ? e.volume : 1), volume: e.volume, nodes: e.nodes.map(id => used[id]) })),
       quality: { ...quality, elements: elements.length, nodes: nodes.length, order, elementQuality }
     };

@@ -463,3 +463,125 @@ test('remeshing a reopened CAD deck retires old source properties; removal and u
   const empty=await exportParsed(c,'free',original.deck);assert.equal(empty.indexes.properties.size,0);assert.equal(empty.indexes.materials.size,0);assert.equal(empty.indexes.elements.size,0);assert.equal(empty.indexes.nodes.size,1);
   c.historyManager.undo();const undone=await exportParsed(c,'free',original.deck);assert.deepEqual([...undone.indexes.properties.keys()].sort(),[2,3]);assert.equal(undone.indexes.elements.size,built.mesh.elements.length);
 });
+
+const Mount=require('../app/attachment-project.js');
+function applyMount(previous,request){return O.preview(previous.semantic,previous.ownership,Mount.rebuild(previous.ownership,request));}
+async function mountedPair(){
+  let a=await cadPreview();
+  for(const [id,face] of [['left',1],['right',2]])a=applyMount(a,Mount.region({id,name:id+' mount',mesh:'cad',faces:[face]},a.ownership));
+  for(const [id,region,x] of [['motor-left','left',0],['motor-right','right',10]]){
+    const input={id,name:id,region,mount:[x,3,2],shaft:[x+(x?20:-20),3,2],components:'123',template:'motor-stiffness'};
+    if(id==='motor-left')input.newTemplate={id:'motor-stiffness',name:'Motor stiffness',stiffness:[1e5,2e5,3e5,1e4,2e4,3e4]};
+    a=applyMount(a,Mount.attachment(input,a.ownership,nextPlateIds));
+  }
+  return a;
+}
+test('named mounting regions and two attachments share one PBUSH with independent stable points',async()=>{
+  const a=await mountedPair();assert.equal(a.semantic.elems.rbe2.length,2);assert.equal(a.semantic.elems.bush.length,2);
+  assert.equal(a.semantic.properties.filter(([,v])=>v.type==='PBUSH').length,1);
+  const roots=a.ownership.project.objects.filter(o=>o.definition.generator===Mount.ATTACHMENT);
+  assert.equal(roots.length,2);assert.ok(a.semantic.elems.bush.every(e=>e.pid===a.semantic.elems.bush[0].pid&&e.cid===0));
+  assert.ok(a.semantic.elems.rbe2.every(e=>e.cm==='123'));
+  const left=a.ownership.project.objects.find(o=>o.id==='left');
+  assert.deepEqual(left.definition.selector.faces,[1]);assert.deepEqual(left.definition.resolved.nodes,a.semantic.elems.rbe2[0].deps);
+  const same=applyMount(a,{objects:[copy(roots[0])]});assert.deepEqual(same.changes,[]);assert.deepEqual(same.project.changes,[]);
+});
+test('remesh re-resolves both regions and RBE2s atomically, retaining point, element and PBUSH IDs',async()=>{
+  const a=await mountedPair(),before=copy(a),built=await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds);
+  const b=applyMount(a,built.request);
+  assert.deepEqual(a,before,'pure builders leave the committed project intact');
+  const changedNodes=new Set(b.semantic.elems.hex.flatMap(e=>e.n));
+  for(let i=0;i<2;i++){
+    const r=b.semantic.elems.rbe2[i],old=a.semantic.elems.rbe2[i];assert.equal(r.eid,old.eid);assert.equal(r.gn,old.gn);
+    assert.ok(r.deps.length>old.deps.length);assert.ok(r.deps.every(id=>changedNodes.has(id)));assert.ok(r.deps.every(id=>!old.deps.includes(id)));
+  }
+  assert.deepEqual(b.semantic.elems.bush,a.semantic.elems.bush);
+  assert.ok(b.project.checks.every(c=>c.status!=='invalid'));
+  const hand=copy(a);hand.semantic.loads.force.push({sid:7,nid:a.semantic.elems.rbe2[0].deps[0],mag:20,cid:0,dir:[1,0,0]});
+  assert.throws(()=>applyMount(hand,built.request),/Dangling reference/);
+});
+test('material and shared stiffness changes re-evaluate both attachments without duplicating cards',async()=>{
+  const a=await mountedPair(),b=applyMount(a,Cad.materialChange(a.ownership,'cad',{E:3500,nu:.36,rho:1.24e-9}));
+  assert.ok(b.project.checks.every(c=>c.status!=='invalid'));assert.deepEqual(a.semantic.elems,b.semantic.elems);
+  const request={label:'Edit motor stiffness',objects:[Mount.template({id:'motor-stiffness',name:'PLA motor mount',stiffness:[200,300,400,500,600,700]},b.ownership,nextPlateIds)]};
+  const c=applyMount(b,request);assert.equal(c.changes.length,1);assert.equal(c.changes[0].after.value.K1,200);assert.ok(c.project.checks.every(c=>c.status!=='invalid'));
+  assert.deepEqual(c.semantic.elems.bush,a.semantic.elems.bush);
+});
+test('topology replacement, missing face resolution and unsupported downstream consumers stay blocked',async()=>{
+  const a=await mountedPair();
+  const topology=await Cad.build(cadInput({name:'split-box'}),a.ownership,nextPlateIds);
+  assert.throws(()=>Mount.rebuild(a.ownership,topology.request),/Mounting region.*left mount.*geometry changed/);
+  const scope=await Cad.build(cadInput({size:2}),a.ownership,nextPlateIds);scope.request.objects.find(o=>o.id==='cad').definition.faces=scope.request.objects.find(o=>o.id==='cad').definition.faces.filter(f=>f.id!==1);
+  assert.throws(()=>Mount.rebuild(a.ownership,scope.request),/left mount.*not meshed/);
+  const external=applyMount(a,{objects:[definition('future','connection',[],['motor-left'])]});
+  const edited=applyMount(external,Cad.materialChange(external.ownership,'cad',{E:3500,nu:.36,rho:1.24e-9}));
+  assert.equal(edited.project.checks.find(c=>c.id==='future').status,'invalid');
+});
+test('region edits are reviewed even without solver-card changes; support conflicts and invalid geometry fail',async()=>{
+  const a=await mountedPair();
+  const renamed=applyMount(a,Mount.region({id:'left',name:'Left motor flange',mesh:'cad',faces:[1]},a.ownership));
+  assert.equal(renamed.changes.length,0);assert.ok(renamed.project.changes.some(c=>c.id==='left'));
+  assert.throws(()=>applyMount(a,Mount.region({id:'right',name:'Right',mesh:'cad',faces:[1]},a.ownership)),/dependent|constrained/);
+  assert.throws(()=>Mount.region({id:'empty',name:'Empty',mesh:'cad',faces:[]},a.ownership),/select one/);
+  assert.throws(()=>Mount.region({id:'bad',name:'Bad',mesh:'cad',faces:[99]},a.ownership),/not meshed/);
+  const malformed=copy(a.ownership),mesh=malformed.project.objects.find(o=>o.id==='cad');mesh.definition.faces[0].nodes=mesh.definition.faces[0].nodes.slice(0,2);
+  assert.throws(()=>Mount.region({id:'tiny',name:'Tiny',mesh:'cad',faces:[1]},malformed),/three support/);
+});
+test('attachments reject invalid inputs and constrained supports without altering the model',async()=>{
+  const a=await mountedPair(),base={id:'motor-left',name:'Motor',region:'left',mount:[0,3,2],shaft:[-20,3,2],components:'123',template:'motor-stiffness'};
+  for(const change of [{components:'123456'},{components:'11'},{mount:[NaN,0,0]},{shaft:[0,3,2]},{template:'missing'}])assert.throws(()=>Mount.attachment({...base,...change},a.ownership,nextPlateIds));
+  const constrained=copy(a);constrained.semantic.spc1.push({sid:3,nodes:[a.semantic.elems.rbe2[0].deps[0]],components:'1'});
+  assert.throws(()=>applyMount(constrained,Mount.attachment(base,constrained.ownership,nextPlateIds)),/dependent|constrained/);
+});
+test('attachment removal retains shared templates/regions and protects shaft loads',async()=>{
+  const a=await mountedPair();
+  for(const id of ['left','motor-stiffness'])assert.throws(()=>Mount.removal(a.ownership,id),/Resolve dependent/);
+  const loaded=copy(a),shaft=a.semantic.elems.bush[0].n[1];loaded.semantic.loads.force.push({sid:3,nid:shaft,mag:10,cid:0,dir:[0,0,1]});
+  assert.throws(()=>applyMount(loaded,Mount.removal(loaded.ownership,'motor-left')),/Dangling reference/);
+  const b=applyMount(a,Mount.removal(a.ownership,'motor-left'));assert.equal(b.semantic.elems.bush.length,1);assert.ok(b.ownership.project.objects.some(o=>o.id==='motor-stiffness'));assert.ok(b.ownership.project.objects.some(o=>o.id==='left'));
+  assert.equal(b.semantic.nodes.some(([id])=>id===shaft),false);
+});
+test('attachment history, real source/free/small/large writer and saved ownership survive remesh',async()=>{
+  const c=fixture();(await c.previewProjectChange((await Cad.build(cadInput(),null,nextPlateIds)).request)).commit();
+  for(const [id,face] of [['left',1],['right',2]])(await c.previewProjectChange(Mount.rebuild(c.model.projectOwnership,Mount.region({id,name:id,mesh:'cad',faces:[face]},c.model.projectOwnership)))).commit();
+  for(const [id,region,x] of [['motor-left','left',0],['motor-right','right',10]]){
+    const input={id,name:id,region,mount:[x,3,2],shaft:[x+(x?20:-20),3,2],components:'123',template:'stiffness'};
+    if(id==='motor-left')input.newTemplate={id:'stiffness',name:'NEMA17',stiffness:[1e5,2e5,3e5,1e4,2e4,3e4]};
+    (await c.previewProjectChange(Mount.rebuild(c.model.projectOwnership,Mount.attachment(input,c.model.projectOwnership,nextPlateIds)))).commit();
+  }
+  const original=await exportParsed(c);c.workerModel.cardStream=original.cards;c.indexWorkerCardStream(original.cards);
+  const before=copy(c.model.projectOwnership),depth=c.historyManager.stack.length;
+  const built=await Cad.build(cadInput({size:2,order:2}),before,nextPlateIds);
+  (await c.previewProjectChange(Mount.rebuild(before,built.request))).commit();
+  assert.equal(c.historyManager.stack.length,depth+1);const after=copy(c.model.projectOwnership);
+  c.historyManager.undo();assert.deepEqual(copy(c.model.projectOwnership),before);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),after);
+  for(const format of ['source','free','small','large']){
+    const {indexes}=await exportParsed(c,format,original.deck);
+    for(const e of c.model.elems.rbe2){const parsed=indexes.elements.get(e.eid);assert.equal(parsed.gn,e.gn);assert.equal(parsed.cm,e.cm);assert.deepEqual(copy(parsed.gmi),copy(e.deps));}
+    for(const e of c.model.elems.bush){const parsed=indexes.elements.get(e.eid);assert.equal(parsed.cid,0);assert.deepEqual(copy(parsed.nids),copy(e.n));assert.equal(parsed.pid,e.pid);}
+    assert.equal([...indexes.properties.values()].filter(p=>p.type==='PBUSH').length,1);
+  }
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();c.loadFromText=async()=>{};await c.loadProjectModel(saved);
+  assert.deepEqual(copy(O.validate(c.model.projectOwnership,O.snapshot(c.model)).snapshot()),after.project);
+  const again=Mount.rebuild(c.model.projectOwnership,(await Cad.build(cadInput({size:2,order:2}),c.model.projectOwnership,nextPlateIds)).request);
+  const tx=await c.previewProjectChange(again);assert.equal(tx.preview().changes.length,0);tx.discard();
+});
+
+test('explicit point and component edits retain identities and hand constraints on the independent shaft',async()=>{
+  const a=await mountedPair(),before=copy(a.semantic.elems.bush),shaft=before[0].n[1];
+  a.semantic.spc1.push({sid:8,nodes:[shaft],components:'123456'});
+  const request=Mount.attachment({id:'motor-left',name:'Left motor moved',region:'left',mount:[-2,3,2],shaft:[-25,3,2],components:'12',template:'motor-stiffness'},a.ownership,nextPlateIds);
+  const b=applyMount(a,request);assert.deepEqual(b.semantic.elems.bush.slice().sort((a,b)=>a.eid-b.eid),before.slice().sort((a,b)=>a.eid-b.eid));assert.equal(b.semantic.elems.rbe2.find(e=>e.gn===before[0].n[0]).cm,'12');
+  assert.equal(b.semantic.nodes.find(([id])=>id===shaft)[1].x,-25);assert.deepEqual(b.semantic.spc1,a.semantic.spc1);
+  const refined=applyMount(b,(await Cad.build(cadInput({size:2}),b.ownership,nextPlateIds)).request);
+  assert.deepEqual(refined.semantic.spc1,a.semantic.spc1);assert.equal(refined.semantic.elems.bush.find(e=>e.eid===before[0].eid).n[1],shaft);
+});
+test('union regions deduplicate shared nodes and older meshes require face provenance before authoring',async()=>{
+  const a=await cadPreview(),mesh=a.ownership.project.objects.find(o=>o.id==='cad');
+  const request=Mount.region({id:'union',name:'Multi-face mount',mesh:'cad',faces:[1,3,1]},a.ownership),d=request.objects[0].definition;
+  assert.deepEqual(d.selector.faces,[1,3]);assert.deepEqual(d.resolved.nodes,[...new Set(mesh.definition.faces.filter(f=>[1,3].includes(f.id)).flatMap(f=>f.nodes))].sort((a,b)=>a-b));
+  const older=copy(a.ownership);delete older.project.objects.find(o=>o.id==='cad').definition.faces;
+  assert.throws(()=>Mount.region({id:'old',name:'Legacy mount',mesh:'cad',faces:[1]},older),/reviewed mesh regeneration/);
+  const regenerated=O.preview(a.semantic,older,(await Cad.build(cadInput(),older,nextPlateIds)).request);
+  assert.equal(regenerated.changes.length,0);assert.doesNotThrow(()=>Mount.region({id:'old',name:'Legacy mount',mesh:'cad',faces:[1]},regenerated.ownership));
+});

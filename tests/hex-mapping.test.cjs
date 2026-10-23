@@ -244,3 +244,23 @@ test('nodes project exactly onto cones and tori', () => {
   const torus = geometry.surface(faces[1].id).project([11, 0, 1]);
   assert.ok(Math.abs(Math.hypot(Math.hypot(torus[0], torus[1]) - 8, torus[2]) - 2) < 1e-9, String(torus));
 });
+
+for(const order of [1,2])test('mapped face membership contains exactly the referenced boundary nodes for order '+order,()=>{
+  const {mesh,data}=build('box',{size:3},{order}),points=new Map(mesh.nodes.map(n=>[n.id,n]));
+  assert.equal(Object.keys(mesh.faceNodes).length,6);
+  for(const face of data.topology.faces){
+    const onPlane=mesh.nodes.filter(n=>Math.abs(['x','y','z'].reduce((s,k,i)=>s+(n[k]-face.center[i])*face.normal[i],0))<1e-8).map(n=>n.id).sort((a,b)=>a-b);
+    assert.deepEqual(mesh.faceNodes[face.id],onPlane);
+    assert.ok(mesh.faceNodes[face.id].every(id=>points.has(id)));
+    if(order===2)assert.ok(mesh.elements.some(e=>e.nodes.slice(8).some(id=>mesh.faceNodes[face.id].includes(id))));
+  }
+});
+test('face membership is limited to meshed solids, with shared interfaces preserving node IDs',()=>{
+  const data=fixture('split-box'),analysis=H.analyze(data.topology),intervals=H.solveIntervals(analysis,{size:1}),geometry=H.createGeometry(data.topology,data.preview);
+  const full=H.generateMesh(analysis,intervals,geometry,{order:2});
+  const one=H.generateMesh(analysis,intervals,geometry,{order:2,volumes:[1]});
+  const faces=data.topology.faces.filter(f=>f.volumes.includes(1));
+  assert.deepEqual(Object.keys(one.faceNodes).map(Number).sort((a,b)=>a-b),faces.map(f=>f.id).sort((a,b)=>a-b));
+  const shared=data.topology.faces.find(f=>f.volumes.length===2);
+  assert.ok(shared);assert.equal(one.faceNodes[shared.id].length,full.faceNodes[shared.id].length);
+});

@@ -1541,7 +1541,7 @@
         const snapshot = { filename: source.name, content: base64(await source.arrayBuffer()), prepared: await api('export', token()) };
         snapshot.prepared.history = [...auditHistory, ...(snapshot.prepared.history || [])];
         beforeCommit();
-        await hooks.reviewMappedMesh({ id, name: source.name + ' · Mapped mesh', snapshot, topology: topology(), settings: savedSettings(), perSolid: meshSettings.pidPerSolid, volumes, mesh: { nodes: result.nodes, elements: result.elements } }, {
+        await hooks.reviewMappedMesh({ id, name: source.name + ' · Mapped mesh', snapshot, topology: topology(), settings: savedSettings(), perSolid: meshSettings.pidPerSolid, volumes, mesh: { nodes: result.nodes, elements: result.elements, faceNodes: result.faceNodes } }, {
           beforeCommit,
           onApplied() {
             const record = { id: previous?.id ?? ++meshCounter, kind: 'hex', label: source.name + ' · Mapped mesh', projectOwner: id, volumes, faces: [], stale: false, inModel: true };

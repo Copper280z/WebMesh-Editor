@@ -381,3 +381,13 @@ button:disabled{opacity:.42;cursor:not-allowed}
 #wb-project-error{color:#ffacaa;white-space:pre-wrap}
 
 .wb-owner-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+
+/* Keep committed CAD face membership scannable in the region editor. */
+.wb-mount-faces { max-height: 230px; overflow: auto; border: 1px solid #35485e; padding: 8px; }
+.wb-mount-faces label { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; }
+[data-mount-error] { color: #ffb0a5; white-space: pre-wrap; }
+/* Let analysts see highlighted support nodes while editing their region. */
+@media (min-width: 900px) {
+  .wb-dialog:has([data-mount-editor]) { margin-left: 12px; width: 420px; }
+  .wb-dialog:has([data-mount-editor])::backdrop { background: rgb(0 0 0 / 8%); backdrop-filter: none; }
+}

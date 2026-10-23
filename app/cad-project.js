@@ -6,6 +6,7 @@
   'use strict';
   const GENERATOR='cad-mapped-v1',copy=v=>JSON.parse(JSON.stringify(v));
   async function digest(value){const data=new TextEncoder().encode(O.canonical(value));return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),v=>v.toString(16).padStart(2,'0')).join('');}
+  const geometryFingerprint = topo => digest({bounds:topo.bounds,vertices:topo.vertices,edges:topo.edges,faces:topo.faces,volumes:topo.volumes,sheets:topo.sheets||[]});
   function rootFor(state,owner){return state?.project.objects.find(o=>o.definition.generator===GENERATOR&&[o.id,o.definition.source,o.definition.material,...o.definition.sections.map(s=>s.id)].includes(owner))||null;}
   function bundle(state,owner){const root=rootFor(state,owner);if(!root)throw Error('This owner is not a mapped CAD mesh.');return [root.id,root.definition.source,root.definition.material,...root.definition.sections.map(s=>s.id)];}
   function removal(state,owner,convert=false){
@@ -30,7 +31,7 @@
     if(!target.length||target.some(id=>!Number.isSafeInteger(id)||id<1))throw Error('Select explicit CAD solid regions.');
     const topo=input.topology;
     if(target.some(id=>!topo.volumes.some(v=>v.id===id)))throw Error('A target solid does not exist in this CAD snapshot.');
-    const geometryKey=await digest({bounds:topo.bounds,vertices:topo.vertices,edges:topo.edges,faces:topo.faces,volumes:topo.volumes,sheets:topo.sheets||[]});
+    const geometryKey=await geometryFingerprint(topo);
     const layoutKey=await digest({geometryKey,target,nodes:mesh.nodes,elements:mesh.elements,perSolid:!!input.perSolid});
     const same=old?.definition.layout.key===layoutKey;
     const fresh=ns=>Math.max(nextIds[ns]||1,...(state?.project.reservations||[]).filter(r=>r.namespace===ns).map(r=>r.end+1));
@@ -45,6 +46,11 @@
       return previous?copy(previous):{id:input.id+'/section/'+layout.generation+'/'+key,key,volumes,pid:pid++};
     });
     const nodeMap=new Map(),nodes=mesh.nodes.map((n,i)=>{if(nodeMap.has(n.id))throw Error('Repeated CAD mesh node ID.');nodeMap.set(n.id,layout.node+i);return {...n,id:layout.node+i};});
+    const faces=Object.entries(mesh.faceNodes||{}).map(([id,localNodes])=>{
+      const face=topo.faces.find(f=>f.id===Number(id));
+      if(!face||!localNodes.length||localNodes.some(n=>!nodeMap.has(n)))throw Error('Invalid mapped CAD face membership.');
+      return {id:face.id,type:face.type,center:face.center,normal:face.normal||null,nodes:[...new Set(localNodes.map(n=>nodeMap.get(n)))].sort((a,b)=>a-b)};
+    });
     const elements=mesh.elements.map((e,i)=>{
       const type=({CHEXA8:'CHEXA',CHEXA20:'CHEXA'})[e.type]||e.type;
       if(type!=='CHEXA'||![8,20].includes(e.nodes.length)||!target.includes(e.volume))throw Error('Mapped CAD elements require HEX8/HEX20 connectivity and an explicit source solid.');
@@ -57,7 +63,7 @@
     elements.forEach((e,i)=>cards.push({family:'elems',bucket:'hex',id:e.id,role:er+'/'+i,allocationRole:er,value:{type:e.type,eid:e.id,pid:e.pid,n:e.nodes}}));
     const source=old&&find(sourceId).definition.geometryKey===geometryKey?copy(find(sourceId)):{id:sourceId,kind:'source',name:input.name+' · CAD source',definition:{generator:'cad-source-v1',geometryKey,snapshot:copy(input.snapshot)}};
     const objects=[source,material,...sections.map(s=>({id:s.id,kind:'section',name:input.name+' · Solid'+(s.volumes.length===1?' '+s.volumes[0]:'s '+s.volumes.join(', ')),dependsOn:[materialId],definition:{region:{geometryKey,volumes:s.volumes},cards:[{family:'properties',id:s.pid,role:'solid',value:{type:'PSOLID',pid:s.pid,mid}}]}})),
-      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...sections.map(s=>s.id)],definition:{generator:GENERATOR,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,cards}}];
+      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...sections.map(s=>s.id)],definition:{generator:GENERATOR,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,faces,cards}}];
     const removeObjects=(old?.definition.sections||[]).filter(s=>!sections.some(n=>n.id===s.id)).map(s=>s.id);
     return {mesh:generated,owner:input.id,newMeshIdentity:!!old&&!same,regions:sections,request:{label:(old?'Replace ':'Create ')+input.name,objects,removeObjects,reservations:[{owner:input.id,namespace:'node',role:nr,start:layout.node,count:nodes.length},{owner:input.id,namespace:'element',role:er,start:layout.element,count:elements.length}]}};
   }
@@ -66,5 +72,5 @@
     const source=state.project.objects.find(o=>o.id===root.definition.source),entries=state.owners.filter(o=>o.owner===root.id&&o.card.family==='elems');
     return {...copy(source.definition.snapshot),settings:copy(root.definition.settings),meshes:[{id:1,kind:'hex',label:root.name,projectOwner:root.id,volumes:root.definition.targets,faces:[],elements:entries.map(e=>e.card.id),properties:root.definition.sections.map(s=>s.pid),material:state.project.objects.find(o=>o.id===root.definition.material).definition.cards[0].id,stale:false}]};
   }
-  return Object.freeze({GENERATOR,build,rootFor,bundle,removal,materialChange,restoreData});
+  return Object.freeze({GENERATOR,geometryFingerprint,build,rootFor,bundle,removal,materialChange,restoreData});
 }));
