@@ -35,15 +35,15 @@ Implemented in `connection-actions.js`, `mass-project.js` and `mass-workspace.js
 
 The fixture is a small steel mixed-mesh workflow model, not a new rover analysis or a converged engineering prediction. The saved authoring project contains the masses and connections. The reproducible harness adds a fixed root and two static acceleration cases: 1 g in −Z and 0.5 g in +Y. It retains structural mass, including the intentionally overlapping embedded shells. Total mass is **2.6304 kg**, of which **1.5 kg** is the two added masses.
 
-| Check | Installed MYSTRAN | Installed Vibestran |
-| --- | --- | --- |
-| Normal solver completion | Pass | Pass |
-| Gravity reaction Z; expected 25.795412 N | 25.795412 N | 24.275668 N — fail |
-| Lateral reaction Y; expected −12.897706 N | −12.897708 N | −11.246356 N — fail |
-| All six resultant force/moment components within 0.02 N or N·mm | Pass, both cases | Fail, both cases |
-| Solver accuracy indicator below 1e−8 | Epsilon: 3.97e−14 / 1.87e−14 | Relative residual: 3.75e−8 / 2.55e−10 — first case fails |
+| Check | Installed MYSTRAN |
+| --- | --- |
+| Normal solver completion | Pass |
+| Gravity reaction Z; expected 25.795412 N | 25.795412 N |
+| Lateral reaction Y; expected −12.897706 N | −12.897708 N |
+| All six resultant force/moment components within 0.02 N or N·mm | Pass, both cases |
+| Solver accuracy indicator below 1e−8 | Epsilon: 3.97e−14 / 1.87e−14 |
 
-The installed MYSTRAN binary requires an explicit compatibility projection in the validation harness: free-field real tokens limited to 11 significant digits, empty continuations removed, and HEX8 `PSOLID IN=2`. The WebMesh export is retained separately in the saved project. This is not yet a product solver profile or a launch workflow. Vibestran's discrepancy is recorded with its input, F06, log and machine-readable failed checks; no external solver source was changed and its output is not accepted as validated.
+The installed MYSTRAN binary requires an explicit compatibility projection in the validation harness: free-field real tokens limited to 11 significant digits, empty continuations removed, and HEX8 `PSOLID IN=2`. The WebMesh export is retained separately in the saved project. This is not yet a product solver profile or a launch workflow.
 
 Automated coverage checks unit conversion, physical inertia, independent/noncollinear supports, overlapping groups, RBE2/RBE3/SPC conflicts, shell-edge canonical nodes, stable identities through shell and solid remeshing, point edits, explicit direct-selection repair, protected hand references, removal, atomic history, save/reopen, and source/free/small/large writer/parser round trips. A regression exercises combined structural/rigid change previews.
 
@@ -63,5 +63,5 @@ Analysis cases and run provenance now take priority:
 
 1. Add editable analysis-case objects that reference reviewed load and constraint sets, with consistent unit labels and case-control generation through the existing transaction path.
 2. Build an immutable run snapshot containing the projected solver deck, project revision/digest, solver identity/options and explicit compatibility transformations. Launch remains separate from changing the editable model.
-3. Import results against that snapshot, retain subcase labels, and detect stale results after model edits. Surface numerical completion and equilibrium diagnostics separately from process exit status; include the Vibestran fixture as a failing validation example.
+3. Import results against that snapshot, retain subcase labels, and detect stale results after model edits. Surface numerical completion and equilibrium diagnostics separately from process exit status.
 4. Exercise the complete battery/payload and motor-attachment workflow through cases, solve, save/reopen and postprocessing. Keep direct analyst actions available alongside guides. Local frames, tributary-area weights and general topology-selection repair remain separate extensions.

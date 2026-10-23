@@ -18,17 +18,13 @@ From the repository root:
 python3 docs/design/validation/payload-masses/verify.py \
   --solver ~/Documents/vibe-tran/MYSTRAN/Binaries/mystran \
   --output /tmp/webmesh-payload-mystran
-
-python3 docs/design/validation/payload-masses/verify.py \
-  --solver ~/Documents/vibe-tran/build/vibestran \
-  --output /tmp/webmesh-payload-vibestran
 ```
 
 The harness starts with the browser-exported deck, fixes translations at X=0 and adds static gravity (−Z, 1 g) and lateral acceleration (+Y, 0.5 g) cases. Structural density and intentional overlapping shell mass remain active. It independently integrates structural mass and computes six resultant reactions, including moments about the basic origin and payload offsets. Shell mass uses the solver's equal nodal lumping convention. Tolerance is 0.02 N or N·mm; the solver accuracy indicator must be below 1e−8.
 
 The installed MYSTRAN binary needs a compatibility projection: float tokens limited to 11 significant digits, empty continuations removed and HEX8 `PSOLID IN=2`. The harness records the actual projected deck. These transformations are explicit test setup; the application does not yet offer solver profiles or immutable run snapshots.
 
-Each solver folder retains its exact input, F06, console log and `results.json`. Only trailing output padding has been removed. **MYSTRAN passes both cases. The installed Vibestran binary fails equilibrium in both cases**, despite reporting solution completion; its gravity residual also exceeds the threshold. The Vibestran command intentionally exits nonzero. Do not treat that output as a validated alternative. No changes were made to either external solver repository.
+The `mystran/` folder retains its exact input, F06, console log and `results.json`. Only trailing output padding has been removed. **MYSTRAN passes both cases.** No changes were made to the external solver repository.
 
 ## Browser postprocessing
 

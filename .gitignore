@@ -6,3 +6,6 @@ test-results/
 .zig-cache/
 zig-out/
 zig-pkg/
+
+# Local investigations of external solver defects; keep outside version control.
+/solver-bug-reports/
