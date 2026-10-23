@@ -256,7 +256,7 @@ test('meshes of different bodies stay side by side; a new one replaces only the 
   assert.deepEqual(plain(appends[1].options.replaceOwners), []);
   assert.equal(appends[1].options.previousMesh, null, 'the hex mesh is not replaced');
   let body = f.workspace.render().body;
-  assert.match(body, /Meshes in the model <small>2/);
+  assert.match(body, /Mesh regions <small>2/);
   assert.match(body, /Mapped HEX8 · 2 solids/);
   assert.match(body, /Quad shell · 1 face/, 'the mock shell result meshes face 1');
   // Meshing the same faces again replaces the shell mesh only.
@@ -264,7 +264,7 @@ test('meshes of different bodies stay side by side; a new one replaces only the 
   appends = f.calls.appends;
   assert.equal(appends[2].options.ownerTag, 'c'.repeat(32) + '#2');
   assert.ok(appends[2].options.previousMesh, 'the shell mesh is replaced in place');
-  assert.match(f.workspace.render().body, /Meshes in the model <small>2/);
+  assert.match(f.workspace.render().body, /Mesh regions <small>2/);
   // Both are saved, and a restored project rebinds each to the new CAD session.
   const saved = await f.workspace.serialize();
   assert.deepEqual(plain(saved.meshes.map(m => [m.id, m.kind])), [[1, 'hex'], [2, 'shell']]);
@@ -281,7 +281,7 @@ test('meshes of different bodies stay side by side; a new one replaces only the 
   f.click('mesh-remove', { value: '1' }); await settle();
   assert.deepEqual(f.calls.removed, ['c'.repeat(32) + '#1']);
   body = f.workspace.render().body;
-  assert.match(body, /Meshes in the model <small>1/);
+  assert.match(body, /Mesh regions <small>1/);
   assert.doesNotMatch(body, /Mapped HEX8/);
 });
 
@@ -717,4 +717,26 @@ test('selected mapped solid targets survive save/reopen and selection edits inva
   assert.equal(f.calls.review.candidate.changes.length,0);
   f.workspace.api.select('solid',[2]);await f.workspace.api.addMesh();assert.deepEqual(f.calls.review.input.volumes,[2]);
   assert.ok(f.calls.review.candidate.changes.some(c=>c.action==='remove'));
+});
+
+test('owned shell and solid regions share source, restore separate settings, and only dirty the edited region',async()=>{
+  const f=await imported({imported:'split-box',projectReview:true}),settle=async()=>{for(let i=0;i<40;i++)await new Promise(resolve=>setTimeout(resolve,2));};
+  f.workspace.api.step('mesh');f.workspace.api.select('solid',[1]);f.click('mesh-scope',{value:'selected'});f.input('region-name','Solid root');
+  await f.workspace.api.addMesh();f.calls.review.apply();const first=f.calls.review.input.id,savedSolid=plain(f.calls.review.candidate.ownership);
+  f.click('mesh-new');f.input('region-name','Shell span');f.click('mesh-method',{value:'shell'});f.workspace.api.select('face',[11]);f.click('shell-scope',{value:'selected'});
+  f.transform.fn=(action,data,r)=>{if(action==='shell'){r.mesh.elements[0].face=11;r.mesh.faceNodes={11:[1,2,3,4]};r.mesh.edgeNodes={6:[1,2]};r.quality.faces[0].face=11;}return r;};
+  f.click('shell-mesh');await settle();assert.equal(f.calls.review.input.kind,'shell');assert.equal(f.calls.review.input.sourceId,first+'/source');
+  assert.equal(f.calls.review.candidate.ownership.project.objects.filter(o=>o.kind==='source').length,1);
+  assert.deepEqual(f.calls.review.candidate.ownership.owners.filter(o=>o.owner===first),savedSolid.owners.filter(o=>o.owner===first));f.calls.review.apply();
+  const saved=await f.workspace.serialize();assert.equal(saved.meshes.length,2);assert.equal(saved.meshes.find(m=>m.projectOwner===first).stale,false);assert.deepEqual(plain(saved.settings.shell.selectedFaces),[11]);
+  const staged=await f.workspace.stageRestore(saved);f.workspace.commitRestore(staged);assert.deepEqual(plain(f.workspace.getState().selection),{kind:'face',ids:[11]});
+  f.input('shell-size','1');const dirty=await f.workspace.serialize();assert.equal(dirty.meshes.find(m=>m.projectOwner===first).stale,false);assert.equal(dirty.meshes.find(m=>m.kind==='shell').stale,true);
+  f.click('shell-mesh');await settle();assert.equal(f.calls.review.input.id,saved.editingOwner);assert.equal(f.calls.review.candidate.changes.length,0,'unchanged mocked mesh is a card no-op');
+});
+
+test('restoring a midsurface region ignores leftover solid-scope selections',async()=>{
+  const f=await imported({projectReview:true});f.workspace.api.step('mesh');await f.workspace.api.addMesh();f.calls.review.apply();
+  const saved=await f.workspace.serialize();saved.settings.mesh={method:'shell',scope:'selected',selectedVolumes:[]};saved.settings.shell={placement:'midsurface',scope:'all',faces:[1],facesB:[2]};
+  f.workspace.commitRestore(await f.workspace.stageRestore(saved));
+  assert.equal((await f.workspace.serialize()).meshes[0].stale,false);
 });

@@ -1,0 +1,41 @@
+{
+  "nodes": 324,
+  "elements": {
+    "CHEXA": 24,
+    "CQUAD4": 102,
+    "RBE3": 9
+  },
+  "relative_residuals": [
+    1.403e-12,
+    1.835e-14
+  ],
+  "balances": [
+    {
+      "subcase": 1,
+      "reaction_force": [
+        -1.7585931900000002e-13,
+        -1.27675639e-13,
+        99.999991
+      ],
+      "reaction_moment_at_origin": [
+        2999.9997635030013,
+        -10000.000014000001,
+        -4.547473508864641e-13
+      ]
+    },
+    {
+      "subcase": 2,
+      "reaction_force": [
+        -2.62012643e-14,
+        -1.2448376999999999e-14,
+        -1.999999999557911e-06
+      ],
+      "reaction_moment_at_origin": [
+        -2.3162999914561055e-05,
+        -999.9999900000001,
+        6.536993168992922e-13
+      ]
+    }
+  ],
+  "scope": "Force/moment transfer and solvability check; not a convergence study or general interface accuracy certification."
+}

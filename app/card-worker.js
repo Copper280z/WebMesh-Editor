@@ -11518,8 +11518,9 @@ function parseF06ResultsV2(f06Text) {
       if (row.startsWith('1 ') || row.includes('>> LINK') || isOutputSetBoundary(row)) { i--; break; }
       if (trimmed.startsWith('MAX*') || trimmed.startsWith('MIN*') || trimmed.startsWith('ABS*')) { i++; continue; }
       if (/^\s*Elem\s+Location/i.test(row) || /^\s*ID\s+Distance/i.test(row) || /^\s*ID\s+Fibre/i.test(row)) { i++; continue; }
-      const parts = trimmed.split(/\s+/);
-      if (parts.length >= 12 && /^\d+$/.test(parts[0]) && /^CENTER$/i.test(parts[1])) {
+      // Fixed-width reports can print adjacent values without whitespace.
+      const parts = trimmed.match(/[+-]?(?:\d+\.?\d*|\.\d+)(?:[eEdD][+-]?\d+)?|[A-Za-z]+/g) || [];
+      if (parts.length >= 10 && /^\d+$/.test(parts[0]) && /^CENTER$/i.test(parts[1])) {
         currentEid = parseInt(parts[0], 10);
         assignTensorResult(targetMap, currentEid, type, {
           fiberDistance: parseNum(parts[2]),
@@ -11537,7 +11538,7 @@ function parseF06ResultsV2(f06Text) {
         i++;
         continue;
       }
-      if (Number.isFinite(currentEid) && parts.length >= 12 && /^GRD$/i.test(parts[0])) {
+      if (Number.isFinite(currentEid) && parts.length >= 10 && /^GRD$/i.test(parts[0])) {
         assignTensorResult(targetMap, currentEid, type, {
           fiberDistance: parseNum(parts[2]),
           normalX: parseNum(parts[3]),
@@ -11554,7 +11555,7 @@ function parseF06ResultsV2(f06Text) {
         i++;
         continue;
       }
-      if (Number.isFinite(currentEid) && parts.length >= 9 && !/^\d+$/.test(parts[0]) && Number.isFinite(parseNum(parts[0]))) {
+      if (Number.isFinite(currentEid) && parts.length >= 8 && !/^\d+$/.test(parts[0]) && Number.isFinite(parseNum(parts[0]))) {
         assignTensorResult(targetMap, currentEid, type, {
           fiberDistance: parseNum(parts[0]),
           normalX: parseNum(parts[1]),
@@ -11817,6 +11818,24 @@ function parseF06ResultsV2(f06Text) {
           const merged = { ...prev, type };
           mergeByMaxAbs(merged, out);
           target[eid] = withMagnitude(merged);
+        }
+        i++;
+      }
+    } else if (cleanLine.includes('ELEMENTSTRESSESINMATERIALCOORDINATESYSTEM')
+      && ['HEXA', 'PENTA', 'TETRA'].includes(parseTypeFromLines(i + 1))) {
+      // MYSTRAN/Vibestran solid stresses: the CENTER row contains the six
+      // tensor components and von Mises; subsequent GRD rows are extrapolated.
+      // Keep centroid values, matching the existing Nastran solid result path.
+      const target = activeMaps().stresses, type = parseTypeFromLines(i + 1);
+      i++;
+      while (i < lines.length) {
+        const row = lines[i], parts = row.trim().split(/\s+/);
+        if (row.startsWith('1 ') || row.includes('>> LINK') || isOutputSetBoundary(row)) { i--; break; }
+        if (parts.length >= 9 && /^\d+$/.test(parts[0]) && /^CENTER$/i.test(parts[1])) {
+          assignTensorResult(target, parseInt(parts[0], 10), type, {
+            normalX: parseNum(parts[2]), normalY: parseNum(parts[3]), normalZ: parseNum(parts[4]),
+            shearXY: parseNum(parts[5]), shearYZ: parseNum(parts[6]), shearXZ: parseNum(parts[7]), vonMises: parseNum(parts[8])
+          });
         }
         i++;
       }

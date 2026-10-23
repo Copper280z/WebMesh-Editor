@@ -55,6 +55,20 @@ def enclosed_volume(result):
 
 @unittest.skipUnless(KERNEL and QUADMESH, "the CAD geometry kernel or the quadmesh library is not available")
 class ShellMeshTests(unittest.TestCase):
+    def test_face_and_boundary_provenance_survives_midsurface_placement(self):
+        faces = cad_faces(ROOT / "examples/block.step")
+        low = min(faces.values(), key=lambda f: f["center"][2])["id"]
+        high = max(faces.values(), key=lambda f: f["center"][2])["id"]
+        for mesher in ("recombined", "paved"):
+            result = shell(ROOT / "examples/block.step", size=10, faceIds=[high], placement="midsurface", facesB=[low], mesher=mesher)
+            mesh = result["mesh"]
+            used = {n for e in mesh["elements"] for n in e["nodes"]}
+            self.assertTrue(all(e["face"] == high for e in mesh["elements"]))
+            self.assertEqual(set(mesh["faceNodes"][str(high)]), used)
+            self.assertEqual(len(mesh["edgeNodes"]), 4)
+            self.assertTrue(all(len(ns) >= 2 and set(ns).issubset(used) for ns in mesh["edgeNodes"].values()))
+            self.assertTrue(all(abs(n["z"]-10) < 1e-7 for n in mesh["nodes"] if n["id"] in used))
+
     def test_every_face_of_a_solid_gives_a_closed_conforming_quad_shell_facing_out(self):
         result = shell(ROOT / "examples/block.step", size=10)
         quality = result["quality"]
@@ -118,6 +132,11 @@ class ShellMeshTests(unittest.TestCase):
     @plugin
     def test_triangles_come_from_gmsh_on_the_chosen_faces_only(self):
         result = shell(ROOT / "examples/plate-hole.step", element="tri", size=5, faceIds=[3])
+        mesh = result["mesh"]
+        used = {n for e in mesh["elements"] for n in e["nodes"]}
+        self.assertEqual(set(mesh["faceNodes"]["3"]), used)
+        self.assertGreater(len(mesh["edgeNodes"]), 3)
+        self.assertTrue(all(set(ns).issubset(used) for ns in mesh["edgeNodes"].values()))
         elements = result["mesh"]["elements"]
         self.assertTrue(elements and all(e["type"] == "CTRIA3" for e in elements))
         self.assertEqual(result["stats"]["faces"], 1)

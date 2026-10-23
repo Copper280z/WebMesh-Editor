@@ -832,7 +832,7 @@ def place(geom, elements, coordinates, request):
     raise ValueError("Place the shell on the faces, at the midsurface, or at an offset.")
 
 
-def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, pads=None, request=None):
+def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, pads=None, request=None, edge_members=None):
     # Each mesh edge bounds two elements, or one on the rim of the chosen faces.
     uses = {}
     for element in elements:
@@ -855,7 +855,7 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
     ordered = sorted(coordinates)
     renumber = {old: new for new, old in enumerate(ordered, start=1)}
     nodes = [{"id": renumber[n], "x": float(coordinates[n][0]), "y": float(coordinates[n][1]), "z": float(coordinates[n][2])} for n in ordered]
-    out = [{"id": i, "type": e["type"], "pid": e["pid"], "nodes": [renumber[n] for n in e["nodes"]], **({"zoffs": e["zoffs"]} if "zoffs" in e else {})}
+    out = [{"id": i, "type": e["type"], "pid": e["pid"], "face": e["face"], "nodes": [renumber[n] for n in e["nodes"]], **({"zoffs": e["zoffs"]} if "zoffs" in e else {})}
            for i, e in enumerate(elements, start=1)]
     quality = {"elements": len(out), "nodes": len(nodes), "freeEdges": free, "nonManifoldEdges": nonmanifold,
                "minScaledJacobian": min(qualities) if qualities else None,
@@ -865,7 +865,12 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
                "failedFaces": [r["face"] for r in reports if not r["quads"]], "placement": placed or {"placement": "surface"},
                "pads": pads or []}
     _, by_property, _ = _properties(faces, request) if request is not None else ({}, {}, {})
-    return {"mesh": {"nodes": nodes, "elements": out}, "quality": quality,
+    boundary = {n for pair, count in uses.items() if count == 1 for n in pair}
+    members = edges.ids if edges else (edge_members or {})
+    edge_nodes = {str(edge): sorted({renumber[n] for n in ids if n in renumber}) for edge, ids in members.items()
+                  if len(set(ids) & boundary) >= 2 and set(ids).issubset(boundary)}
+    face_nodes = {str(face): sorted({renumber[n] for e in elements if e["face"] == face for n in e["nodes"]}) for face in faces}
+    return {"mesh": {"nodes": nodes, "elements": out, "faceNodes": face_nodes, "edgeNodes": edge_nodes}, "quality": quality,
             "thicknessByProperty": {str(pid): t for pid, t in by_property.items()},
             "stats": {"nodes": len(nodes), "elements": len(out), "topology": "quad" if mesher != "geom" else "tri", "dimension": 2, "order": 1,
                       "parts": len({e["pid"] for e in out}), "faces": len(faces)}}
@@ -896,8 +901,12 @@ def check_request(request):
 def finish(geom, request, made):
     """Place a meshed shell (on the faces, at the midsurface or offset) and report it."""
     elements, coordinates, reports, edges, faces, mesher, pads = made
+    edge_members = None
+    if edges is None:
+        edge_members = {int(tag): [int(n) for n in geom.model.mesh.getNodes(1, tag, includeBoundary=True)[0]]
+                        for _, tag in geom.model.getEntities(1)}
     placed = place(geom, elements, coordinates, request)
-    return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads, request)
+    return _result(elements, coordinates, reports, edges, faces, mesher, placed, pads, request, edge_members)
 
 
 def check_faces(geom, request):

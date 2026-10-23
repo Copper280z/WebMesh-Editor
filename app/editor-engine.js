@@ -16347,7 +16347,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
   }
   function collectSemanticSolidBoundaryFaces(elems, shown, hiddenElements) {
     const templates = {
-      hex: { visible: "chexa", corners: 8, faces: [[0,1,2,3],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]], edges: [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]] },
+      hex: { visible: "chexa", corners: 8, faces: [[0,1,2,3],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]], edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,5],[2,6],[3,7],[4,5],[5,6],[6,7],[7,4]] },
       tet: { visible: "ctetra", corners: 4, faces: [[0,1,2],[0,1,3],[1,2,3],[0,2,3]], edges: [[0,1],[1,2],[2,0],[0,3],[1,3],[2,3]] },
       penta: { visible: "cpenta", corners: 6, faces: [[0,1,2],[3,4,5],[0,1,4,3],[1,2,5,4],[2,0,3,5]], edges: [[0,1],[1,2],[2,0],[3,4],[4,5],[5,3],[0,3],[1,4],[2,5]] },
       pyram: { visible: "cpyram", corners: 5, faces: [[0,1,2,3],[0,1,4],[1,2,4],[2,3,4],[3,0,4]], edges: [[0,1],[1,2],[2,3],[3,0],[0,4],[1,4],[2,4],[3,4]] }
@@ -17144,7 +17144,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       solidVertCounter += 3;
       solidFaceToElem.push({ etype: elem.type, eid: elem.eid, pid: elem.pid, nodes: elem.n.slice() });
     };
-    const addSolidTriPts = (p1, p2, p3, elem) => {
+    const addSolidTriPts = (p1, p2, p3, elem, vertexColors = null) => {
       if (skipSolids) return;
       let cr, cg, cb;
       if (usePropColors) {
@@ -17161,7 +17161,8 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         }
       }
       solidPositions.push(...p1, ...p2, ...p3);
-      solidColors.push(cr, cg, cb, cr, cg, cb, cr, cg, cb);
+      if (vertexColors && contourNodeColors && contourContinuous) solidColors.push(...vertexColors.flat());
+      else solidColors.push(cr, cg, cb, cr, cg, cb, cr, cg, cb);
       solidIndices.push(solidVertCounter, solidVertCounter + 1, solidVertCounter + 2);
       solidVertCounter += 3;
       solidFaceToElem.push({ etype: elem.type, eid: elem.eid, pid: elem.pid, nodes: elem.n.slice() });
@@ -17210,21 +17211,21 @@ Press OK to override warnings and continue export, or Cancel to abort.`
               const pA = pOf(a), pB = pOf(b), pC = pOf(c), pD = pOf(d);
               const pAB = pOf(ab), pBC = pOf(bc), pCD = pOf(cd), pDA = pOf(da);
               const pO = quadraticQuadCenter([pA, pB, pC, pD], [pAB, pBC, pCD, pDA]);
-              addSolidTriPts(pA, pAB, pO, e);
-              addSolidTriPts(pAB, pB, pO, e);
-              addSolidTriPts(pB, pBC, pO, e);
-              addSolidTriPts(pBC, pC, pO, e);
-              addSolidTriPts(pC, pCD, pO, e);
-              addSolidTriPts(pCD, pD, pO, e);
-              addSolidTriPts(pD, pDA, pO, e);
-              addSolidTriPts(pDA, pA, pO, e);
+              const ring = [pA, pAB, pB, pBC, pC, pCD, pD, pDA];
+              const colors = contourNodeColors && contourContinuous ? [a, ab, b, bc, c, cd, d, da].map(index => colorByNodeIndex(index, 0, 0, 0)) : null;
+              // Average the displayed nodal colors at the synthetic face center.
+              const centerColor = colors && [0, 1, 2].map(axis => colors.reduce((sum, color) => sum + color[axis], 0) / colors.length);
+              for (let k = 0; k < ring.length; k++) {
+                const next = (k + 1) % ring.length;
+                addSolidTriPts(ring[k], ring[next], pO, e, colors && [colors[k], colors[next], centerColor]);
+              }
             };
             quad8(idx[0], midIdx[0], idx[1], midIdx[1], idx[2], midIdx[2], idx[3], midIdx[3]);
-            quad8(idx[4], midIdx[4], idx[5], midIdx[5], idx[6], midIdx[6], idx[7], midIdx[7]);
-            quad8(idx[0], midIdx[0], idx[1], midIdx[9], idx[5], midIdx[4], idx[4], midIdx[8]);
-            quad8(idx[1], midIdx[1], idx[2], midIdx[10], idx[6], midIdx[5], idx[5], midIdx[9]);
-            quad8(idx[2], midIdx[2], idx[3], midIdx[11], idx[7], midIdx[6], idx[6], midIdx[10]);
-            quad8(idx[3], midIdx[3], idx[0], midIdx[8], idx[4], midIdx[7], idx[7], midIdx[11]);
+            quad8(idx[4], midIdx[8], idx[5], midIdx[9], idx[6], midIdx[10], idx[7], midIdx[11]);
+            quad8(idx[0], midIdx[0], idx[1], midIdx[5], idx[5], midIdx[8], idx[4], midIdx[4]);
+            quad8(idx[1], midIdx[1], idx[2], midIdx[6], idx[6], midIdx[9], idx[5], midIdx[5]);
+            quad8(idx[2], midIdx[2], idx[3], midIdx[7], idx[7], midIdx[10], idx[6], midIdx[6]);
+            quad8(idx[3], midIdx[3], idx[0], midIdx[4], idx[4], midIdx[11], idx[7], midIdx[7]);
           } else {
             addSolidQuad(idx[0], idx[1], idx[2], idx[3], e);
             addSolidQuad(idx[4], idx[5], idx[6], idx[7], e);
@@ -17254,22 +17255,22 @@ Press OK to override warnings and continue export, or Cancel to abort.`
               addSolidEdge(midIdx[2], idx[3]);
               addSolidEdge(idx[3], midIdx[3]);
               addSolidEdge(midIdx[3], idx[0]);
-              addSolidEdge(idx[4], midIdx[4]);
-              addSolidEdge(midIdx[4], idx[5]);
-              addSolidEdge(idx[5], midIdx[5]);
-              addSolidEdge(midIdx[5], idx[6]);
-              addSolidEdge(idx[6], midIdx[6]);
-              addSolidEdge(midIdx[6], idx[7]);
-              addSolidEdge(idx[7], midIdx[7]);
-              addSolidEdge(midIdx[7], idx[4]);
-              addSolidEdge(idx[0], midIdx[8]);
-              addSolidEdge(midIdx[8], idx[4]);
-              addSolidEdge(idx[1], midIdx[9]);
-              addSolidEdge(midIdx[9], idx[5]);
-              addSolidEdge(idx[2], midIdx[10]);
-              addSolidEdge(midIdx[10], idx[6]);
-              addSolidEdge(idx[3], midIdx[11]);
-              addSolidEdge(midIdx[11], idx[7]);
+              addSolidEdge(idx[4], midIdx[8]);
+              addSolidEdge(midIdx[8], idx[5]);
+              addSolidEdge(idx[5], midIdx[9]);
+              addSolidEdge(midIdx[9], idx[6]);
+              addSolidEdge(idx[6], midIdx[10]);
+              addSolidEdge(midIdx[10], idx[7]);
+              addSolidEdge(idx[7], midIdx[11]);
+              addSolidEdge(midIdx[11], idx[4]);
+              addSolidEdge(idx[0], midIdx[4]);
+              addSolidEdge(midIdx[4], idx[4]);
+              addSolidEdge(idx[1], midIdx[5]);
+              addSolidEdge(midIdx[5], idx[5]);
+              addSolidEdge(idx[2], midIdx[6]);
+              addSolidEdge(midIdx[6], idx[6]);
+              addSolidEdge(idx[3], midIdx[7]);
+              addSolidEdge(midIdx[7], idx[7]);
             } else {
               addSolidEdge(idx[0], idx[1]);
               addSolidEdge(idx[1], idx[2]);
@@ -19759,22 +19760,22 @@ Press OK to override warnings and continue export, or Cancel to abort.`
                 addSelectedLineEdge(mids[2], c[3]);
                 addSelectedLineEdge(c[3], mids[3]);
                 addSelectedLineEdge(mids[3], c[0]);
-                addSelectedLineEdge(c[4], mids[4]);
-                addSelectedLineEdge(mids[4], c[5]);
-                addSelectedLineEdge(c[5], mids[5]);
-                addSelectedLineEdge(mids[5], c[6]);
-                addSelectedLineEdge(c[6], mids[6]);
-                addSelectedLineEdge(mids[6], c[7]);
-                addSelectedLineEdge(c[7], mids[7]);
-                addSelectedLineEdge(mids[7], c[4]);
-                addSelectedLineEdge(c[0], mids[8]);
-                addSelectedLineEdge(mids[8], c[4]);
-                addSelectedLineEdge(c[1], mids[9]);
-                addSelectedLineEdge(mids[9], c[5]);
-                addSelectedLineEdge(c[2], mids[10]);
-                addSelectedLineEdge(mids[10], c[6]);
-                addSelectedLineEdge(c[3], mids[11]);
-                addSelectedLineEdge(mids[11], c[7]);
+                addSelectedLineEdge(c[4], mids[8]);
+                addSelectedLineEdge(mids[8], c[5]);
+                addSelectedLineEdge(c[5], mids[9]);
+                addSelectedLineEdge(mids[9], c[6]);
+                addSelectedLineEdge(c[6], mids[10]);
+                addSelectedLineEdge(mids[10], c[7]);
+                addSelectedLineEdge(c[7], mids[11]);
+                addSelectedLineEdge(mids[11], c[4]);
+                addSelectedLineEdge(c[0], mids[4]);
+                addSelectedLineEdge(mids[4], c[4]);
+                addSelectedLineEdge(c[1], mids[5]);
+                addSelectedLineEdge(mids[5], c[5]);
+                addSelectedLineEdge(c[2], mids[6]);
+                addSelectedLineEdge(mids[6], c[6]);
+                addSelectedLineEdge(c[3], mids[7]);
+                addSelectedLineEdge(mids[7], c[7]);
               } else {
                 addSelectedLineEdge(c[0], c[1]);
                 addSelectedLineEdge(c[1], c[2]);
@@ -28856,11 +28857,11 @@ ${formatRanges(v.ranges, 500)}`;
       CTRIA3: [[0, 1], [1, 2], [2, 0]], CTRIA6: [[0, 3], [3, 1], [1, 4], [4, 2], [2, 5], [5, 0]],
       CQUAD4: [[0, 1], [1, 2], [2, 3], [3, 0]], CQUAD8: [[0, 4], [4, 1], [1, 5], [5, 2], [2, 6], [6, 3], [3, 7], [7, 0]],
       CTETRA: [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]],
-      CHEXA: [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]], CROD: [[0, 1]], CBUSH: [[0, 1]]
+      CHEXA: [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 5], [2, 6], [3, 7], [4, 5], [5, 6], [6, 7], [7, 4]], CROD: [[0, 1]], CBUSH: [[0, 1]]
     };
     for (const e of mesh.elements) {
       const type = String(e.type).replace(/^(CHEXA)(8|20)$|^(CTETRA)(4|10)$/, (_, h, a, t) => h || t);
-      const edges = type === "RBE2" ? e.nodes.slice(1).map((_, i) => [0, i + 1]) : patterns[type] || [];
+      const edges = ["RBE2", "RBE3"].includes(type) ? e.nodes.slice(1).map((_, i) => [0, i + 1]) : patterns[type] || [];
       const highOrder = (type === "CHEXA" && e.nodes.length === 20) || (type === "CTETRA" && e.nodes.length === 10);
       const offset = type === "CHEXA" ? 8 : 4;
       const segments = highOrder ? edges.flatMap(([a, b], i) => [[a, offset + i], [offset + i, b]]) : edges;

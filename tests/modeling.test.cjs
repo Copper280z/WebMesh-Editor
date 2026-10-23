@@ -54,7 +54,7 @@ test('hex block follows Nastran order with positive Jacobian and shared corner n
 test('quadratic hex stores 12 Nastran edge nodes and shares interfaces',()=>{
   const mesh=createPrimitive({kind:'block',topology:'hex',order:2,size:[2,3,4],divisions:[2,1,1]});
   assert.equal(mesh.nodes.length,32);
-  const p=coords(mesh),edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const p=coords(mesh),edges=[[0,1],[1,2],[2,3],[3,0],[0,4],[1,5],[2,6],[3,7],[4,5],[5,6],[6,7],[7,4]];
   for(const e of mesh.elements) {
     assert.equal(e.type,'CHEXA20');
     edges.forEach(([a,b],i)=>p.get(e.nodes[8+i]).forEach((v,j)=>close(v,(p.get(e.nodes[a])[j]+p.get(e.nodes[b])[j])/2)));

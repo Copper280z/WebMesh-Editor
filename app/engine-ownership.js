@@ -8,7 +8,7 @@
   // Unknown hand-card references fail closed, rather than guessing from integers.
   const FORMAT = 'webmesh-engine-ownership';
   const families = { nodes: 'node', elems: 'element', masses: 'element', properties: 'property', materials: 'material', coords: 'coordinate' };
-  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2' };
+  const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2', RBE3: 'rbe3' };
   const known = new Set(('GRID CORD1R CORD1C CORD2R CORD2C CORD2S CTRIA3 CTRIA6 CQUAD4 CQUAD8 CTETRA CHEXA CPENTA CPYRAM CROD CBAR CBEAM CBUSH RBE2 RBE3 CONM2 PSHELL PSOLID PROD PBAR PBEAM PCOMP PBUSH MAT1 MAT8 FORCE MOMENT PLOAD2 PLOAD4 LOAD SPC SPC1 TEMP TEMPD ENDDATA').split(' '));
   known.add('CEND'); known.add('BEGIN BULK');
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -57,7 +57,7 @@
       MAT1: ['type', 'mid', 'E', 'G', 'nu', 'rho'],
       PSHELL: ['type', 'pid', 'mid1', 'mid2', 'mid3', 'mid4', 't'], PSOLID: ['type', 'pid', 'mid'], PROD: ['type', 'pid', 'mid', 'A'],
       PBUSH: ['type', 'pid', 'K', 'K1', 'K2', 'K3', 'K4', 'K5', 'K6'],
-      RBE2: ['type', 'eid', 'gn', 'cm', 'deps'], CBUSH: ['type', 'eid', 'pid', 'n', 'orient', 'cid', 's', 'ocid', 'si']
+      RBE3: ['type', 'eid', 'gn', 'cm', 'weight', 'inds', 'groups'], RBE2: ['type', 'eid', 'gn', 'cm', 'deps'], CBUSH: ['type', 'eid', 'pid', 'n', 'orient', 'cid', 's', 'ocid', 'si']
     };
     const fields = allowed[type] || (buckets[type] ? ['type', 'eid', 'pid', 'n', 'zoffs'] : null);
     if (!fields || Object.keys(v).some(field => !fields.includes(field))) fail(k + ': unsupported generated card or field.');
@@ -72,7 +72,7 @@
     if (type === 'PSHELL') { id(v.mid1); for (const f of ['mid2', 'mid3', 'mid4']) if (v[f] != null) id(v[f]); }
     if (type === 'PSOLID' || type === 'PROD') id(v.mid);
     if (v.zoffs != null) finite(v.zoffs, 'offset');
-    if (card.family === 'elems' && type !== 'RBE2') id(v.pid);
+    if (card.family === 'elems' && !['RBE2','RBE3'].includes(type)) id(v.pid);
     if (type === 'MAT1' && (!(finite(v.E, 'E') > 0) || !(finite(v.nu, 'nu') > -1 && v.nu < 0.5) || finite(v.rho, 'rho') < 0)) fail(k + ': invalid material constants.');
     if (type === 'PSHELL' && !(finite(v.t, 'thickness') > 0)) fail(k + ': thickness must be positive.');
     if (type === 'PROD' && !(finite(v.A, 'area') > 0)) fail(k + ': area must be positive.');
@@ -81,11 +81,12 @@
       if (v.K !== 'K' || stiffness.some(x => x < 0) || !stiffness.some(x => x > 0)) fail(k + ': invalid PBUSH stiffness.');
     }
     if (card.family === 'elems') {
-      const ns = type === 'RBE2' ? [v.gn, ...(v.deps || [])] : v.n;
+      const ns = type === 'RBE3' ? [v.gn, ...(v.inds || [])] : type === 'RBE2' ? [v.gn, ...(v.deps || [])] : v.n;
       const counts = { CTRIA3: [3], CTRIA6: [6], CQUAD4: [4], CQUAD8: [8], CTETRA: [4, 10], CHEXA: [8, 20], CROD: [2], CBUSH: [2] };
-      if (!Array.isArray(ns) || (type === 'RBE2' ? ns.length < 2 : !counts[type].includes(ns.length))) fail(k + ': incorrect connectivity count.');
+      if (!Array.isArray(ns) || (['RBE2','RBE3'].includes(type) ? ns.length < 2 : !counts[type].includes(ns.length))) fail(k + ': incorrect connectivity count.');
       ns.forEach(id); if (new Set(ns).size !== ns.length) fail(k + ': repeated connectivity.');
       if (type === 'RBE2' && (!/^[1-6]+$/.test(v.cm) || new Set(v.cm).size !== v.cm.length)) fail(k + ': invalid dependent components.');
+      if(type==='RBE3'&&(v.cm!=='123456'||v.weight!==1||v.inds.length<3||v.groups?.length!==1||v.groups[0].wt!==1||v.groups[0].c!=='123'||!equal(v.groups[0].gids,v.inds))) fail(k+': owned RBE3 requires six reference DOFs and one unit-weight translational support group.');
       if (type === 'CBUSH' && (v.orient?.kind !== 'x' || !Array.isArray(v.orient.x) || v.orient.x.length !== 3 || !v.orient.x.every(Number.isFinite) || !Math.hypot(...v.orient.x))) fail(k + ': explicit CBUSH orientation required.');
     }
     return { family: card.family, id: card.id, value: copy(v), ...(card.bucket ? { bucket: card.bucket } : {}) };
@@ -153,12 +154,18 @@
     const elements = Object.values(semantic.elems).flat();
     for (const e of elements) {
       if (e.type === 'RBE2' && !owners.has('element:' + e.eid)) for (const nid of e.deps || []) occupy(nid, e.cm, 'RBE2 ' + e.eid, false);
-      if (e.type === 'RBE3') {
+      if (e.type === 'RBE3' && !owners.has('element:' + e.eid)) {
         if (e.um?.length) for (const pair of e.um) occupy(pair.gm, pair.cm, 'RBE3 ' + e.eid, false);
         else occupy(e.refgrid ?? e.gn, e.refc ?? e.cm, 'RBE3 ' + e.eid, false);
       }
     }
-    for (const e of elements) if (e.type === 'RBE2' && owners.has('element:' + e.eid)) for (const nid of e.deps || []) occupy(nid, e.cm, 'RBE2 ' + e.eid, true);
+    for (const e of elements) if (owners.has('element:' + e.eid)) {
+      if(e.type==='RBE2')for(const nid of e.deps||[])occupy(nid,e.cm,'RBE2 '+e.eid,true);
+      if(e.type==='RBE3')occupy(e.gn,e.cm,'RBE3 '+e.eid,true);
+    }
+    // Generated interpolation supports must remain independent. This also
+    // rejects cycles through a hand or generated rigid element after edits.
+    for(const e of elements)if(e.type==='RBE3'&&owners.has('element:'+e.eid))for(const nid of e.inds)for(const c of '123')if(occupied.has(nid+':'+c)&&!/^SPC|^permanent/.test(occupied.get(nid+':'+c)))fail('RBE3 '+e.eid+': solid support GRID '+nid+' component '+c+' is dependent ('+occupied.get(nid+':'+c)+').');
   }
   function empty() { return { format: FORMAT, version: 1, project: Project.create().snapshot(), owners: [] }; }
   function validate(state, semantic) {

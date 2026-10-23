@@ -31,7 +31,7 @@
   const MAX_ELEMENTS = 250000;
   const MAX_NODES = 500000;
   // Midside order used by the rest of WebMesh (modeling.js, editor-engine.js).
-  const HEX20_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+  const HEX20_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 5], [2, 6], [3, 7], [4, 5], [5, 6], [6, 7], [7, 4]];
   const HEX_CORNER_NEIGHBORS = [[1, 3, 4], [2, 0, 5], [3, 1, 6], [0, 2, 7], [7, 5, 0], [4, 6, 1], [5, 7, 2], [6, 4, 3]];
   const SIDE_NAMES = ['i0', 'i1', 'j0', 'j1', 'k0', 'k1'];
 

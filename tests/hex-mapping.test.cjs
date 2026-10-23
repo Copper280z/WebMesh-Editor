@@ -264,3 +264,10 @@ test('face membership is limited to meshed solids, with shared interfaces preser
   const shared=data.topology.faces.find(f=>f.volumes.length===2);
   assert.ok(shared);assert.equal(one.faceNodes[shared.id].length,full.faceNodes[shared.id].length);
 });
+
+test('HEX20 midsides follow solver Nastran order: lower, vertical, upper edges',()=>{
+  const {mesh}=build('split-box',{size:2},{order:2});const xyz=new Map(mesh.nodes.map(n=>[n.id,[n.x,n.y,n.z]]));
+  // Independent solver convention: G13–G16 lie on G1–G5 ... G4–G8.
+  const nastran=[[0,1],[1,2],[2,3],[3,0],[0,4],[1,5],[2,6],[3,7],[4,5],[5,6],[6,7],[7,4]];
+  for(const e of mesh.elements)nastran.forEach(([a,b],i)=>xyz.get(e.nodes[8+i]).forEach((v,j)=>assert.ok(Math.abs(v-(xyz.get(e.nodes[a])[j]+xyz.get(e.nodes[b])[j])/2)<1e-8)));
+});

@@ -72,7 +72,7 @@
     // mesh covers solids, a shell mesh faces. A new mesh replaces only those covering
     // any of the same ones, so meshes of different bodies stay side by side.
     // { id, kind, label, volumes, faces, all?, elements, properties, material, stale, inModel }
-    let meshes = [], meshCounter = 0, removing = null;
+    let meshes = [], meshCounter = 0, removing = null, editingOwner = null, regionName = '';
     const meshesBySession = new Map();  // the lists of sessions switched away from in this page
     // CAD sessions open on the server (Sessions): resume one after a reload, or close one to free storage.
     let sessionsInfo = null, sessionsOpen = false, sessionsLoading = false, closing = null;
@@ -204,7 +204,7 @@
 
     /* ------------------------------------------------------------ meshes -- */
     const meshOwner = m => `${session.cadId}#${m.id}`;
-    function markStale() { for (const m of meshes) m.stale = true; }
+    function markStale(settingsOnly=false) { for (const m of meshes) if(!settingsOnly||!m.projectOwner||m.projectOwner===editingOwner)m.stale = true; }
     const freshMeshes = () => meshes.filter(m => !m.stale && m.inModel !== false);
     const covering = target => meshes.filter(m => m.all || (target.volumes?.length && (m.volumes || []).some(v => target.volumes.includes(v))) || (target.faces?.length && (m.faces || []).some(f => target.faces.includes(f))));
     const reviewMapped = volumes => hooks.reviewMappedMesh && !covering({ volumes }).some(m => !m.projectOwner && m.inModel !== false);
@@ -212,7 +212,7 @@
       if (!m.projectOwner) return engine().getMeshOwner(meshOwner(m));
       const state = engine().getProjectOwnership(), root = state?.project.objects.find(o => o.id === m.projectOwner);
       if (!root) return { elements: [], properties: [] };
-      return { elements: state.owners.filter(o => o.owner === root.id && o.card.family === 'elems').map(o => o.card.id), properties: root.definition.sections.map(s => s.pid), volumes: root.definition.targets };
+      return { elements: state.owners.filter(o => o.owner === root.id && o.card.family === 'elems').map(o => o.card.id), properties: root.definition.sections.map(s => s.pid), volumes: root.definition.generator==='cad-shell-v1'?[]:root.definition.targets, faces: root.definition.generator==='cad-shell-v1'?root.definition.targets:[] };
     }
     function ownedMatches(m) {
       const owned = meshOwnership(m), expected = new Set((m.elements || []).map(Number));
@@ -245,14 +245,13 @@
       if (!freshMeshes().length) { engine().setCadVisible(true); engine().setCadSelectionMode(active ? pick : 'none'); }
     }
     function meshesCard() {
-      if (!meshes.length) return '';
       const rows = meshes.map(m => {
         const confirm = removing === m.id, gone = m.inModel === false;
         return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? (m.projectOwner ? 'Owner absent (undone, removed or converted)' : 'Not in the model (undone)') : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? (m.projectOwner ? ' · draft differs or needs review; committed mesh retained' : ' · out of date: the geometry or sizing changed') : ''}`}</small></div>
-          ${m.stale && !gone ? chip(m.projectOwner ? 'Draft changed' : 'Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
+          ${m.projectOwner&&!gone?btn('mesh-edit','Edit region',{cls:'ghost mini',data:{value:m.projectOwner}}):''}${m.stale && !gone ? chip(m.projectOwner ? 'Draft changed' : 'Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
       }).join('');
-      return `<section class="cad-card"><div class="cad-card-title">Meshes in the model <small>${meshes.length}</small></div>${rows}
-        <p class="cad-note">${meshes.some(m => m.projectOwner) ? 'Mapped CAD changes replace the complete owned mesh after review. The committed source and mesh remain available for export while you edit the draft.' : 'Each set of bodies keeps its own mesh: a new mesh replaces only the one covering the same solids or faces.'}</p></section>`;
+      return `<section class="cad-card"><div class="cad-card-title">Mesh regions <small>${meshes.length}</small></div><label class="cad-field"><span>Mesh region name</span><input aria-label="Mesh region name" data-field="region-name" value="${esc(regionName)}" placeholder="Name this mesh region"></label><p class="cad-note">${editingOwner?'Editing the selected region. Other mesh regions stay committed.':'Creating a separate region from this CAD source. Unmeshed CAD remains reference geometry.'}</p>${meshes.length?btn('mesh-new','New mesh region',{cls:'ghost mini'}):''}${rows}
+        <p class="cad-note">${meshes.some(m => m.projectOwner) ? 'Each region has its own sizing, section and mesh. Use Edit region to remesh one side; interfaces are rebuilt in the same review. Partition continuous solids before assigning different idealizations.' : 'Each set of bodies keeps its own mesh: a new mesh replaces only the one covering the same solids or faces.'}</p></section>`;
     }
     /* ------------------------------------------------------------ sheets -- */
     const sheetRecords = () => session?.topology?.sheets || [];
@@ -381,7 +380,7 @@
       const original = data.original; delete data.original;
       const file = new File([fromBase64(original.content)], original.filename);
       if (session) meshesBySession.set(session.cadId, meshes);
-      source = file; meshes = meshesBySession.get(cadId) || []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      editingOwner = null; regionName = ''; source = file; meshes = meshesBySession.get(cadId) || []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
       display.hiddenSheets = new Set();
       sessionsOpen = false; closing = null;
       accept(data);
@@ -414,7 +413,7 @@
       const format = ({ stp: 'step', igs: 'iges' }[file.name.split('.').pop().toLowerCase()] || file.name.split('.').pop().toLowerCase());
       const data = await api('import', { filename: file.name, format, content: base64(await file.arrayBuffer()) });
       if (session) meshesBySession.set(session.cadId, meshes);
-      source = file; meshes = []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
+      source = file; meshes = []; editingOwner = null; regionName = ''; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
       display.hiddenSheets = new Set();
       accept(data); hooks.name(file.name.replace(/\.[^.]+$/, '')); hooks.render();
       hooks.log(`Imported CAD ${file.name}`);
@@ -678,7 +677,7 @@
     }
 
     function clearAll() {
-      source = null; session = null; selection = { kind: null, ids: [] }; report = null; meshes = []; auditHistory = []; pending = null; clearPreview();
+      source = null; session = null; editingOwner = null; regionName = ''; selection = { kind: null, ids: [] }; report = null; meshes = []; auditHistory = []; pending = null; clearPreview();
       analysis = recognized = geometry = intervals = null; meshPreview = null; sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
       engine()?.clearCadGeometry?.(); updateViewTools();
     }
@@ -740,7 +739,7 @@
       }
       if (step === 'size') return `<div class="cad-foot-row">${btn('step', 'Back', { cls: 'ghost', data: { value: 'prepare' } })}${btn('step', 'Next: Mesh', { cls: 'primary', data: { value: 'mesh' }, iconName: 'arrow' })}</div>`;
       if (meshSettings.method === 'gmsh' || discrete()) return `<div class="cad-foot-row">${btn('gmsh-mesh', 'Generate with Gmsh', { cls: 'primary', iconName: 'mesh', disabled: !gmshReady(), title: gmshReady() ? '' : GMSH_MISSING })}</div>`;
-      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell', disabled: shell.element === 'tri' && !gmshReady(), title: shell.element === 'tri' && !gmshReady() ? GMSH_MISSING : '' })}</div>`;
+      if (meshSettings.method === 'shell') return `<div class="cad-foot-row">${btn('shell-mesh', hooks.reviewMappedMesh?'Review shell mesh':covering({ faces: shellTarget() }).length ? 'Replace shell mesh' : 'Generate shell mesh', { cls: 'primary', iconName: 'shell', disabled: shell.element === 'tri' && !gmshReady(), title: shell.element === 'tri' && !gmshReady() ? GMSH_MISSING : '' })}</div>`;
       return `<div class="cad-foot-row">${btn('mesh-preview', meshPreview ? 'Refresh' : 'Preview', { cls: 'ghost', iconName: 'eye' })}${btn('mesh-add', reviewMapped(mappedTarget()) ? 'Review mesh changes' : covering({ volumes: mappedTarget() }).length ? 'Replace in model' : 'Add to model', { cls: 'primary', iconName: 'check', disabled: !!intervals?.conflicts.length })}</div>`;
     }
 
@@ -1232,6 +1231,11 @@
       if (!(thickness > 0)) throw Error('Enter a positive shell thickness.');
       const meshed = q.faces.filter(f => f.quads).map(f => f.face);
       const label = `${shell.element === 'quad' ? 'Quad' : 'Tri'} shell · ${meshed.length} face${meshed.length === 1 ? '' : 's'}${placed.placement === 'midsurface' ? ' · midsurface' : placed.placement === 'offset' ? ' · offset' : ''}`;
+      if(hooks.reviewMappedMesh&&!covering({faces:meshed}).some(m=>!m.projectOwner&&m.inModel!==false)){
+        if(shellTarget().some(id=>!meshed.includes(id))||q.failedFaces?.length||q.faces.some(f=>!f.quads||f.valid===false)||!(q.minScaledJacobian>0))throw Error('Shell coverage or quality failed. Resolve every requested face before committing this region.');
+        await reviewOwnedMesh('shell',result.mesh,meshed,{thickness,thicknessByProperty:result.thicknessByProperty||{}},()=>{report={text:label+' · '+q.elements+' elements · min scaled Jacobian '+q.minScaledJacobian.toFixed(3)};engine().setCadVisible(false);engine().setCadSelectionMode('none');});
+        return;
+      }
       await commitMesh({ kind: 'shell', faces: meshed }, result, { topology: shell.element, order: 1, thickness, thicknessByProperty: result.thicknessByProperty || null }, label);
       const failed = q.faces.filter(f => !f.quads);
       const lines = [`${q.nodes.toLocaleString()} nodes · ${q.elements.toLocaleString()} ${shell.element === 'quad' ? 'CQUAD4' : 'CTRIA3'} · ${q.faces.length - failed.length} of ${q.faces.length} faces`,
@@ -1519,7 +1523,7 @@
     }
     function savedSettings() {
       return { version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
-        mesh: { ...meshSettings, ...(meshSettings.scope === 'selected' ? { selectedVolumes: meshVolumes() } : {}) }, legacy: JSON.parse(JSON.stringify(legacy)), shell: JSON.parse(JSON.stringify(shell)), passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups } };
+        mesh: { ...meshSettings, ...(meshSettings.scope === 'selected' ? { selectedVolumes: meshVolumes() } : {}) }, legacy: JSON.parse(JSON.stringify(legacy)), shell: {...JSON.parse(JSON.stringify(shell)),...(shell.scope==='selected'?{selectedFaces:shellFaces()}: {})}, passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups } };
     }
     function finishMappedMesh(result) {
       const q = result.quality;
@@ -1528,6 +1532,21 @@
       engine().setCadVisible(false); engine().setCadSelectionMode('none');
       hooks.render();
     }
+    async function reviewOwnedMesh(kind, mesh, targets, extra, finish) {
+      const previous=meshes.find(m=>m.projectOwner===editingOwner&&m.inModel!==false);
+      if(previous&&previous.kind!==kind)throw Error('Use New mesh region for a different idealization, or edit the existing region with its original mesher.');
+      const draft=JSON.stringify({token:token(),settings:savedSettings(),editingOwner,regionName}),file=source;
+      const beforeCommit=()=>{if(source!==file||draft!==JSON.stringify({token:token(),settings:savedSettings(),editingOwner,regionName}))throw Error('The CAD draft changed. Discard this review and generate a new mesh review.');};
+      const id=previous?.projectOwner||'cad-'+crypto.randomUUID(),name=regionName.trim()||source.name+(kind==='shell'?' · Shell mesh':' · Mapped mesh');
+      const owners=engine().getProjectOwnership()?.project.objects||[];
+      const sibling=meshes.map(m=>owners.find(o=>o.id===m.projectOwner)).find(Boolean);
+      const snapshot={filename:source.name,content:base64(await source.arrayBuffer()),prepared:await api('export',token())};
+      snapshot.prepared.history=[...auditHistory,...(snapshot.prepared.history||[])];beforeCommit();
+      await hooks.reviewMappedMesh({id,name,sourceId:sibling?.definition.source,kind:kind==='shell'?'shell':'solid',snapshot,topology:topology(),settings:savedSettings(),perSolid:meshSettings.pidPerSolid,[kind==='shell'?'faces':'volumes']:targets,mesh,...extra},{beforeCommit,onApplied(){
+        const record={id:previous?.id??++meshCounter,kind,label:name,projectOwner:id,volumes:kind==='hex'?targets:[],faces:kind==='shell'?targets:[],stale:false,inModel:true};
+        Object.assign(record,meshOwnership(record));meshes=[...meshes.filter(m=>m!==previous),record];editingOwner=id;regionName=name;finish();hooks.render();
+      }});
+    }
     async function addMesh() {
       if (!meshPreview) buildMeshPreview();
       if (!meshPreview) throw Error(meshError || 'The mapped mesh could not be generated.');
@@ -1535,21 +1554,7 @@
       if (q.inverted) throw Error(`${q.inverted} elements are inverted. Change edge counts or slice the solids before adding the mesh.`);
       const volumes = [...new Set(result.elements.map(e => e.volume))].sort((a, b) => a - b);
       if (reviewMapped(volumes)) {
-        const draft = JSON.stringify({ token: token(), settings: savedSettings(), target: mappedTarget() }), file = source;
-        const beforeCommit = () => { if (source !== file || draft !== JSON.stringify({ token: token(), settings: savedSettings(), target: mappedTarget() })) throw Error('The CAD draft changed. Discard this review and generate a new mesh review.'); };
-        const previous = meshes.find(m => m.projectOwner && m.inModel !== false), id = previous?.projectOwner || 'cad-' + crypto.randomUUID();
-        const snapshot = { filename: source.name, content: base64(await source.arrayBuffer()), prepared: await api('export', token()) };
-        snapshot.prepared.history = [...auditHistory, ...(snapshot.prepared.history || [])];
-        beforeCommit();
-        await hooks.reviewMappedMesh({ id, name: source.name + ' · Mapped mesh', snapshot, topology: topology(), settings: savedSettings(), perSolid: meshSettings.pidPerSolid, volumes, mesh: { nodes: result.nodes, elements: result.elements, faceNodes: result.faceNodes } }, {
-          beforeCommit,
-          onApplied() {
-            const record = { id: previous?.id ?? ++meshCounter, kind: 'hex', label: source.name + ' · Mapped mesh', projectOwner: id, volumes, faces: [], stale: false, inModel: true };
-            Object.assign(record, meshOwnership(record));
-            meshes = [...meshes.filter(m => m !== previous), record];
-            finishMappedMesh(result);
-          }
-        });
+        await reviewOwnedMesh('hex', {nodes:result.nodes,elements:result.elements,faceNodes:result.faceNodes}, volumes, {}, ()=>finishMappedMesh(result));
         return;
       }
       await commitMesh({ kind: 'hex', volumes }, { mesh: { nodes: result.nodes, elements: result.elements.map(({ volume, ...e }) => e) }, log: '' }, { topology: 'hex', order: meshSettings.order },
@@ -1702,6 +1707,8 @@
           case 'mesh-preview': buildMeshPreview(); break;
           case 'mesh-add': hooks.run(addMesh); break;
           case 'gmsh-mesh': hooks.run(async () => { try { await gmshMesh(); } catch (error) { report = { error: true, text: error.message }; hooks.render(); throw error; } }); break;
+          case 'mesh-new': editingOwner=null;regionName='';hooks.render();break;
+          case 'mesh-edit': hooks.editMeshOwner?.(value);break;
           case 'shell-mesh': hooks.run(async () => { try { await shellMesh(); } catch (error) { report = { error: true, text: error.message }; hooks.render(); throw error; } }); break;
           case 'shell-element': shell.element = value; hooks.render(); break;
           case 'shell-mesher': shell.mesher = value; hooks.render(); break;
@@ -1775,7 +1782,7 @@
         }
       } catch (error) { hooks.message(error.message || String(error), true); }
     }
-    function invalidateMesh() { meshPreview = null; markStale(); viewport()?.clearOverlays('mesh'); setBaseVisible(true); }
+    function invalidateMesh() { meshPreview = null; markStale(true); viewport()?.clearOverlays('mesh'); setBaseVisible(true); }
     function afterFeatureChange() { renderPart('cad-tool', toolCard); updatePendingOverlay(); refreshFooter(); if (pending) schedulePreview(); }
     function refreshSlice(rerender) {
       if (rerender) renderPart('cad-tool', toolCard);
@@ -1802,6 +1809,7 @@
       if (!active) return;
       const el = event.target.closest('[data-field]'); if (!el) return;
       const field = el.dataset.field, value = el.type === 'checkbox' ? el.checked : el.value;
+      if(field==='region-name'){regionName=value;return;}
       try {
         if (field === 'slice-slider') { moveSlice(Number(value), true); refreshSlice(false); return; }
         if (field === 'slice-offset' && Number.isFinite(Number(value)) && String(value).trim() !== '') { moveSlice(Number(value), false); refreshSlice(false); return; }
@@ -1840,6 +1848,7 @@
         if (field === 'auto-blends') { autoState.blends = !!value; return; }
         if (field === 'auto-holes') { autoState.holes = !!value; return; }
         if (field === 'mesh-live') { meshSettings.live = !!value; if (value) scheduleMesh(); return; }
+        if(['shell-size','shell-circle','shell-offset','shell-thickness'].includes(field))markStale(true);
         if (field === 'shell-size') { shell.size = Number(value) > 0 ? Number(value) : null; return; }
         if (field === 'shell-circle') { shell.perCircle = Math.max(4, Math.min(128, Math.round(Number(value) || 12))); return; }
         if (field === 'shell-offset') { shell.offset = Number(value); return; }
@@ -2038,6 +2047,7 @@
         if (value && session) { if (step !== 'mesh' || !freshMeshes().length) engine()?.setCadVisible(true); updateDisplay(); }
         engine()?.setCadSelectionMode?.(value && session ? pick : 'none');
         if (!value) {
+          engine()?.setCadVisible(false);
           // Workspace overlays belong to this tab; the next activation rebuilds them.
           engine()?.setCadSplitPlane?.(null); if (tooltip) tooltip.hidden = true;
           const vp = viewport(); if (vp) { vp.clearOverlays(''); vp.setBaseVisible?.(true); vp.setEdgeColors(null); }
@@ -2051,7 +2061,7 @@
         if (!source) return null;
         for (const m of meshes) if (!ownedMatches(m) && !m.stale) { m.stale = true; report = null; }
         const settings = savedSettings();
-        const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report };
+        const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report, editingOwner, regionName };
         if (session) { original.prepared = await api('export', token()); original.prepared.history = [...auditHistory, ...(original.prepared.history || [])]; }
         const saved = meshes.filter(m => m.inModel !== false).map(m => { const owned = meshOwnership(m); return { ...m, elements: owned.elements, properties: owned.properties }; });
         if (saved.length) original.meshes = saved;
@@ -2109,7 +2119,11 @@
           const entry = {}; if (control.count != null) entry.count = control.count; if (control.size != null) entry.size = control.size;
           if (Object.keys(entry).length) sizing.edges.set(control.id, entry);
         }
-        if (s.mesh?.scope === 'selected') {
+        if(s.mesh?.method==='shell'&&s.shell?.scope==='selected'){
+          selection={kind:'face',ids:(s.shell.selectedFaces||[]).filter(id=>session.topology.faces.some(f=>f.id===id))};
+          if(!selection.ids.length||selection.ids.length!==s.shell.selectedFaces?.length)invalid=true;
+          engine().selectCad({faces:selection.ids,edges:[],vertices:[],volumes:[]});
+        } else if (s.mesh?.method!=='shell' && s.mesh?.scope === 'selected') {
           const targets = Array.isArray(s.mesh.selectedVolumes) ? s.mesh.selectedVolumes : [];
           const availableSolids = new Set(session.topology.volumes.map(v => v.id));
           selection = { kind: 'solid', ids: targets.filter(id => Number.isSafeInteger(id) && availableSolids.has(id)) };
@@ -2117,7 +2131,7 @@
           engine().selectCad({ faces: [], edges: [], vertices: [], volumes: selection.ids });
         }
         solve(); updateDisplay();
-        meshes = savedMeshes(data); meshCounter = Math.max(0, ...meshes.map(m => m.id));
+        meshes = savedMeshes(data); editingOwner=data.editingOwner||meshes.find(m=>m.projectOwner)?.projectOwner||null;regionName=data.regionName||meshes.find(m=>m.projectOwner===editingOwner)?.label||''; meshCounter = Math.max(0, ...meshes.map(m => m.id));
         if (data.report && typeof data.report.text === 'string') report = { text: data.report.text.slice(0, 6000), error: !!data.report.error };
         if (invalid) { markStale(); report = null; hooks.message('Some saved edge controls do not match this CAD revision. Review sizing and mesh again.', true); }
         for (const m of meshes) if (!ownedMatches(m)) m.stale = true;

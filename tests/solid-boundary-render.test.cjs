@@ -11,12 +11,12 @@ const helpers=source.slice(source.indexOf('  function semanticSolidFaceKey('),so
 const center=source.slice(source.indexOf('  function quadraticQuadCenter('),source.indexOf('  function buildGeometriesFromCoreSoa('));
 const start=source.indexOf('    const workerSurf =',source.indexOf('  function buildGeometries(preserveView'));
 const rendering=source.slice(start,source.indexOf('    try {\n      const surf = workerSurf;',start));
-function render(mesh,{hiddenIds=[],shown={},clipping=false}={}) {
+function render(mesh,{hiddenIds=[],shown={},clipping=false,contourColors=null,continuous=true,elementColors=new Map()}={}) {
   const nodes=new Map(mesh.nodes.map(n=>[n.id,n])),indexToNid=[...nodes.keys()],nodeIndex=new Map(indexToNid.map((id,i)=>[id,i]));
   const elems={hex:[],tet:[],penta:[],pyram:[]};
   for(const e of mesh.elements){const bucket=e.type.startsWith('CHEXA')?'hex':e.type.startsWith('CTETRA')?'tet':e.type==='CPENTA'?'penta':'pyram';elems[bucket].push({eid:e.id,pid:e.pid,type:e.type,n:e.nodes});}
   const messages=[],context=vm.createContext({...THREE,Map,Set,window:{__WEBMESH_EDITOR_RENDER_STATS__:{}},model:{nodes,indexToNid,nodeIndex,elems},N:nodes.size,pos:Float32Array.from(mesh.nodes.flatMap(n=>[n.x,n.y,n.z])),
-    coreSoa:null,hidden:{elems:new Set(hiddenIds)},visibility:{chexa:true,ctetra:true,cpenta:true,cpyram:true,edges:true,...shown},usePropColors:true,contourNodeColors:null,contourContinuous:true,contourElementColorByEid:new Map(),
+    coreSoa:null,hidden:{elems:new Set(hiddenIds)},visibility:{chexa:true,ctetra:true,cpenta:true,cpyram:true,edges:true,...shown},usePropColors:true,contourNodeColors:contourColors,contourContinuous:continuous,contourElementColorByEid:elementColors,
     scene:new THREE.Scene(),renderer:{localClippingEnabled:clipping},meshSolid:null,clippingPlane:new THREE.Plane(new THREE.Vector3(1,0,0),0),shadingToggle:{},getToggleOn:()=>true,getPropColor:()=>[0.2,0.5,0.8],updateOpacity(){},statusMsg:msg=>messages.push(msg)});
   vm.runInContext(helpers+center+rendering+'\nglobalThis.result={meshSolid,solidFaceToElem,solidEdgePositions,triangles:solidIndices.length/3,skipSolids,semanticBoundary};',context);
   return {context,result:context.result,messages};
@@ -49,4 +49,26 @@ test('quadratic tetrahedra retain four subtriangles per exposed face',()=>{
   const {result}=render(mesh);
   assert.equal(result.semanticBoundary.faces.size,12);assert.equal(result.triangles,48);
   const owners=new Set(result.solidFaceToElem.map(face=>face.eid));assert.ok(owners.size>0);
+});
+
+// A wrong CHEXA20 edge convention can keep triangle counts correct while
+// folding a planar face inward. Verify geometry against an independent cube.
+test('Nastran HEX20 faces and edge segments remain on their original cube planes',()=>{
+  const mesh=modeling.createPrimitive({kind:'block',size:[2,4,6],divisions:[1,1,1],topology:'hex',order:2});
+  const {result}=render(mesh),positions=result.meshSolid.geometry.attributes.position.array;
+  const limits=[2,4,6];
+  for(let i=0;i<positions.length;i+=9)assert.ok(limits.some((limit,axis)=>[0,limit].some(plane=>[0,1,2].every(v=>Math.abs(positions[i+v*3+axis]-plane)<1e-6))),'each face triangle is planar on a cube boundary');
+  assert.equal(result.solidEdgePositions.length,24*6,'all twelve edges have two midside segments');
+  for(let i=0;i<result.solidEdgePositions.length;i+=6){const p=result.solidEdgePositions.slice(i,i+6);assert.equal([0,1,2].filter(axis=>Math.abs(p[axis]-p[axis+3])<1e-6).length,2);}
+});
+
+test('HEX20 contour surfaces use nodal colors in continuous mode and element colors otherwise',()=>{
+ const mesh=modeling.createPrimitive({kind:'block',size:[2,4,6],divisions:[1,1,1],topology:'hex',order:2});
+ const colors=Float32Array.from(mesh.nodes.flatMap(n=>[n.x/2,n.y/4,n.z/6]));
+ const smooth=render(mesh,{contourColors:colors}).result.meshSolid.geometry.attributes.color.array;
+ assert.deepEqual(Array.from(smooth.slice(0,3)),[0,0,0]);
+ assert.deepEqual(Array.from(smooth.slice(3,6)),[.5,0,0]);
+ assert.deepEqual(Array.from(smooth.slice(6,9)),[.5,.5,0]);
+ const flat=render(mesh,{contourColors:colors,continuous:false,elementColors:new Map([[1,{r:1,g:0,b:0}]])}).result.meshSolid.geometry.attributes.color.array;
+ for(let i=0;i<flat.length;i+=3)assert.deepEqual(Array.from(flat.slice(i,i+3)),[1,0,0]);
 });

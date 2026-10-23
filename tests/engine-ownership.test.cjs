@@ -585,3 +585,80 @@ test('union regions deduplicate shared nodes and older meshes require face prove
   const regenerated=O.preview(a.semantic,older,(await Cad.build(cadInput(),older,nextPlateIds)).request);
   assert.equal(regenerated.changes.length,0);assert.doesNotThrow(()=>Mount.region({id:'old',name:'Legacy mount',mesh:'cad',faces:[1]},regenerated.ownership));
 });
+
+const Interface=require('../app/interface-project.js');
+function mixedInput(kind='solid',divisions=2){
+  const input=cadInput({name:'split-box',size:6/divisions});
+  if(kind==='solid'){
+    const H=require('../app/hex-mapping.js'),data=JSON.parse(fs.readFileSync(require.resolve('./fixtures/mapping/split-box.json'),'utf8'));
+    const analysis=H.analyze(data.topology);input.mesh=H.generateMesh(analysis,H.solveIntervals(analysis,{size:6/divisions}),H.createGeometry(data.topology,data.preview),{volumes:[1]});input.volumes=[1];return input;
+  }
+  const nodes=[],elements=[],boundary=[];
+  for(let i=0;i<=divisions;i++)for(let j=0;j<=divisions;j++){const id=nodes.length+1;nodes.push({id,x:4+6*i/divisions,y:6*j/divisions,z:2});if(i===0)boundary.push(id);}
+  for(let i=0;i<divisions;i++)for(let j=0;j<divisions;j++){const a=i*(divisions+1)+j+1;elements.push({id:elements.length+1,type:'CQUAD4',pid:1,face:11,nodes:[a,a+divisions+1,a+divisions+2,a+1],zoffs:0.25});}
+  return {...input,id:'skin',sourceId:'cad/source',name:'Thin wall',kind:'shell',faces:[11],thickness:4,mesh:{nodes,elements,faceNodes:{11:nodes.map(n=>n.id)},edgeNodes:{6:boundary}},settings:{...input.settings,mesh:{method:'shell'},shell:{scope:'selected',selectedFaces:[11],thickness:4,size:6/divisions}}};
+}
+const interfaceInput={id:'tie',name:'Wall root',shell:'skin',solid:'cad',edges:[6],faces:[2],radius:4.5,gap:0.01};
+async function mixedModel(){let a=await cadPreview(mixedInput());a=await cadPreview(mixedInput('shell'),a.ownership,a.semantic);return O.preview(a.semantic,a.ownership,Interface.build(interfaceInput,a.ownership,nextPlateIds));}
+const remeshMixed=async(a,kind,n)=>O.preview(a.semantic,a.ownership,Interface.rebuild(a.ownership,(await Cad.build(mixedInput(kind,n),a.ownership,nextPlateIds)).request,nextPlateIds));
+
+test('mixed regions share a source with independent cards, shell thickness/offset and explicit RBE3 interface',async()=>{
+  const a=await mixedModel(),objects=a.ownership.project.objects;
+  assert.equal(objects.filter(o=>o.kind==='source').length,1);
+  assert.ok(a.semantic.elems.hex.length&&a.semantic.elems.quad.length);
+  const pshell=a.semantic.properties.find(([,p])=>p.type==='PSHELL')[1];assert.equal(pshell.t,4);assert.equal(pshell.mid1,pshell.mid2);assert.equal(pshell.mid1,pshell.mid3);
+  assert.ok(a.semantic.elems.quad.every(e=>e.zoffs===0.25));
+  assert.equal(a.semantic.elems.rbe3.length,3);
+  for(const r of a.semantic.elems.rbe3){assert.equal(r.cm,'123456');assert.equal(r.groups[0].c,'123');assert.ok(r.inds.length>=3);assert.ok(!r.inds.includes(r.gn));}
+  const restored=Cad.restoreData(a.ownership,'skin');assert.equal(restored.meshes.length,2);assert.equal(restored.editingOwner,'skin');assert.deepEqual(restored.settings.shell.selectedFaces,[11]);
+});
+
+test('both independent remesh directions preserve sibling cards and update interface support atomically',async()=>{
+  const a=await mixedModel(),b=await remeshMixed(a,'solid',3);
+  const owned=(x,id)=>x.ownership.owners.filter(o=>o.owner===id);
+  assert.deepEqual(owned(b,'skin'),owned(a,'skin'));assert.deepEqual(b.semantic.elems.rbe3.map(e=>e.eid),a.semantic.elems.rbe3.map(e=>e.eid));assert.notDeepEqual(b.semantic.elems.rbe3[0].inds,a.semantic.elems.rbe3[0].inds);
+  const c=await remeshMixed(b,'shell',3);assert.deepEqual(owned(c,'cad'),owned(b,'cad'));assert.equal(c.semantic.elems.rbe3.length,4);
+  assert.ok(c.semantic.elems.rbe3.every(e=>!b.semantic.elems.rbe3.some(old=>old.eid===e.eid)));
+  assert.equal(c.project.checks.some(c=>c.status==='invalid'),false);
+  const noop=await remeshMixed(c,'shell',3);assert.equal(noop.changes.length,0);
+  assert.deepEqual(Cad.restoreData(c.ownership,'cad').meshes.map(m=>m.elements.length).sort((a,b)=>a-b),[9,c.semantic.elems.hex.length].sort((a,b)=>a-b));
+});
+
+test('mixed regions reject overlap, wrong source, topology drift, gaps, insufficient support and hand references',async()=>{
+  const a=await mixedModel(),before=JSON.stringify(a);
+  await assert.rejects(cadPreview({...mixedInput(),id:'duplicate',sourceId:'cad/source'},a.ownership,a.semantic),/overlap/);
+  await assert.rejects(cadPreview({...mixedInput('shell'),id:'overlay',faces:[6],mesh:{...mixedInput('shell').mesh,elements:mixedInput('shell').mesh.elements.map(e=>({...e,face:6})),faceNodes:{6:[1,2,3,4,5,6,7,8,9]}}},a.ownership,a.semantic),/overlap/);
+  const changed=mixedInput();changed.topology.bounds[0]-=1;await assert.rejects(cadPreview(changed,a.ownership,a.semantic),/Shared CAD topology changed/);
+  for(const edit of [{radius:0.1},{faces:[1]},{edges:[999]},{shell:'cad'},{gap:-1}])assert.throws(()=>Interface.build({...interfaceInput,...edit},a.ownership,nextPlateIds));
+  const oldNode=a.semantic.elems.quad[0].n[0],loaded=copy(a);loaded.semantic.loads.force.push({sid:9,nid:oldNode,mag:1,dir:[0,0,1]});await assert.rejects(remeshMixed(loaded,'shell',3),/Dangling reference/);
+  assert.throws(()=>Cad.removal(a.ownership,'skin'),/dependent/);assert.equal(JSON.stringify(a),before);
+});
+
+test('owned RBE3 conflicts are checked against SPC, RBE2, RBE3 and dependent support nodes',async()=>{
+  const a=await mixedModel(),r=a.semantic.elems.rbe3[0];
+  const conflict=copy(a.semantic);conflict.spc1.push({sid:1,nodes:[r.gn],components:'4'});assert.throws(()=>O.guard(a.ownership,a.semantic,conflict),/already constrained/);
+  const duplicate=copy(a.ownership.project.objects.find(o=>o.id==='tie'));duplicate.id='tie-copy';duplicate.definition.cards=duplicate.definition.cards.map((c,i)=>({...c,id:10000+i,value:{...c.value,eid:10000+i}}));assert.throws(()=>O.preview(a.semantic,a.ownership,{objects:[duplicate]}),/already constrained/);
+  const support=copy(a.semantic);support.elems.rbe2.push({type:'RBE2',eid:20000,gn:100,cm:'123',deps:[r.inds[0]]});assert.throws(()=>O.guard(a.ownership,a.semantic,support),/solid support.*dependent/);
+  const b=copy(a.semantic);b.elems.rbe2.push({type:'RBE2',eid:20000,gn:100,cm:'123',deps:[r.gn]});assert.throws(()=>O.guard(a.ownership,a.semantic,b),/already constrained/);
+});
+
+test('mixed meshes and RBE3 survive actual writers, both remesh directions, history and save/reopen',async()=>{
+  const c=fixture();
+  for(const input of [mixedInput(),mixedInput('shell')])(await c.previewProjectChange((await Cad.build(input,c.model.projectOwnership,nextPlateIds)).request)).commit();
+  (await c.previewProjectChange(Interface.build(interfaceInput,c.model.projectOwnership,nextPlateIds))).commit();
+  const original=await exportParsed(c);c.workerModel.cardStream=original.cards;c.indexWorkerCardStream(original.cards);
+  for(const kind of ['solid','shell']){
+    const before=copy(c.model.projectOwnership),depth=c.historyManager.stack.length;
+    const built=await Cad.build(mixedInput(kind,3),before,nextPlateIds);const tx=await c.previewProjectChange(Interface.rebuild(before,built.request,nextPlateIds));
+    tx.discard();assert.deepEqual(copy(c.model.projectOwnership),before);
+    (await c.previewProjectChange(Interface.rebuild(before,built.request,nextPlateIds))).commit();assert.equal(c.historyManager.stack.length,depth+1);
+    const after=copy(c.model.projectOwnership);c.historyManager.undo();assert.deepEqual(copy(c.model.projectOwnership),before);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),after);
+  }
+  for(const format of ['source','free','small','large']){
+    const {indexes,deck}=await exportParsed(c,format,original.deck);
+    for(const r of c.model.elems.rbe3){const parsed=indexes.elements.get(r.eid);assert.equal(parsed.refgrid,r.gn);assert.equal(parsed.refc,r.cm);assert.deepEqual(copy(parsed.groups),copy(r.groups));}
+    assert.equal([...indexes.elements.values()].filter(e=>e.type==='CQUAD4').length,9);
+    assert.ok(deck.includes('PSHELL'));assert.ok(deck.includes('PSOLID'));
+  }
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();c.loadFromText=async()=>{};await c.loadProjectModel(saved);O.validate(c.model.projectOwnership,O.snapshot(c.model));
+});
