@@ -394,3 +394,9 @@ button:disabled{opacity:.42;cursor:not-allowed}
 
 [data-mass-editor] textarea { width: 100%; box-sizing: border-box; background: #101925; color: #d9e5f2; border: 1px solid #35485e; padding: 8px; }
 [data-mass-weight] { width: 95px; }
+
+.wb-run-caption { position: absolute; bottom: 55px; left: 12px; right: 12px; color: #b8e9dc; font-size: 11px; pointer-events: none; background: #101923dd; padding: 5px; overflow-wrap: anywhere; }
+.wb-run-caption:empty { display: none; }
+[data-analysis-editor] pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 300px; overflow: auto; }
+[data-analysis-editor] p { overflow-wrap: anywhere; }
+.wb-check-row { display: block; margin: 8px 0; }

@@ -10327,6 +10327,9 @@ function handleWriteRequest(msg) {
         continue;
       }
 
+      if (kind === 'raw' && /^\s*BEGIN\s+BULK\s*$/i.test(rec.raw || '')) {
+        outLines.push('BEGIN BULK'); inBulkWrite = true; continue;
+      }
       if (kind === 'card') {
         const upperName = toUpper(rec.name);
         if (upperName === 'BEGIN BULK') {
@@ -10667,6 +10670,11 @@ function handleWriteRequest(msg) {
         }
       }
 
+      // Authored GRAV sets have tokens but no retained source lines.
+      if (writeFormat === 'source' && kind === 'card' && inBulkWrite && rec.name === 'GRAV' && !getRecordRawLinesForWrite(rec)?.length) {
+        outLines.push(...formatFreeLines(getHydrationTokens(rec)));
+        continue;
+      }
       const sourceLines = getRecordRawLinesForWrite(rec);
       if (Array.isArray(sourceLines) && sourceLines.length) {
         for (const line of sourceLines) outLines.push(String(line));

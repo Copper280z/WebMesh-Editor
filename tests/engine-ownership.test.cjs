@@ -840,3 +840,74 @@ test('payload edits, no-op rebuild, history, saved ownership and all real writer
   const noop=await c.previewProjectChange(Mass.rebuild(c.model.projectOwnership,{objects:[copy(c.model.projectOwnership.project.objects.find(o=>o.id==='payload'))]}));assert.equal(noop.preview().changes.length,0);noop.discard();
   (await c.previewProjectChange(Mass.removal(c.model.projectOwnership,'payload'))).commit();for(const format of ['source','free'])assert.equal((await exportParsed(c,format,original.deck)).indexes.masses.size,0);
 });
+
+const Analysis=require('../app/analysis-project.js'),AnalysisActions=require('../app/analysis-actions.js');
+function analysisApply(a,r){return O.preview(a.semantic,a.ownership,Analysis.rebuild(a.ownership,r));}
+test('owned acceleration/support actions and named cases are guarded, editable and refer to real set IDs',()=>{
+  let a=O.preview(O.snapshot(model()),null,{objects:[definition('point','point',[node(1)])]});
+  a=analysisApply(a,Analysis.set({id:'support',name:'Fixed point',action:'support',nodes:[1],components:'123'},a.ownership,a.semantic));
+  a=analysisApply(a,Analysis.set({id:'gravity',name:'Gravity',action:'acceleration',vector:[0,0,-9806.65]},a.ownership,a.semantic));
+  const load=a.semantic.loads.gravity[0].sid,support=a.semantic.spc1[0].sid;
+  a=analysisApply(a,Analysis.caseObject({id:'static',name:'Gravity case',load,support,outputs:['DISPLACEMENT','SPCFORCES']},a.ownership,a.semantic));
+  assert.match(Analysis.caseControl(a.ownership),/LABEL = Gravity case/);
+  assert.throws(()=>Analysis.remove(a.ownership,'support'),/dependent/);
+  const edit=copy(a.semantic);edit.spc1[0].components='456';assert.throws(()=>O.guard(a.ownership,a.semantic,edit),/owned by/);
+  a=analysisApply(a,Analysis.set({id:'gravity',name:'Half gravity',action:'acceleration',vector:[0,0,-4903.325]},a.ownership,a.semantic));
+  assert.equal(a.semantic.loads.gravity[0].sid,load);assert.ok(a.project.checks.every(c=>c.status!=='invalid'));assert.equal(a.semantic.loads.force[0].sid,9);
+  assert.throws(()=>analysisApply(a,{removeObjects:['point']}),/support selection/);
+});
+test('plain load/support sets remain editable but referenced sets cannot disappear',()=>{
+  let s=O.snapshot(model());s.spc1=[{sid:4,components:'123',nodes:[100]}];
+  let a=O.preview(s,null,Analysis.caseObject({id:'c',name:'Plain loads',load:9,support:4,outputs:['STRESS']},null,s));
+  const changed=copy(a.semantic);changed.loads.force[0].mag=20;assert.doesNotThrow(()=>O.guard(a.ownership,a.semantic,changed));
+  changed.loads.force=[];assert.throws(()=>O.guard(a.ownership,a.semantic,changed),/missing load set/);
+  assert.throws(()=>Analysis.caseObject({id:'bad',name:'Bad\nLOAD=8',load:9,support:4,outputs:['STRESS']},a.ownership,a.semantic),/one line/);
+});
+test('analysis sets survive real writer/parser, point remesh protection, undo/redo and project serialization',async()=>{
+  const c=fixture();c.window.WebMeshAnalysisProject=Analysis;c.window.WebMeshAnalysisActions=AnalysisActions;
+  for(const input of [{id:'g',name:'Gravity',action:'acceleration',vector:[0,0,-9806.65]},{id:'s',name:'Root',action:'support',components:'123',nodes:[100]}]) (await c.previewProjectChange(Analysis.set(input,c.model.projectOwnership,O.snapshot(c.model)))).commit();
+  const input={id:'case',name:'Gravity',load:c.model.loads.gravity[0].sid,support:c.model.spc1[0].sid,outputs:['DISPLACEMENT','STRESS','SPCFORCES','OLOAD']};
+  (await c.previewProjectChange(Analysis.caseObject(input,c.model.projectOwnership,O.snapshot(c.model)))).commit();
+  const before=copy(c.model.projectOwnership);c.historyManager.undo();assert.equal(c.model.projectOwnership.project.objects.some(o=>o.id==='case'),false);c.historyManager.redo();assert.deepEqual(copy(c.model.projectOwnership),before);
+  for(const format of ['source','free','small','large']){const written=await exportParsed(c,format);assert.doesNotMatch(written.deck,/unwritable/);const gravity=AnalysisActions.gravityCards(written.cards);assert.equal(gravity.length,1,format);assert.deepEqual(gravity[0].vector,[0,0,-9806.65]);}
+  const result=await exportParsed(c);c.workerModel.cardStream=copy(result.cards);c.indexWorkerCardStream(c.workerModel.cardStream);c.syncWorkerFromEditorModel();assert.equal((await exportParsed(c)).deck,result.deck,'reopened deck order is stable');assert.match(result.deck,/GRAV,10,0,1.,0.,0.,-9806.65/);assert.equal(result.indexes.constraints.get(1)[0].nodes[0],100);
+  c.writeCardEngine=async()=>(await exportParsed(c)).deck;const saved=await c.saveProjectModel();assert.match(saved.deck,/SUBCASE 1\n  LABEL = Gravity/);c.loadFromText=async()=>{};await c.loadProjectModel(saved);
+  assert.deepEqual(copy(c.model.loads.gravity[0].vector),[0,0,-9806.65]);
+  const bad=copy(O.snapshot(c.model));bad.nodes=[];assert.throws(()=>O.guard(c.model.projectOwnership,O.snapshot(c.model),bad),/input|Dangling/);
+});
+
+test('region supports follow remeshing and shaft supports use independent motor points',async()=>{
+  let a=applyMount({semantic:O.snapshot(model()),ownership:null},(await Cad.build(cadInput(),null,nextPlateIds)).request);
+  a=applyMount(a,Mount.region({id:'left',name:'Root',mesh:'cad',faces:[1]},a.ownership));
+  a=analysisApply(a,Analysis.set({id:'face-support',name:'Named root region',action:'support',region:'left',components:'123'},a.ownership,a.semantic));
+  const before=a.semantic.spc1[0].nodes;
+  const mesh=(await Cad.build(cadInput({size:2,order:2}),a.ownership,nextPlateIds)).request;
+  a=analysisApply(a,Mount.rebuild(a.ownership,mesh));
+  assert.notDeepEqual(a.semantic.spc1[0].nodes,before);
+  assert.deepEqual(a.semantic.spc1[0].nodes,a.ownership.project.objects.find(o=>o.id==='left').definition.resolved.nodes);
+  a=await mountedPair();
+  const shafts=a.ownership.project.objects.flatMap(o=>(o.definition.cards||[]).filter(c=>c.family==='nodes'&&c.role==='shaft').map(c=>c.id));assert.equal(shafts.length,2);
+  a=analysisApply(a,Analysis.set({id:'shafts',name:'Motor shaft supports',action:'support',nodes:shafts,components:'123456'},a.ownership,a.semantic));
+  a=analysisApply(a,Analysis.set({id:'g',name:'Gravity',action:'acceleration',vector:[0,0,-9806.65]},a.ownership,a.semantic));
+  a=analysisApply(a,Analysis.caseObject({id:'case',name:'Mounted gravity',load:a.semantic.loads.gravity[0].sid,support:a.semantic.spc1[0].sid,outputs:['DISPLACEMENT','SPCFORCES','OLOAD']},a.ownership,a.semantic));
+  O.validate(a.ownership,a.semantic);assert.equal(a.semantic.elems.rbe2.length,2);assert.equal(a.semantic.elems.bush.length,2);
+  assert.throws(()=>analysisApply(a,Analysis.set({id:'bad',name:'Dependent support',action:'support',nodes:[a.semantic.elems.rbe2[0].deps[0]],components:'123'},a.ownership,a.semantic)),/constrained|dependent/);
+});
+test('multiple imported GRAV cards sharing a SID survive semantic edits and every deck format',async()=>{
+  const c=fixture();c.window.WebMeshAnalysisActions=AnalysisActions;
+  c.model.loads.gravity=[{type:'GRAV',sid:7,cid:0,scale:1,vector:[0,0,-9806.65],mb:0},{type:'GRAV',sid:7,cid:0,scale:1,vector:[0,100,0],mb:0}];
+  (await c.previewProjectChange({objects:[definition('point','point',[node(1)])]})).commit();
+  for(const format of ['source','free','small','large']){const result=await exportParsed(c,format);assert.deepEqual(AnalysisActions.gravityCards(result.cards),copy(c.model.loads.gravity));}
+});
+
+test('reopened indented case control permits later authoring and still rejects unknown selectors',async()=>{
+ const file=JSON.parse(fs.readFileSync('docs/design/validation/analysis-runs/analysis.webmesh','utf8')),messages=[];
+ const worker=vm.createContext({Map,Set,self:{postMessage:m=>messages.push(m)},console,TextEncoder,TextDecoder,performance,setTimeout,clearTimeout});vm.runInContext(require('./helpers/worker-source.cjs'),worker);
+ const p=await worker.parseDeckToCardStream(file.deck,'saved.bdf',{}, {strictMode:true,retainParseSession:true,retainSourceSession:true}),cards=copy(worker.getParseSession(p.model.parseSessionId).cardStream);
+ let s=O.snapshot(model());s.nodes=[];s.loads={};for(const o of file.ownership.owners)O.put(s,o.card);
+ const gravity=file.ownership.project.objects.find(o=>o.kind==='load'&&o.name==='Gravity');
+ const req=Analysis.rebuild(file.ownership,Analysis.set({id:gravity.id,name:'Gravity',action:'acceleration',vector:[0,0,-4903.325]},file.ownership,s));
+ assert.doesNotThrow(()=>O.preview(s,file.ownership,req,cards));
+ cards.forEach(c=>delete c.rawLines);assert.doesNotThrow(()=>O.preview(s,file.ownership,req,cards));
+ cards.unshift({kind:'card',name:'SET 4 =',rawLines:['SET 4 = 658,659']});assert.throws(()=>O.preview(s,file.ownership,req,cards),/case control SET/);
+});

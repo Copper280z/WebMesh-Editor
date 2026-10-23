@@ -119,6 +119,19 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("available", json.loads(body)["gmsh"])
         self.assertNotIn("Access-Control-Allow-Origin", headers)
+        self.assertEqual([p['id'] for p in json.loads(body)['solvers']], ['mystran', 'vibestran'])
+
+    def test_solver_routes_share_origin_checks_and_bypass_mesher_slots(self):
+        headers = {"Content-Type": "application/json"}
+        self.assertEqual(self.request('POST', '/api/solve', '{}', {**headers, 'Origin':'https://evil.example'})[0],403)
+        self.httpd.mesh_slot.acquire()
+        try:
+            self.assertEqual(self.request('POST', '/api/solve', '{"solver":"unconfigured"}', headers)[0],503)
+            for route in ('status','cancel','result'):
+                self.assertEqual(self.request('POST', '/api/solve/'+route, '{"id":"missing"}', headers)[0],404)
+        finally:
+            self.httpd.mesh_slot.release()
+        self.assertEqual(self.request('POST','/api/solve/status','{'+ ' '*5000+'}',headers)[0],413)
 
     def test_dns_rebinding_host_rejected(self):
         self.assertEqual(self.request("GET", "/api/health", headers={"Host": "evil.example"})[0], 403)

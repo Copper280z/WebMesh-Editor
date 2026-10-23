@@ -52,6 +52,7 @@ import quadmesh_bridge
 from urllib.parse import unquote, urlsplit
 
 from cad_sessions import CadError, CadSessions
+from solver_service import SolverJobs, SolverError
 
 
 ROOT = Path(__file__).resolve().parent
@@ -628,7 +629,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         if not self.trusted_request():
             return
         if urlsplit(self.path).path == "/api/health":
-            self.json_response(200, health(self.gmsh))
+            self.json_response(200, {**health(self.gmsh), "solvers": self.server.solver_jobs.plugins()})
         elif self.static_path_allowed():
             super().do_GET()
         else:
@@ -650,8 +651,9 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
             return
         endpoint = urlsplit(self.path).path
         # Session bookkeeping is small and quick: it runs beside meshing, without a slot.
-        light = endpoint in {"/api/cad/sessions", "/api/cad/resume", "/api/cad/close"}
-        if not light and endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
+        solver = endpoint in {"/api/solve", "/api/solve/status", "/api/solve/cancel", "/api/solve/result"}
+        light = endpoint in {"/api/cad/sessions", "/api/cad/resume", "/api/cad/close", "/api/solve/status", "/api/solve/cancel", "/api/solve/result"}
+        if not light and not solver and endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
@@ -672,7 +674,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         # allocate many request-sized buffers while the mesher is already busy.
         # Previews never change a session, so a few run side by side (Auto-fix
         # scores candidates in parallel); they queue briefly for a free slot.
-        if light:
+        if light or solver:
             slot = None
         elif endpoint == "/api/cad/preview":
             slot = self.server.preview_slots
@@ -697,7 +699,10 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
             try:
                 if not isinstance(data, dict):
                     raise MeshError("The request must be a JSON object.", status=400)
-                if endpoint == "/api/mesh":
+                if solver:
+                    method = "start" if endpoint == "/api/solve" else endpoint.rsplit("/", 1)[1]
+                    result = getattr(self.server.solver_jobs, method)(data)
+                elif endpoint == "/api/mesh":
                     result = generate_mesh(data, self.gmsh)
                 else:
                     wanted = plugin_feature(endpoint, data)
@@ -711,7 +716,7 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                     handler = getattr(self.server.cad_sessions, {"import": "import_cad", "close": "close_session"}.get(method, method))
                     result = handler(data)
                 self.json_response(200, result)
-            except (MeshError, CadError) as exc:
+            except (MeshError, CadError, SolverError) as exc:
                 self.json_response(exc.status, {"error": str(exc), "log": exc.log})
             except Exception as exc:
                 self.log_error("Meshing failed: %s", type(exc).__name__)
@@ -721,12 +726,18 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
                 slot.release()
 
 
-def make_server(port=8765, gmsh=None):
+def make_server(port=8765, gmsh=None, solvers=None):
     WARM.refill()
     server = ThreadingHTTPServer(("127.0.0.1", port), partial(WebMeshHandler, gmsh=gmsh))
     server.mesh_slot = threading.BoundedSemaphore(1)
     server.preview_slots = threading.BoundedSemaphore(PREVIEW_SLOTS)
     server.cad_sessions = CadSessions(run_cad_worker)
+    server.solver_jobs = SolverJobs(solvers)
+    original_close = server.server_close
+    def close():
+        server.solver_jobs.close()
+        original_close()
+    server.server_close = close
     server.daemon_threads = True
     return server
 
@@ -735,12 +746,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--gmsh", help="Path to the Gmsh executable")
+    parser.add_argument("--solver", action="append", default=[], metavar="NAME=PATH", help="Configured MYSTRAN or Vibestran executable")
     args = parser.parse_args()
+    solvers = {}
+    for spec in args.solver:
+        name, sep, path = spec.partition("=")
+        if not sep or name not in ("mystran", "vibestran") or not path:
+            parser.error("--solver requires mystran=PATH or vibestran=PATH")
+        solvers[name] = path
     gmsh = find_gmsh(args.gmsh)
     # A stop signal (kill, a test helper) ends the server like Ctrl-C does, so
     # its CAD sessions folder and warm workers are removed rather than left behind.
     signal.signal(signal.SIGTERM, stop)
-    with make_server(args.port, gmsh) as server:
+    with make_server(args.port, gmsh, solvers) as server:
         print(f"WebMesh: http://127.0.0.1:{server.server_address[1]}")
         print(f"Gmsh plugin: {'available' if cad_gmsh_plugin.module_available() else 'not installed (tets, triangle shells, sweeps and STL are off)'}"
               + (f"; program {gmsh}" if gmsh else ""))

@@ -1,13 +1,14 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
   const FORMAT = 'webmesh-engine-ownership';
-  const families = { nodes: 'node', elems: 'element', masses: 'element', properties: 'property', materials: 'material', coords: 'coordinate' };
+  const families = { nodes: 'node', elems: 'element', masses: 'element', properties: 'property', materials: 'material', coords: 'coordinate', loadSets: 'load', constraintSets: 'constraint' };
+  const sets = family => family === 'loadSets' || family === 'constraintSets';
   const buckets = { CTRIA3: 'tri', CTRIA6: 'tri', CQUAD4: 'quad', CQUAD8: 'quad', CTETRA: 'tet', CHEXA: 'hex', CPENTA: 'penta', CROD: 'rod', CBUSH: 'bush', RBE2: 'rbe2', RBE3: 'rbe3' };
   const known = new Set(('GRID CORD1R CORD1C CORD2R CORD2C CORD2S CTRIA3 CTRIA6 CQUAD4 CQUAD8 CTETRA CHEXA CPENTA CPYRAM CROD CBAR CBEAM CBUSH RBE2 RBE3 CONM2 PSHELL PSOLID PROD PBAR PBEAM PCOMP PBUSH MAT1 MAT8 FORCE MOMENT PLOAD2 PLOAD4 LOAD SPC SPC1 TEMP TEMPD ENDDATA').split(' '));
   known.add('CEND'); known.add('BEGIN BULK');
@@ -26,24 +27,29 @@
       result.set(k, { family, id: Number(number), value, ...(bucket ? { bucket } : {}) });
     };
     for (const family of Object.keys(families)) {
+      if (sets(family)) continue;
       if (family === 'elems') for (const [bucket, records] of Object.entries(semantic.elems || {})) for (const value of records) add(family, value.eid, value, bucket);
       else for (const [number, value] of semantic[family] || []) add(family, number, value);
     }
+    for (const c of Analysis.rows(semantic)) add(c.family, c.id, c.value);
     return result;
   }
   function snapshot(model) {
     const result = {};
-    for (const family of Object.keys(families)) result[family] = family === 'elems' ? copy(model.elems || {}) : [...(model[family] || new Map())].map(([i, v]) => [i, copy(v)]).sort((a, b) => a[0] - b[0]);
+    for (const family of Object.keys(families).filter(f => !sets(f))) result[family] = family === 'elems' ? copy(model.elems || {}) : [...(model[family] || new Map())].map(([i, v]) => [i, copy(v)]).sort((a, b) => a[0] - b[0]);
     for (const family of ['loads', 'spc', 'spc1', 'temperatures']) result[family] = copy(model[family] || (family === 'loads' ? {} : []));
     return result;
   }
   function put(semantic, row) {
+    if (sets(row.family)) { Analysis.put(semantic, row); return; }
     remove(semantic, key(row.family, row.id));
     if (row.family === 'elems') (semantic.elems[row.bucket] ||= []).push(copy(row.value));
     else { (semantic[row.family] ||= []).push([row.id, copy(row.value)]); semantic[row.family].sort((a, b) => a[0] - b[0]); }
   }
   function remove(semantic, k) {
+    if (/^(load|constraint):/.test(k)) { Analysis.remove(semantic, k.startsWith('load:') ? 'loadSets' : 'constraintSets', Number(k.split(':')[1])); return; }
     for (const family of Object.keys(families)) {
+      if (sets(family)) continue;
       if (family === 'elems') for (const bucket of Object.keys(semantic.elems || {})) semantic.elems[bucket] = semantic.elems[bucket].filter(v => key(family, v.eid) !== k);
       else semantic[family] = (semantic[family] || []).filter(([i]) => key(family, i) !== k);
     }
@@ -51,6 +57,7 @@
   function validateGenerated(card, kind) {
     const k = key(card.family, card.id), v = card.value;
     if (!v || typeof v !== 'object' || Array.isArray(v)) fail(k + ': missing semantic values.');
+    if (sets(card.family)) { Analysis.validateSet(card, kind); return {family:card.family,id:card.id,value:copy(v)}; }
     const type = card.family === 'nodes' ? 'GRID' : v.type;
     const allowed = {
       GRID: ['x', 'y', 'z', 'cp', 'cd', 'ps', 'seid'],
@@ -101,7 +108,7 @@
     const each = (from, ns, values) => (values || []).forEach(v => add(from, ns, v));
     for (const [from, { family, value: v }] of cards) {
       const type = family === 'nodes' ? 'GRID' : v.type;
-      if (!known.has(type)) unsupported.add(type || family);
+      if (!sets(family) && !known.has(type)) unsupported.add(type || family);
       if (family === 'nodes') { add(from, 'coordinate', v.cp); add(from, 'coordinate', v.cd); }
       if (family === 'coords') { add(from, 'coordinate', v.rid); each(from, 'node', v.nodes); }
       if (family === 'elems') {
@@ -116,11 +123,12 @@
       if (family === 'properties') { for (const [f, x] of Object.entries(v)) if (/^mid\d*$/i.test(f)) add(from, 'material', x); for (const ply of v.plies || []) add(from, 'material', ply.mid); add(from, 'coordinate', v.cordm); }
     }
     for (const [family, list] of Object.entries(semantic.loads || {})) for (const [i, v] of list.entries()) {
-      const from = 'load:' + family + ':' + i;
+      const from = 'load:' + v.sid;
       for (const f of ['nid', 'g', 'g1', 'g34']) add(from, 'node', v[f]);
+      for (const entry of v.entries || []) add(from, 'load', entry.lid);
       each(from, 'node', v.nodes); add(from, 'element', v.eid); each(from, 'element', v.eids); add(from, 'coordinate', v.cid);
     }
-    for (const family of ['spc', 'spc1']) for (const [i, v] of (semantic[family] || []).entries()) { const from = family + ':' + i; add(from, 'node', v.g ?? v.nid); each(from, 'node', v.nodes); }
+    for (const family of ['spc', 'spc1']) for (const [i, v] of (semantic[family] || []).entries()) { const from = 'constraint:' + v.sid; add(from, 'node', v.g ?? v.nid); each(from, 'node', v.nodes); }
     for (const [i, v] of (semantic.temperatures || []).entries()) each('temperature:' + i, 'node', v.nodeIds);
     let bulk = !opaque.some(card => card?.name === 'BEGIN BULK');
     for (const card of opaque) if (card?.kind === 'card') {
@@ -128,7 +136,10 @@
       if (!bulk) {
         // Case-control SETs can select grid/element identities. Keep them
         // blocked until their use and contents are indexed together.
-        if (!/^(SOL\b|CEND$|TITLE\b|SUBTITLE\b|LABEL\b|SUBCASE\b|ECHO\b|SPC\s*=|LOAD\s*=|DISPLACEMENT\b|STRESS\b|STRAIN\b|SPCFORCES\b|OLOAD\b)/.test(card.name)) unsupported.add('case control ' + card.name);
+        // The bulk tokenizer splits indented executive text into 8-column fields.
+        const control = (card.rawLines?.[0] || card.tokens?.join('') || card.name).trim().toUpperCase();
+        const safeControl = /^(SOL\b|CEND$|TITLE\b|SUBTITLE\b|LABEL\b|SUBCASE\b|ECHO\b|SPC\s*=|LOAD\s*=|DISPLACEMENT\b|STRESS\b|STRAIN\b|SPCFORCES\b|OLOAD\b|FORCE\b)/;
+        if (!safeControl.test(card.name) && !safeControl.test(control)) unsupported.add('case control ' + card.name);
         continue;
       }
       const safeParameter = card.name === 'PARAM' && ['WTMASS', 'POST', 'AUTOSPC', 'BAILOUT', 'PRTMAXIM', 'PRGPST'].includes(String(card.tokens?.[1]).toUpperCase());
@@ -210,7 +221,7 @@
         if (!roles.has(JSON.stringify([object.id, card.role]))) fail('Owner definition is missing a generated card: ' + object.id + '/' + card.role);
       }
     }
-    if (semantic) analysisExclusions(s, semantic);
+    if (semantic) { analysisExclusions(s, semantic); Analysis.validateCases(s, semantic); }
     return project;
   }
   // Analysis participation is metadata, never display visibility or deletion.
@@ -282,14 +293,18 @@
       }
     }
     for (const family of Object.keys(families)) {
+      if (sets(family)) continue;
       if (family === 'elems') for (const bucket of Object.keys(after.elems)) after.elems[bucket] = [];
       else after[family] = [];
     }
+    for (const bucket of Object.keys(after.loads || {})) after.loads[bucket] = [];
+    after.spc = []; after.spc1 = [];
     for (const card of nextCards.values()) {
-      if (card.family === 'elems') (after.elems[card.bucket] ||= []).push(copy(card.value));
+      if (sets(card.family)) Analysis.put(after, card);
+      else if (card.family === 'elems') (after.elems[card.bucket] ||= []).push(copy(card.value));
       else after[card.family].push([card.id,copy(card.value)]);
     }
-    for (const family of Object.keys(families)) if (family !== 'elems') after[family].sort((a,b)=>a[0]-b[0]);
+    for (const family of Object.keys(families)) if (family !== 'elems' && !sets(family)) after[family].sort((a,b)=>a[0]-b[0]);
     const affected = new Set(tx.preview().affected);
     for (const object of objects) if (affected.has(object.id)) tx.revalidate(object.id);
     const corePreview = tx.preview(); tx.commit();

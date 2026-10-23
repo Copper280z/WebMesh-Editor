@@ -1430,9 +1430,37 @@
     if (opts.statusMessage) statusMsg(String(opts.statusMessage));
     return next;
   }
-  function applyLoadedSolverResults(resultsObj, sourceName = "") {
+  function clearSolverResults() {
+    // Results belong to a particular model, not to reusable GRID/element IDs.
+    solverResults = null;
+    solverResultsSourceName = "";
+    nodeAvgStress = {};
+    nodeAvgStressByField = {};
+    nodeAvgStrainByField = {};
+    nodeAvgElementForceByField = {};
+    showContour = false;
+    showDeformed = false;
+    showCriteriaValues = false;
+    deformationScale = 1;
+    animationPlaying = false;
+    animationPaused = false;
+    animationPhase = 0;
+    if (animationTimer) clearInterval(animationTimer);
+    animationTimer = null;
+    for (const id of ["chkShowContour", "chkShowDeformed", "chkShowCriteriaValues"]) {
+      const checkbox = document.getElementById(id);
+      if (checkbox) checkbox.checked = false;
+    }
+    const scale = document.getElementById("deformScaleInput");
+    if (scale) scale.value = "1";
+    const legend = document.getElementById("contourLegend");
+    if (legend) legend.style.display = "none";
+    updateResultSetSelector();
+  }
+  function applyLoadedSolverResults(resultsObj, sourceName = "", boundToRun = false) {
     solverResults = resultsObj && typeof resultsObj === "object" ? resultsObj : null;
     solverResultsSourceName = String(sourceName || "");
+    if (!boundToRun) emitWorkbenchChange("results");
     if (!solverResults) {
       updateResultSetSelector();
       refreshContourFieldOptions();
@@ -1558,6 +1586,7 @@
         node.seid = Number.isFinite(seid) ? seid : null;
       }
     }
+    if (!model.loads.gravity) model.loads.gravity = window.WebMeshAnalysisActions ? window.WebMeshAnalysisActions.gravityCards(workerModel.cardStream) : [];
     ensureEditableSemanticElementAuthority(reason);
     return true;
   }
@@ -5396,6 +5425,17 @@ This will also delete any elements that reference them.`);
         ...[0, 1, 2].map(i => asFloatToken(x[i] ?? 0)), "",
         ...[0, 1, 2, 3, 4, 5].map(i => asFloatToken(inertia[i] ?? 0))
       ]);
+    }
+    if (Array.isArray(model.loads.gravity)) {
+      // GRAV is retained as a source card by the worker; author it explicitly.
+      const records = model.loads.gravity.map(g => ({kind: "card", name: "GRAV", fmt: "free", tokensHydrationReady: true,
+        tokens: ["GRAV", asIntToken(g.sid), asIntToken(g.cid), asFloatToken(g.scale), ...g.vector.map(asFloatToken), asIntToken(g.mb)],
+        lineTokens: [], lineSlices: [], source: {file: "<editor>", line: 0}}));
+      // Retain each existing position so save/reopen does not reorder the deck.
+      let cursor = 0;
+      workerModel.cardStream = workerModel.cardStream.flatMap(c => c.name !== "GRAV" ? [c] : cursor < records.length ? [records[cursor++]] : []);
+      while (cursor < records.length) insertCardBeforeEnddata(records[cursor++]);
+      indexWorkerCardStream(workerModel.cardStream);
     }
     const semanticIndexes = ensureSemanticRelationshipIndexes("sync-worker-cardstream-filter");
     const semanticElementRefsForFilter = semanticIndexes && semanticIndexes.elementRefsByEid instanceof Map ? semanticIndexes.elementRefsByEid : null;
@@ -25140,6 +25180,7 @@ ${formatRanges(v.ranges, 500)}`;
     hideEntryChooser();
     historyManager.recordAction(() => {
       clearWorkerCaches();
+      clearSolverResults();
       resetModel();
       selection.nodes.clear();
       selection.elems.clear();
@@ -27886,6 +27927,7 @@ ${formatRanges(v.ranges, 500)}`;
         }
         if (!(result && result.model && result.transferables && result.transferables.coreModel)) throw new Error("The deck did not produce a model.");
         clearWorkerCaches();
+        clearSolverResults();
         deckCaseControl = parseDeckCaseControl(text);
         activeVisibilityCaseId = "__all__";
         refreshVisibilityCaseSelector();
@@ -28524,7 +28566,8 @@ ${formatRanges(v.ranges, 500)}`;
     if (model.projectOwnership) window.WebMeshOwnership.validate(model.projectOwnership, window.WebMeshOwnership.snapshot(model));
     syncWorkerFromEditorModel();
     const ownership = model.projectOwnership ? structuredClone(model.projectOwnership) : null;
-    const deck = await writeCardEngine(workerModel, { writeFormat: "free", projectSave: true });
+    let deck = await writeCardEngine(workerModel, { writeFormat: "free", projectSave: true });
+    if (window.WebMeshAnalysisProject) deck = window.WebMeshAnalysisProject.projectDeck(deck, model.projectOwnership);
     return { deck, ...(ownership ? { ownership, snapshotDigest: await projectDeckDigest(deck + "\0" + window.WebMeshOwnership.canonical(ownership)) } : {}) };
   }
   async function loadProjectModel(data, name = "project.bdf") {
@@ -28922,6 +28965,9 @@ ${formatRanges(v.ranges, 500)}`;
     canvas.addEventListener("mousedown", () => { cadHoverEvent = null; if (cadViewport.isPicking()) cadViewport.hover(null); });
   }
   window.WebMeshAPI = Object.freeze({
+    parseResults: text => parseF06(text),
+    showResults: (data, name) => applyLoadedSolverResults(data, name, true),
+    clearResults: () => { clearSolverResults(); buildGeometries(true); },
     getAuthoringModel: async () => { await ensureRichEditableSemanticElementAuthority("mesh-authoring"); return window.WebMeshOwnership.snapshot(model); },
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
     previewProjectChange: (request) => previewProjectChange(request),
@@ -28952,7 +28998,7 @@ ${formatRanges(v.ranges, 500)}`;
       await loadFromText(content, name, null, { strict: true, throwOnError: true });
       return workbenchState();
     },
-    exportDeck: async (format = "free") => { await ensureRichEditableSemanticElementAuthority("workbench-export"); syncWorkerFromEditorModel(); return writeCardEngine(workerModel, { writeFormat: format }); },
+    exportDeck: async (format = "free") => { await ensureRichEditableSemanticElementAuthority("workbench-export"); syncWorkerFromEditorModel(); const deck = await writeCardEngine(workerModel, { writeFormat: format }); return window.WebMeshAnalysisProject ? window.WebMeshAnalysisProject.projectDeck(deck, model.projectOwnership) : deck; },
     undo: () => historyManager.undo(), redo: () => historyManager.redo(), clear: () => { workbenchPreviewMesh(null); btnClear.click(); },
     editCard: async (cardName, mode = "create") => {
       const normalized = mode === "edit" || mode === "modify" ? "modify" : "create";

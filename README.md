@@ -32,6 +32,20 @@ python3 server.py --gmsh /absolute/path/to/gmsh --port 8765
 
 The service binds to `127.0.0.1`. CAD is processed on your machine in a temporary working directory. A static web host can serve the browser editor, but CAD requires opening the editor from this local service.
 
+## Local static analyses
+
+Start the server with installed solver paths (or set `WEBMESH_MYSTRAN` / `WEBMESH_VIBESTRAN`; executables on `PATH` are also discovered):
+
+```sh
+python3 server.py --solver mystran=/absolute/path/to/mystran --solver vibestran=/absolute/path/to/vibestran
+```
+
+Use **Model setup → Analysis cases & runs** to create support and acceleration sets, name static cases, review the exact projected input and run SOL 101. Supports accept selected GRID IDs, named attachment points or mounting regions. The analysis editor uses the same public actions, ownership checks and undo path as the other guides. Named cases replace imported executive/case control on export; bulk cards remain in the model.
+
+Each run retains its exact deck, model snapshot, units, case labels, solver binary hash, log and F06. Process completion, numerical indicators and basic-coordinate force/moment balance are reported separately. Editing the model hides results until it matches again or you explicitly open the captured snapshot. Save the project to retain completed runs across server restarts. Manual F06 imports are labeled as unverified against the current model.
+
+The service runs at most two jobs concurrently, retains up to 20 jobs per server session, and limits each job to five minutes and 64 MiB per output file. Jobs use isolated temporary directories. First-slice scope and evidence: [analysis cases and runs](docs/design/implementation-09-analysis-runs.md).
+
 ## Modeling workflow
 
 | Workspace | Tools |

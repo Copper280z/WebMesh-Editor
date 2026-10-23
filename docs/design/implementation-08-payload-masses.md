@@ -59,7 +59,7 @@ Visual verification used the existing narrow browser viewport. The forms remain 
 
 ## Next actionable milestone
 
-Analysis cases and run provenance now take priority:
+Implemented in [milestone 09](implementation-09-analysis-runs.md); the original next-step scope was:
 
 1. Add editable analysis-case objects that reference reviewed load and constraint sets, with consistent unit labels and case-control generation through the existing transaction path.
 2. Build an immutable run snapshot containing the projected solver deck, project revision/digest, solver identity/options and explicit compatibility transformations. Launch remains separate from changing the editable model.

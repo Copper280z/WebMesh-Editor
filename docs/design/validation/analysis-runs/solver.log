@@ -1,0 +1,894 @@
+ MYSTRAN Version 19.0.0   JUN 28 2026 MYSTRAN developed by Dr Bill Case
+
+
+ Optional Initialization file: 
+ MYSTRAN.INI
+ does not exist. Internal defaults will be used instead.                        
+ If you want to use the INI file, see the MYSTRAN Installation and Run Manual   
+
+ >> MYSTRAN BEGIN  : 10/23/2026 at 17:32: 1.642. The input file is:
+    model.bdf
+
+ >> LINK  0 BEGIN
+  0/DETERMINE ARRAY SIZES - CASE CONTROL                            17:32: 1.646
+  0/DETERMINE ARRAY SIZES - BULK DATA                               17:32: 1.646
+  0/READ EXEC CONTROL DECK                                          17:32: 1.650
+  0/ALLOCATE MEMORY FOR SOME MODEL DATA ARRAYS                      17:32: 1.650
+  0/READ CASE CONTROL DECK                                          17:32: 1.651
+  0/READ BULK DATA DECK                                             17:32: 1.656
+  0/SORT AND CHECK ELEMENTS                                         17:32: 1.662
+  0/ELEM PROCESSOR                                                  17:32: 1.662
+  0/GRID PROCESSOR                                                  17:32: 1.662
+    Initialize arrays GRID and GRID_SEQ                                     
+    Sort arrays GRID and GRID_SEQ so GRID is in numerical order
+    Sort arrays GRID and RGRID so GRID is in numerical order                
+    Check for duplicate GRID IDs                                            
+    Check GRID_ID array                                                     
+    Check that coord systems in field 3 referenced do exist                 
+    Check that coord systems in field 7 referenced do exist                 
+    Write grid data to file                                                 
+    Write coord data to file                                                
+ 
+  0/CHECK THAT ALL GRIDS FOR ELEMS EXIST                            17:32: 1.663
+
+       Process element  0 of 86 (  0%)
+
+       Process element 86 of 86 (100%) -- done in ~ 0s                
+ 
+  0/GRID SEQUENCE PROCESSOR                                         17:32: 1.663
+  0/SUBCASE PROCESSOR                                               17:32: 1.663
+  0/DOF PROCESSOR                                                   17:32: 1.664
+      DOF Set Table                                                 17:32: 1.664
+       Initializing           
+       Process MPCs           
+       Process Rigid Elements
+       Process SPCs           
+ 
+      DOF Number Table                                              17:32: 1.664
+      TDOF PROC
+
+       Process col 1-4 of TDOF   0 of 123 (  0%)
+
+       Process col 1-4 of TDOF 123 of 123 (100%) -- done in ~ 0s                
+
+       Process G -set            0 of 123 (  0%)
+
+       Process G -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process M -set            0 of 123 (  0%)
+
+       Process M -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process SB-set            0 of 123 (  0%)
+
+       Process SB-set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process N -set            0 of 123 (  0%)
+
+       Process N -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process SZ-set            0 of 123 (  0%)
+
+       Process SZ-set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process S -set            0 of 123 (  0%)
+
+       Process S -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process F -set            0 of 123 (  0%)
+
+       Process F -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process A -set            0 of 123 (  0%)
+
+       Process A -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process L -set            0 of 123 (  0%)
+
+       Process L -set          123 of 123 (100%) -- done in ~ 0s                
+       Setting up to get TDOFI
+       Sort TDOF to get TDOFI 
+ 
+  0/CONM2 PROCESSOR #1                                              17:32: 1.664
+  0/ALLOCATE MEMORY FOR RBGLOBAL ARRAY                              17:32: 1.664
+  0/CONM2 PROCESSOR #2                                              17:32: 1.664
+  0/ALLOCATE MEM FOR ELEM AND GRID TEMP ARRAYS                      17:32: 1.664
+  0/ALLOCATE MEMORY FOR ELEM PRESSURE DATA ARRAYS                   17:32: 1.665
+ >> LINK  0 END
+
+ >> LINK  1 BEGIN
+  1/ALLOCATE DOF TABLES                                             17:32: 1.665
+  1/RIGID ELEMENT PROCESSOR                                         17:32: 1.665
+  1/ALLOCATE MEMORY FOR RMG ARRAY                                   17:32: 1.674
+  1/SPARSE RMG PROCESSOR                                            17:32: 1.674
+  1/ALLOCATE MEMORY FOR SYS_LOAD ARRAY                              17:32: 1.675
+  1/ALLOCATE MEMORY FOR THERMAL LOAD ARRAYS                         17:32: 1.675
+  1/CALCULATE ESTIMATE OF MASS MATRIX SIZE                          17:32: 1.675
+  1/ALLOCATE MEM FOR EMSKEY, EMSCOL, EMSPNT, EMS                    17:32: 1.675
+     Initializing EMSKEY with          738 rows
+ 
+     Initializing EMSCOL with        91008 rows
+ 
+     Initializing EMSPNT with        91008 rows
+ 
+     Initializing EMS    with        91008 rows
+ 
+ 
+  1/ELEMENT MASS MATRIX PROCESSOR                                   17:32: 1.675
+
+     Calculating mass matrix. Process elem     0 of 86 (  0%)
+
+     Calculating mass matrix. Process elem    86 of 86 (100%) -- done in ~ 0s                
+ 
+  1/CONCENTRATED MASS MATRIX PROCESSOR                              17:32: 1.680
+     Process mass for CONM2      335 int G.P.       64 of      123           
+ 
+     Process mass for CONM2      337 int G.P.       65 of      123           
+ 
+  1/ALLOCATE MEMORY FOR ELEM MASS ARRAYS                            17:32: 1.680
+  1/SPARSE MGG PROCESSOR                                            17:32: 1.680
+
+
+     Working on grid    0 of 123 (  0%)
+
+     Working on grid  123 of 123 (100%) -- done in ~ 0s                
+ 
+  1/GRAV LOAD PROCESSOR                                             17:32: 1.680
+
+     Proc grid        1 of      123, subcase        1
+     Proc grid        2 of      123, subcase        1
+     Proc grid        3 of      123, subcase        1
+     Proc grid        4 of      123, subcase        1
+     Proc grid        5 of      123, subcase        1
+     Proc grid        6 of      123, subcase        1
+     Proc grid        7 of      123, subcase        1
+     Proc grid        8 of      123, subcase        1
+     Proc grid        9 of      123, subcase        1
+     Proc grid       10 of      123, subcase        1
+     Proc grid       11 of      123, subcase        1
+     Proc grid       12 of      123, subcase        1
+     Proc grid       13 of      123, subcase        1
+     Proc grid       14 of      123, subcase        1
+     Proc grid       15 of      123, subcase        1
+     Proc grid       16 of      123, subcase        1
+     Proc grid       17 of      123, subcase        1
+     Proc grid       18 of      123, subcase        1
+     Proc grid       19 of      123, subcase        1
+     Proc grid       20 of      123, subcase        1
+     Proc grid       21 of      123, subcase        1
+     Proc grid       22 of      123, subcase        1
+     Proc grid       23 of      123, subcase        1
+     Proc grid       24 of      123, subcase        1
+     Proc grid       25 of      123, subcase        1
+     Proc grid       26 of      123, subcase        1
+     Proc grid       27 of      123, subcase        1
+     Proc grid       28 of      123, subcase        1
+     Proc grid       29 of      123, subcase        1
+     Proc grid       30 of      123, subcase        1
+     Proc grid       31 of      123, subcase        1
+     Proc grid       32 of      123, subcase        1
+     Proc grid       33 of      123, subcase        1
+     Proc grid       34 of      123, subcase        1
+     Proc grid       35 of      123, subcase        1
+     Proc grid       36 of      123, subcase        1
+     Proc grid       37 of      123, subcase        1
+     Proc grid       38 of      123, subcase        1
+     Proc grid       39 of      123, subcase        1
+     Proc grid       40 of      123, subcase        1
+     Proc grid       41 of      123, subcase        1
+     Proc grid       42 of      123, subcase        1
+     Proc grid       43 of      123, subcase        1
+     Proc grid       44 of      123, subcase        1
+     Proc grid       45 of      123, subcase        1
+     Proc grid       46 of      123, subcase        1
+     Proc grid       47 of      123, subcase        1
+     Proc grid       48 of      123, subcase        1
+     Proc grid       49 of      123, subcase        1
+     Proc grid       50 of      123, subcase        1
+     Proc grid       51 of      123, subcase        1
+     Proc grid       52 of      123, subcase        1
+     Proc grid       53 of      123, subcase        1
+     Proc grid       54 of      123, subcase        1
+     Proc grid       55 of      123, subcase        1
+     Proc grid       56 of      123, subcase        1
+     Proc grid       57 of      123, subcase        1
+     Proc grid       58 of      123, subcase        1
+     Proc grid       59 of      123, subcase        1
+     Proc grid       60 of      123, subcase        1
+     Proc grid       61 of      123, subcase        1
+     Proc grid       62 of      123, subcase        1
+     Proc grid       63 of      123, subcase        1
+     Proc grid       64 of      123, subcase        1
+     Proc grid       65 of      123, subcase        1
+     Proc grid       66 of      123, subcase        1
+     Proc grid       67 of      123, subcase        1
+     Proc grid       68 of      123, subcase        1
+     Proc grid       69 of      123, subcase        1
+     Proc grid       70 of      123, subcase        1
+     Proc grid       71 of      123, subcase        1
+     Proc grid       72 of      123, subcase        1
+     Proc grid       73 of      123, subcase        1
+     Proc grid       74 of      123, subcase        1
+     Proc grid       75 of      123, subcase        1
+     Proc grid       76 of      123, subcase        1
+     Proc grid       77 of      123, subcase        1
+     Proc grid       78 of      123, subcase        1
+     Proc grid       79 of      123, subcase        1
+     Proc grid       80 of      123, subcase        1
+     Proc grid       81 of      123, subcase        1
+     Proc grid       82 of      123, subcase        1
+     Proc grid       83 of      123, subcase        1
+     Proc grid       84 of      123, subcase        1
+     Proc grid       85 of      123, subcase        1
+     Proc grid       86 of      123, subcase        1
+     Proc grid       87 of      123, subcase        1
+     Proc grid       88 of      123, subcase        1
+     Proc grid       89 of      123, subcase        1
+     Proc grid       90 of      123, subcase        1
+     Proc grid       91 of      123, subcase        1
+     Proc grid       92 of      123, subcase        1
+     Proc grid       93 of      123, subcase        1
+     Proc grid       94 of      123, subcase        1
+     Proc grid       95 of      123, subcase        1
+     Proc grid       96 of      123, subcase        1
+     Proc grid       97 of      123, subcase        1
+     Proc grid       98 of      123, subcase        1
+     Proc grid       99 of      123, subcase        1
+     Proc grid      100 of      123, subcase        1
+     Proc grid      101 of      123, subcase        1
+     Proc grid      102 of      123, subcase        1
+     Proc grid      103 of      123, subcase        1
+     Proc grid      104 of      123, subcase        1
+     Proc grid      105 of      123, subcase        1
+     Proc grid      106 of      123, subcase        1
+     Proc grid      107 of      123, subcase        1
+     Proc grid      108 of      123, subcase        1
+     Proc grid      109 of      123, subcase        1
+     Proc grid      110 of      123, subcase        1
+     Proc grid      111 of      123, subcase        1
+     Proc grid      112 of      123, subcase        1
+     Proc grid      113 of      123, subcase        1
+     Proc grid      114 of      123, subcase        1
+     Proc grid      115 of      123, subcase        1
+     Proc grid      116 of      123, subcase        1
+     Proc grid      117 of      123, subcase        1
+     Proc grid      118 of      123, subcase        1
+     Proc grid      119 of      123, subcase        1
+     Proc grid      120 of      123, subcase        1
+     Proc grid      121 of      123, subcase        1
+     Proc grid      122 of      123, subcase        1
+     Proc grid      123 of      123, subcase        1
+     Proc grid        1 of      123, subcase        2
+     Proc grid        2 of      123, subcase        2
+     Proc grid        3 of      123, subcase        2
+     Proc grid        4 of      123, subcase        2
+     Proc grid        5 of      123, subcase        2
+     Proc grid        6 of      123, subcase        2
+     Proc grid        7 of      123, subcase        2
+     Proc grid        8 of      123, subcase        2
+     Proc grid        9 of      123, subcase        2
+     Proc grid       10 of      123, subcase        2
+     Proc grid       11 of      123, subcase        2
+     Proc grid       12 of      123, subcase        2
+     Proc grid       13 of      123, subcase        2
+     Proc grid       14 of      123, subcase        2
+     Proc grid       15 of      123, subcase        2
+     Proc grid       16 of      123, subcase        2
+     Proc grid       17 of      123, subcase        2
+     Proc grid       18 of      123, subcase        2
+     Proc grid       19 of      123, subcase        2
+     Proc grid       20 of      123, subcase        2
+     Proc grid       21 of      123, subcase        2
+     Proc grid       22 of      123, subcase        2
+     Proc grid       23 of      123, subcase        2
+     Proc grid       24 of      123, subcase        2
+     Proc grid       25 of      123, subcase        2
+     Proc grid       26 of      123, subcase        2
+     Proc grid       27 of      123, subcase        2
+     Proc grid       28 of      123, subcase        2
+     Proc grid       29 of      123, subcase        2
+     Proc grid       30 of      123, subcase        2
+     Proc grid       31 of      123, subcase        2
+     Proc grid       32 of      123, subcase        2
+     Proc grid       33 of      123, subcase        2
+     Proc grid       34 of      123, subcase        2
+     Proc grid       35 of      123, subcase        2
+     Proc grid       36 of      123, subcase        2
+     Proc grid       37 of      123, subcase        2
+     Proc grid       38 of      123, subcase        2
+     Proc grid       39 of      123, subcase        2
+     Proc grid       40 of      123, subcase        2
+     Proc grid       41 of      123, subcase        2
+     Proc grid       42 of      123, subcase        2
+     Proc grid       43 of      123, subcase        2
+     Proc grid       44 of      123, subcase        2
+     Proc grid       45 of      123, subcase        2
+     Proc grid       46 of      123, subcase        2
+     Proc grid       47 of      123, subcase        2
+     Proc grid       48 of      123, subcase        2
+     Proc grid       49 of      123, subcase        2
+     Proc grid       50 of      123, subcase        2
+     Proc grid       51 of      123, subcase        2
+     Proc grid       52 of      123, subcase        2
+     Proc grid       53 of      123, subcase        2
+     Proc grid       54 of      123, subcase        2
+     Proc grid       55 of      123, subcase        2
+     Proc grid       56 of      123, subcase        2
+     Proc grid       57 of      123, subcase        2
+     Proc grid       58 of      123, subcase        2
+     Proc grid       59 of      123, subcase        2
+     Proc grid       60 of      123, subcase        2
+     Proc grid       61 of      123, subcase        2
+     Proc grid       62 of      123, subcase        2
+     Proc grid       63 of      123, subcase        2
+     Proc grid       64 of      123, subcase        2
+     Proc grid       65 of      123, subcase        2
+     Proc grid       66 of      123, subcase        2
+     Proc grid       67 of      123, subcase        2
+     Proc grid       68 of      123, subcase        2
+     Proc grid       69 of      123, subcase        2
+     Proc grid       70 of      123, subcase        2
+     Proc grid       71 of      123, subcase        2
+     Proc grid       72 of      123, subcase        2
+     Proc grid       73 of      123, subcase        2
+     Proc grid       74 of      123, subcase        2
+     Proc grid       75 of      123, subcase        2
+     Proc grid       76 of      123, subcase        2
+     Proc grid       77 of      123, subcase        2
+     Proc grid       78 of      123, subcase        2
+     Proc grid       79 of      123, subcase        2
+     Proc grid       80 of      123, subcase        2
+     Proc grid       81 of      123, subcase        2
+     Proc grid       82 of      123, subcase        2
+     Proc grid       83 of      123, subcase        2
+     Proc grid       84 of      123, subcase        2
+     Proc grid       85 of      123, subcase        2
+     Proc grid       86 of      123, subcase        2
+     Proc grid       87 of      123, subcase        2
+     Proc grid       88 of      123, subcase        2
+     Proc grid       89 of      123, subcase        2
+     Proc grid       90 of      123, subcase        2
+     Proc grid       91 of      123, subcase        2
+     Proc grid       92 of      123, subcase        2
+     Proc grid       93 of      123, subcase        2
+     Proc grid       94 of      123, subcase        2
+     Proc grid       95 of      123, subcase        2
+     Proc grid       96 of      123, subcase        2
+     Proc grid       97 of      123, subcase        2
+     Proc grid       98 of      123, subcase        2
+     Proc grid       99 of      123, subcase        2
+     Proc grid      100 of      123, subcase        2
+     Proc grid      101 of      123, subcase        2
+     Proc grid      102 of      123, subcase        2
+     Proc grid      103 of      123, subcase        2
+     Proc grid      104 of      123, subcase        2
+     Proc grid      105 of      123, subcase        2
+     Proc grid      106 of      123, subcase        2
+     Proc grid      107 of      123, subcase        2
+     Proc grid      108 of      123, subcase        2
+     Proc grid      109 of      123, subcase        2
+     Proc grid      110 of      123, subcase        2
+     Proc grid      111 of      123, subcase        2
+     Proc grid      112 of      123, subcase        2
+     Proc grid      113 of      123, subcase        2
+     Proc grid      114 of      123, subcase        2
+     Proc grid      115 of      123, subcase        2
+     Proc grid      116 of      123, subcase        2
+     Proc grid      117 of      123, subcase        2
+     Proc grid      118 of      123, subcase        2
+     Proc grid      119 of      123, subcase        2
+     Proc grid      120 of      123, subcase        2
+     Proc grid      121 of      123, subcase        2
+     Proc grid      122 of      123, subcase        2
+     Proc grid      123 of      123, subcase        2
+ 
+USING METIS ORDERING
+No of nonzeros in factor L = 20
+No of nonzeros in factor U = 20
+No of nonzeros in L+U = 40
+L\U MB 0.001	total MB needed 0.005
+  1/CONVERT LOADS TO SPARSE MATRIX FORM                             17:32: 1.681
+
+
+      Write L1E G-set DOF   0 of 738 (  0%)
+
+      Write L1E G-set DOF 738 of 738 (100%) -- done in ~ 0s                
+  1/CALCULATE ESTIMATE OF KGG MATRIX SIZE                           17:32: 1.681
+  1/ALLOCATE MEM FOR STFKEY, STFCOL, STFPNT, STF                    17:32: 1.681
+     Initializing STFKEY with          738 rows
+ 
+     Allocated    2.95E-03 MB of mem to   array: STFKEY                    
+ 
+     Initializing STF3 with        91008 terms
+ 
+     Allocated    1.46E+00 MB of mem to   array: STF3                    
+ 
+  1/G-SET STIFFNESS MATRIX PROCESSOR                                17:32: 1.681
+
+     Calculating stiff matrix. Process elem    0 of 86 (  0%)
+
+     Calculating stiff matrix. Process elem   86 of 86 (100%) -- done in ~ 0s                
+ 
+     Deallocated  1.46E+00 MB of mem from array: STF3
+     Initializing STF3 with        91008 terms
+ 
+     Allocated    1.46E+00 MB of mem to   array: STF3                    
+ 
+  1/SPARSE KGG PROCESSOR                                            17:32: 1.698
+
+     Working on grid    0 of 123 (  0%)
+
+     Working on grid  123 of 123 (100%) -- done in ~ 0s                
+ 
+      TDOF PROC
+
+       Process col 1-4 of TDOF   0 of 123 (  0%)
+
+       Process col 1-4 of TDOF 123 of 123 (100%) -- done in ~ 0s                
+
+       Process G -set            0 of 123 (  0%)
+
+       Process G -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process M -set            0 of 123 (  0%)
+
+       Process M -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process SA-set            0 of 123 (  0%)
+
+       Process SA-set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process SB-set            0 of 123 (  0%)
+
+       Process SB-set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process N -set            0 of 123 (  0%)
+
+       Process N -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process SZ-set            0 of 123 (  0%)
+
+       Process SZ-set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process S -set            0 of 123 (  0%)
+
+       Process S -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process F -set            0 of 123 (  0%)
+
+       Process F -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process A -set            0 of 123 (  0%)
+
+       Process A -set          123 of 123 (100%) -- done in ~ 0s                
+
+       Process L -set            0 of 123 (  0%)
+
+       Process L -set          123 of 123 (100%) -- done in ~ 0s                
+       Setting up to get TDOFI
+       Sort TDOF to get TDOFI 
+ 
+     Deallocated  2.95E-03 MB of mem from array: STFKEY
+     Deallocated  1.46E+00 MB of mem from array: STF3
+ 
+  1/WRITE DOF TABLES TO FILE AND DEALLOCATE                         17:32: 1.703
+  1/WRITE ELEMENT DATA TO FILE                                      17:32: 1.706
+ >> LINK  1 END
+
+ >> LINK  2 BEGIN
+  2/REDUCE G-SET TO N, M-SETS                                       17:32: 1.707
+      SOLVE FOR GMN CONSTRAINT MATRIX                               17:32: 1.708
+
+       Det. part. size of  RMN, row  0 of 12 (  0%)
+
+       Det. part. size of  RMN, row 12 of 12 (100%) -- done in ~ 0s                
+
+       Partition  RMN from  RMG, row  0 of 12 (  0%)
+
+       Partition  RMN from  RMG, row 12 of 12 (100%) -- done in ~ 0s                
+
+       Det. part. size of  RMM, row  0 of 12 (  0%)
+
+       Det. part. size of  RMM, row 12 of 12 (100%) -- done in ~ 0s                
+
+       Partition  RMM from  RMG, row  0 of 12 (  0%)
+
+       Partition  RMM from  RMG, row 12 of 12 (100%) -- done in ~ 0s                
+
+       Extracting RMM->CCS1 col  0 of 12 (  0%)
+
+       Extracting RMM->CCS1 col 12 of 12 (100%) -- done in ~ 0s                
+ 
+ SUPERLU FACTORIZATION OF MATRIX RMM SUCCEEDED IN SUBR SYM_MAT_DECOMP_SUPRLU          
+
+      Solve for GMN col    0 of 726 (  0%)
+
+      Solve for GMN col  726 of 726 (100%) -- done in ~ 0s                
+ 
+ SUPERLU STORAGE FREED
+ 
+     Reallocate GMN
+       Deallocate GMN          
+       Allocate   GMN          
+ 
+
+       GMN: writing row  0 of 12 (  0%)
+
+       GMN: writing row 12 of 12 (100%) -- done in ~ 0s                
+      DEALLOCATE SOME ARRAYS
+       Deallocate RMN          
+
+                 Deallocate RMM          
+
+                 Deallocate RMG          
+      REDUCE KGG TO KNN (SPARSE MATRIX ROUTINES)                    17:32: 1.711
+
+       Det. part. size of  KNN, row   0 of 738 (  0%)
+
+       Det. part. size of  KNN, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Partition  KNN from  KGG, row   0 of 738 (  0%)
+
+       Partition  KNN from  KGG, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KNM, row   0 of 738 (  0%)
+
+       Det. part. size of  KNM, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KMM, row   0 of 738 (  0%)
+
+       Det. part. size of  KMM, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Extracting GMN->CCS1 col   0 of 726 (  0%)
+
+       Extracting GMN->CCS1 col 726 of 726 (100%) -- done in ~ 0s                
+ 
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+       Deallocate HMN           
+      REDUCE MGG TO MNN (SPARSE MATRIX ROUTINES)                    17:32: 1.712
+
+       Det. part. size of  MNN, row   0 of 738 (  0%)
+
+       Det. part. size of  MNN, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Partition  MNN from  MGG, row   0 of 738 (  0%)
+
+       Partition  MNN from  MGG, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MNM, row   0 of 738 (  0%)
+
+       Det. part. size of  MNM, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MMM, row   0 of 738 (  0%)
+
+       Det. part. size of  MMM, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Partition  MMM from  MGG, row   0 of 738 (  0%)
+
+       Partition  MMM from  MGG, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Extracting GMN->CCS1 col   0 of 726 (  0%)
+
+       Extracting GMN->CCS1 col 726 of 726 (100%) -- done in ~ 0s                
+ 
+
+       Extracting CRS1->CCS1 col   0 of 726 (  0%)
+
+       Extracting CRS1->CCS1 col 726 of 726 (100%) -- done in ~ 0s                
+ 
+     Reallocate MNN
+       Deallocate MNN          
+       Allocate   MNN          
+
+       LMN: writing row  0 of 12 (  0%)
+
+       LMN: writing row 12 of 12 (100%) -- done in ~ 0s                
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+       Deallocate LMN           
+      REDUCE PG  TO PN  (SPARSE MATRIX ROUTINES)                    17:32: 1.715
+
+       Det. part. size of   PN, row   0 of 738 (  0%)
+
+       Det. part. size of   PN, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Partition   PN from   PG, row   0 of 738 (  0%)
+
+       Partition   PN from   PG, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Det. part. size of   PM, row   0 of 738 (  0%)
+
+       Det. part. size of   PM, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Partition   PM from   PG, row   0 of 738 (  0%)
+
+       Partition   PM from   PG, row 738 of 738 (100%) -- done in ~ 0s                
+
+       Extracting PM->CCS1 col 0 of 2 (  0%)
+
+       Extracting PM->CCS1 col 2 of 2 (100%) -- done in ~ 0s                
+ 
+     Reallocate PN 
+       Deallocate PN           
+       Allocate   PN           
+      DEALLOCATE SOME ARRAYS
+       Deallocate GMNt          
+      DEALLOCATE G-SET ARRAYS                                       17:32: 1.715
+       Deallocate KGG          
+       Deallocate MGG          
+       Deallocate PG           
+       Deallocate GMN          
+       Deallocate KNM          
+       Deallocate KMM          
+       Deallocate MMN          
+       Deallocate MNM          
+       Deallocate MMM          
+       Deallocate PM           
+ 
+      N SET AUTOSPC PROC #1                                         17:32: 1.715
+
+       Proc N-set DOF    0 of 726 (  0%)
+
+       Proc N-set DOF  726 of 726 (100%) -- done in ~ 0s                
+ 
+      AUTOSPC SUMMARY TABLE                                         17:32: 1.715
+  2/REDUCE N-SET TO F, S-SETS                                       17:32: 1.715
+      REDUCE KNN TO KFF (PARTITION, ONLY)                           17:32: 1.716
+
+       Det. part. size of  KFF, row   0 of 726 (  0%)
+
+       Det. part. size of  KFF, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition  KFF from  KNN, row   0 of 726 (  0%)
+
+       Partition  KFF from  KNN, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KFS, row   0 of 726 (  0%)
+
+       Det. part. size of  KFS, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition  KFS from  KNN, row   0 of 726 (  0%)
+
+       Partition  KFS from  KNN, row 726 of 726 (100%) -- done in ~ 0s                
+
+       KSF: writing row   0 of 217 (  0%)
+
+       KSF: writing row 217 of 217 (100%) -- done in ~ 0s                
+
+       Det. part. size of  KSS, row   0 of 726 (  0%)
+
+       Det. part. size of  KSS, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition  KSS from  KNN, row   0 of 726 (  0%)
+
+       Partition  KSS from  KNN, row 726 of 726 (100%) -- done in ~ 0s                
+      REDUCE MNN TO MFF (PARTITION, ONLY)                           17:32: 1.717
+
+       Det. part. size of  MFF, row   0 of 726 (  0%)
+
+       Det. part. size of  MFF, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition  MFF from  MNN, row   0 of 726 (  0%)
+
+       Partition  MFF from  MNN, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MFS, row   0 of 726 (  0%)
+
+       Det. part. size of  MFS, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Det. part. size of  MSS, row   0 of 726 (  0%)
+
+       Det. part. size of  MSS, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition  MSS from  MNN, row   0 of 726 (  0%)
+
+       Partition  MSS from  MNN, row 726 of 726 (100%) -- done in ~ 0s                
+      REDUCE PN TO PF (SPARSE MATRIX ROUTINES)                      17:32: 1.718
+
+       Det. part. size of   PF, row   0 of 726 (  0%)
+
+       Det. part. size of   PF, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition   PF from   PN, row   0 of 726 (  0%)
+
+       Partition   PF from   PN, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Det. part. size of   PS, row   0 of 726 (  0%)
+
+       Det. part. size of   PS, row 726 of 726 (100%) -- done in ~ 0s                
+
+       Partition   PS from   PN, row   0 of 726 (  0%)
+
+       Partition   PS from   PN, row 726 of 726 (100%) -- done in ~ 0s                
+       Deallocate PN           
+
+       PS : writing row   0 of 217 (  0%)
+
+       PS : writing row 217 of 217 (100%) -- done in ~ 0s                
+       DEALLOCATE SOME ARRAYS                                       17:32: 1.718
+       Deallocate KNN          
+       Deallocate MNN          
+       Deallocate PN           
+ 
+       DEALLOCATE SOME ARRAYS                                       17:32: 1.718
+       Deallocate KSSe          
+       Deallocate QSYS          
+       Deallocate YSe           
+ 
+      DEALLOCATE SOME ARRAYS
+       Deallocate KFS          
+       Deallocate KSF          
+       Deallocate KSS          
+ 
+      DEALLOCATE SOME ARRAYS
+       Deallocate MFS          
+       Deallocate MSF          
+       Deallocate MSS          
+ 
+       Deallocate PS           
+ 
+  2/REDUCE F-SET TO A, O-SETS                                       17:32: 1.718
+      EQUATING A-SET TO F-SET                                       17:32: 1.718
+       Equate I_KAA with      510 rows 
+       Equate J_KAA with    13859 terms
+       Equate KAA   with    13859 terms
+       Equate I_MAA with      510 rows 
+       Equate J_MAA with    13455 terms
+       Equate MAA   with    13455 terms
+       Equate I_PA  with      510 rows 
+       Equate J_PA  with      345 terms
+       Equate PA    with      345 terms
+      DEALLOCATE F-SET ARRAYS                                       17:32: 1.718
+       Deallocate KFF            
+       Deallocate MFF            
+       Deallocate PF             
+ 
+USING METIS ORDERING
+No of nonzeros in factor L = 22782
+No of nonzeros in factor U = 26327
+No of nonzeros in L+U = 49109
+L\U MB 0.491	total MB needed 0.672
+      DEALLOCATE GOA, ABAND ARRAYS                                  17:32: 1.718
+       Deallocate GOA            
+       Deallocate ABAND          
+ 
+      DEALLOCATE O SET ARRAYS                                       17:32: 1.718
+       Deallocate KAO          
+       Deallocate KOO          
+ 
+       Deallocate MAO          
+       Deallocate MOO          
+ 
+       Deallocate PO           
+ 
+  2/REDUCE A-SET TO L, R-SETS                                       17:32: 1.719
+      EQUATING L-SET TO A-SET                                       17:32: 1.719
+       Equate I_KLL with      510 rows 
+       Equate J_KLL with    13859 terms
+       Equate KLL   with    13859 terms
+       Equate I_MLL with      510 rows 
+       Equate J_MLL with    13455 terms
+       Equate MLL   with    13455 terms
+       Equate I_PL  with      510 rows 
+       Equate J_PL  with      345 terms
+       Equate PL    with      345 terms
+      DEALLOCATE A-SET ARRAYS                                       17:32: 1.719
+       Deallocate KAA          
+ 
+       Deallocate MAA          
+ 
+       Deallocate PA           
+ 
+      DEALLOCATE R-SET ARRAYS                                       17:32: 1.719
+       Deallocate KRL          
+ 
+       Deallocate KRR          
+ 
+       Deallocate MRL          
+ 
+       Deallocate MRR          
+ 
+       Deallocate PR           
+ 
+  2/WRITE L SET ARRAYS TO FILE                                      17:32: 1.719
+
+       KLL: writing row   0 of 509 (  0%)
+
+       KLL: writing row 509 of 509 (100%) -- done in ~ 0s                
+
+       MLL: writing row   0 of 509 (  0%)
+
+       MLL: writing row 509 of 509 (100%) -- done in ~ 0s                
+
+       PL : writing row   0 of 509 (  0%)
+
+       PL : writing row 509 of 509 (100%) -- done in ~ 0s                
+ >> LINK  2 END
+
+ >> LINK  3 BEGIN
+ SUPERLU FACTORIZATION OF MATRIX KLL SUCCEEDED IN SUBR SYM_MAT_DECOMP_SUPRLU          
+  3/GET COL OF PL LOADS FOR                        Subcase       1  17:32: 1.728
+  3/FBS - SOLVE FOR RHS ANSWERS FOR                   "          1  17:32: 1.728
+  3/CALC  EPSILON ERROR ESTIMATE                      "          1  17:32: 1.729
+  3/GET COL OF PL LOADS FOR                        Subcase       2  17:32: 1.729
+  3/FBS - SOLVE FOR RHS ANSWERS FOR                   "          2  17:32: 1.729
+  3/CALC  EPSILON ERROR ESTIMATE                      "          2  17:32: 1.729
+ SUPERLU STORAGE FREED
+  3/DEALLOCATE ARRAYS                                               17:32: 1.729
+       Deallocate KLL            
+       Deallocate ABAND           
+       Deallocate RES             
+ >> LINK  3 END
+
+ >> LINK  5 BEGIN
+  5/ALLOCATE SEVERAL ARRAYS                                         17:32: 1.730
+  5/READ GMN MATRIX                                                 17:32: 1.730
+ 
+  5/READ  L-SET DISPLACEMENTS                      Subcase       1  17:32: 1.730
+  5/BUILD UA DISPLS FROM UL, UR:                      "          1  17:32: 1.730
+  5/BUILD UF DISPLS FROM UA, UO:                      "          1  17:32: 1.730
+  5/BUILD UN DISPLS FROM UF, US:                      "          1  17:32: 1.730
+  5/BUILD UG DISPLS FROM UN, UM:                      "          1  17:32: 1.730
+  5/WRITE UG DISPLS TO FILE,                          "          1  17:32: 1.730
+
+  5/READ  L-SET DISPLACEMENTS                      Subcase       2  17:32: 1.730
+  5/BUILD UA DISPLS FROM UL, UR:                      "          2  17:32: 1.731
+  5/BUILD UF DISPLS FROM UA, UO:                      "          2  17:32: 1.731
+  5/BUILD UN DISPLS FROM UF, US:                      "          2  17:32: 1.731
+  5/BUILD UG DISPLS FROM UN, UM:                      "          2  17:32: 1.731
+  5/WRITE UG DISPLS TO FILE,                          "          2  17:32: 1.731
+
+       Deallocate GMN                
+       Deallocate GOA                
+       Deallocate MODE_NUM           
+       Deallocate GEN_MASS           
+ >> LINK  5 END
+
+ >> LINK  9 BEGIN
+  9/DEALLOCATE ARRAYS BEFORE READING LINK9S                         17:32: 1.732
+  9/ALLOCATE ARRAYS FOR DATA READ IN LINK9S                         17:32: 1.732
+Note: The following floating-point exceptions are signalling: IEEE_DIVIDE_BY_ZERO
+  9/READ MODEL DATA ARRAYS                                          17:32: 1.732
+  9/ALLOCATING SPARSE ARRAYS FOR PG LOADS                           17:32: 1.732
+  9/READ PG LOADS                                                   17:32: 1.732
+ 
+  9/ALLOCATE ARRAYS FOR, AND READ, KSF                              17:32: 1.732
+  9/READ KSF MATRIX                                                 17:32: 1.732
+ 
+  9/ALLOCATE SPARSE ARRAYS FOR PS LOADS                             17:32: 1.732
+  9/READ PS LOADS                                                   17:32: 1.732
+ 
+  9/READ G-SET DISPLACEMENTS,                      Subcase       1  17:32: 1.732
+  9/PROCESS DISPL OUTPUT REQUESTS,                    "          1  17:32: 1.733
+  9/PROCESS APPLIED LOAD OUTPUT REQS,                 "          1  17:32: 1.733
+  9/PROCESS SPC FORCE OUTPUT REQUESTS,                "          1  17:32: 1.733
+ 
+  9/PROCESS ELEM FORCE/STRESS REQUESTS,               "          1  17:32: 1.734
+  9/READ G-SET DISPLACEMENTS,                      Subcase       2  17:32: 1.741
+  9/PROCESS DISPL OUTPUT REQUESTS,                    "          2  17:32: 1.741
+  9/PROCESS APPLIED LOAD OUTPUT REQS,                 "          2  17:32: 1.741
+  9/PROCESS SPC FORCE OUTPUT REQUESTS,                "          2  17:32: 1.741
+ 
+  9/PROCESS ELEM FORCE/STRESS REQUESTS,               "          2  17:32: 1.741
+       Deallocate KSF           
+       Deallocate KSFD          
+       Deallocate MGG           
+       Deallocate PG            
+       Deallocate PM            
+       Deallocate PS            
+       Deallocate QSYS          
+       Deallocate GMN           
+       Deallocate GMNt          
+       Deallocate HMN           
+       Deallocate MSF           
+       Deallocate MLL           
+       Deallocate LMN           
+       Deallocate QSYS          
+ >> LINK  9 END
+
+ >> MYSTRAN END    : 10/23/2026 at 17:32: 1.747. The output file is:
+    model.F06
+ Check ERR output file for        3 warning messages
+ MYSTRAN terminated normally. Total CPU time =  8.10E-02 seconds
+                    ========
