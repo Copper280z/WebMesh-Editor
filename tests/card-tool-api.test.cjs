@@ -19,6 +19,7 @@ function fixture() {
     workbenchAppendMesh: noop, workbenchPreviewMesh: noop, fitView: noop,
     beginWorkbenchMeshSelection: noop, endWorkbenchMeshSelection: noop, workbenchMeshSelection: null,
     workbenchSetView: noop, workbenchSetTheme: noop,
+    workbenchProjectView: noop, setProjectView: noop, setProjectCadReferences: noop,
     schemaCreateReady: Promise.resolve(), schemaEditReady: Promise.resolve(),
     createTab: tab(), modifyTab: tab(), inspectTab: tab(true), currentElemInput: { id: 'old-node-pick' },
     schemaSelectCardForMode(mode, name) { calls.push({ mode, name }); return name !== 'UNSUPPORTED'; },

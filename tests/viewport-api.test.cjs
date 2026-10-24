@@ -121,3 +121,14 @@ test('view fitting combines CAD and finite element bounds', () => {
   c.workbenchSetView('right');
   assert.ok(c.controls.target.distanceTo(expected) < 1e-10);
 });
+
+for(const orthographic of [true,false])test(`${orthographic?'orthographic':'perspective'} fit keeps the model in the unobscured area beside a narrow-window inspector`,()=>{
+  const c=fixture(orthographic,1.3),w=c.canvas.clientWidth,h=c.canvas.clientHeight;
+  c.canvas.getBoundingClientRect=()=>({left:0,right:w,top:100,bottom:100+h});
+  c.document={querySelector:()=>({}),querySelectorAll:()=>[{getBoundingClientRect:()=>({left:w-340,right:w,top:100,bottom:100+h,width:340,height:h})}]};
+  c.workbenchSetView('front');c.fitView();
+  for(const x of [c.model.bbox.min.x,c.model.bbox.max.x])for(const y of [c.model.bbox.min.y,c.model.bbox.max.y])for(const z of [c.model.bbox.min.z,c.model.bbox.max.z]){
+    const p=new three.Vector3(x,y,z).project(c.camera),px=(p.x+1)*w/2,py=(1-p.y)*h/2;
+    assert.ok(px>=0&&px<w-340,`corner ${px} is outside the inspector`);assert.ok(py>30&&py<h-20);
+  }
+});

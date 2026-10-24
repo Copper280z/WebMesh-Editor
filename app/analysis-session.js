@@ -21,7 +21,7 @@
       if(runs.some(r=>r.id===candidate.id))throw Error('This run has already been submitted.');
       const response=await hooks.request('/api/solve',{solver:candidate.profile.solver,deck:candidate.deck});
       if(response.deckDigest!==candidate.deckDigest)throw Error('The solver received a different deck.');
-      const run=await R.seal({...candidate,job:response.id,solver:response.solver,status:response.status});runs.push(run);return copy(run);
+      const run=await R.seal({...candidate,job:response.id,solver:response.solver,status:response.status});runs.push(run);hooks.changed?.();return copy(run);
     }
     async function poll(id){
       const run=find(id);if(!['queued','running'].includes(run.status))return copy(run);
@@ -30,7 +30,7 @@
       if(['queued','running'].includes(status.status))return{...copy(run),status:status.status,logTail:status.logTail||''};
       const data=await hooks.request('/api/solve/result',{id:run.job});if(data.deckDigest!==run.deckDigest)throw Error('Solver result identity does not match this run.');
       const result={f06:data.f06,log:data.log,digest:await R.digest(data.f06),diagnostics:R.diagnostics(data.f06,data.log,run.coordinates)};
-      const next=await R.seal({...run,status:data.status,exitCode:data.exitCode,error:data.error||null,finished:new Date().toISOString(),result});runs[runs.findIndex(r=>r.id===id)]=next;return copy(next);
+      const next=await R.seal({...run,status:data.status,exitCode:data.exitCode,error:data.error||null,finished:new Date().toISOString(),result});runs[runs.findIndex(r=>r.id===id)]=next;hooks.changed?.();return copy(next);
     }
     async function show(id){
       const run=find(id);if(run.status!=='completed'||!run.result?.f06)throw Error('This run has no completed results.');
@@ -45,7 +45,7 @@
     async function restoreSnapshot(id){const run=find(id),kept=runs;await hooks.engine().loadProjectModel(run.snapshot,run.name);runs=kept;active=null;epoch++;hooks.restored?.();return show(id);}
     async function validate(items){if(items!=null&&!Array.isArray(items))throw Error('Invalid saved run list.');const ids=new Set();for(const r of items||[]){await R.validate(r);if(ids.has(r.id))throw Error('Duplicate run identity.');ids.add(r.id);}}
     async function restore(items){await validate(items);runs=copy(items||[]);active=null;manual=false;epoch++;hooks.changed?.();}
-    return{capture,launch,poll,show,restoreSnapshot,restore,validate,changed,current,list:()=>copy(runs),get:id=>copy(find(id)),active:()=>active,manual:()=>manual,unbound:()=>{active=null;manual=true;hooks.changed?.();},clear:()=>{runs=[];changed();},cancel:id=>hooks.request('/api/solve/cancel',{id:find(id).job})};
+    return{capture,launch,poll,show,restoreSnapshot,restore,validate,changed,current,summaries:()=>runs.map(r=>({id:r.id,name:r.name,status:r.status,solver:r.profile.solver,revision:r.revision})),list:()=>copy(runs),get:id=>copy(find(id)),active:()=>active,manual:()=>manual,unbound:()=>{active=null;manual=true;hooks.changed?.();},clear:()=>{runs=[];changed();},cancel:id=>hooks.request('/api/solve/cancel',{id:find(id).job})};
   }
   return Object.freeze({create});
 }));

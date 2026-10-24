@@ -134,6 +134,46 @@
   var solverResults = null;
   var solverResultsSourceName = "";
   var showAnalysisExcluded = false;
+  var projectViewPreferences = { version: 1, objects: {}, isolate: null };
+  var projectViewIndex = null, projectViewSource = null, projectViewMask = null;
+  var projectCadReferences = new Map(), projectActiveCadSource = null, projectCadRequestedVisible = false;
+  function syncProjectCadVisibility() {
+    const explicit = projectViewIndex && window.WebMeshProjectView.inherited(projectViewIndex,projectViewPreferences,projectActiveCadSource);
+    const activeVisible = projectCadRequestedVisible && explicit !== false && (!projectViewPreferences.isolate || !projectViewMask?.sources.has(projectActiveCadSource));
+    if (cadViewport && projectActiveCadSource) cadViewport.setVisible(activeVisible);
+    if (activeVisible && projectActiveCadSource) projectViewMask?.sources.delete(projectActiveCadSource);
+    for (const [id,group] of projectCadReferences) group.visible = !projectViewMask?.sources.has(id) && !(id===projectActiveCadSource && activeVisible);
+  }
+  function setProjectCadReferences(entries) {
+    for(const group of projectCadReferences.values()){scene.remove(group);group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
+    projectCadReferences.clear();
+    for(const {id,preview} of entries||[]){if(!preview?.positions?.length)continue;const group=new Group(),geometry=new BufferGeometry();geometry.setAttribute("position",new Float32BufferAttribute(preview.positions,3));geometry.computeVertexNormals();group.add(new Mesh(geometry,new MeshPhongMaterial({color:0x7298b8,side:DoubleSide,transparent:true,opacity:.36,depthWrite:false})));
+      const lines=[];for(const e of preview.edges||[]){const ps=e.points||e.positions||[];if(ps.length&&Array.isArray(ps[0]))for(let i=1;i<ps.length;i++)lines.push(...ps[i-1],...ps[i]);else for(let i=3;i<ps.length;i+=3)lines.push(...ps.slice(i-3,i),...ps.slice(i,i+3));}
+      if(lines.length){const g=new BufferGeometry();g.setAttribute("position",new Float32BufferAttribute(lines,3));group.add(new LineSegments(g,new LineBasicMaterial({color:0x8db6c9,transparent:true,opacity:.6})));}group.userData.projectSource=id;scene.add(group);projectCadReferences.set(id,group);
+    }
+    refreshProjectViewMask();syncProjectCadVisibility();
+  }
+  function refreshProjectViewMask() {
+    const V = window.WebMeshProjectView;
+    if (!V) return;
+    if (!projectViewIndex || projectViewSource !== model.projectOwnership) {
+      projectViewSource = model.projectOwnership;
+      projectViewIndex = V.build(model.projectOwnership);
+    }
+    projectViewMask = V.mask(projectViewIndex, projectViewPreferences, model,
+      solverResults && !showAnalysisExcluded ? resultDisplayExclusions : undefined);
+  }
+  function workbenchProjectView() {
+    if (!projectViewIndex || projectViewSource !== model.projectOwnership || !projectViewMask) refreshProjectViewMask();
+    return { preferences: structuredClone(projectViewPreferences), roots: projectViewIndex?.roots.slice() || [], rows: projectViewIndex ? window.WebMeshProjectView.rows(projectViewIndex,projectViewPreferences,projectViewMask) : [] };
+  }
+  function setProjectView(value) {
+    projectViewPreferences = window.WebMeshProjectView.preferences(value);
+    buildGeometries(true);
+    syncProjectCadVisibility();
+    emitWorkbenchChange("view");
+    return workbenchProjectView();
+  }
   var resultDisplayExclusions = { elems: new Set(), nodes: new Set() };
   function refreshResultDisplayExclusions() {
     resultDisplayExclusions = { elems: new Set(), nodes: new Set() };
@@ -146,6 +186,7 @@
   function getDisplayHidden() {
     // A temporary display mask, never a change to analysis participation or
     // the analyst's manual hide/show choices. Shared active nodes stay visible.
+    if (projectViewMask) return { ...hidden, elems: new Set([...hidden.elems, ...projectViewMask.elems]), nodes: new Set([...hidden.nodes, ...projectViewMask.nodes]) };
     if (!solverResults || showAnalysisExcluded || !resultDisplayExclusions.elems.size) return hidden;
     return { ...hidden, elems: new Set([...hidden.elems, ...resultDisplayExclusions.elems]), nodes: new Set([...hidden.nodes, ...resultDisplayExclusions.nodes]) };
   }
@@ -154,6 +195,7 @@
     const checkbox = document.getElementById("chkShowAnalysisExcluded");
     if (checkbox) checkbox.checked = showAnalysisExcluded;
     buildGeometries(true);
+    if (typeof emitWorkbenchChange === "function") emitWorkbenchChange("view");
   }
   var contourField = "vonMises";
   var temperatureLoadSid = null;
@@ -2651,7 +2693,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
     if (legend.parentElement !== viewportEl2) {
       viewportEl2.appendChild(legend);
     }
-    const maxCanvasH = Math.max(120, Math.floor(viewportEl2.clientHeight * 0.75));
+    const maxCanvasH = document.querySelector(".workspace") ? Math.max(100, Math.min(280, viewportEl2.clientHeight - 190)) : Math.max(120, Math.floor(viewportEl2.clientHeight * 0.75));
     if (canvas2.height !== maxCanvasH) {
       canvas2.height = maxCanvasH;
     }
@@ -16464,6 +16506,8 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     return { faces: boundary, edges };
   }
   function buildGeometries(preserveView = false) {
+    refreshProjectViewMask();
+    syncProjectCadVisibility();
     const hidden = getDisplayHidden();
     invalidateElementLookup();
     invalidateShellFaceSelectionCache();
@@ -18829,6 +18873,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
       const coordTriadSampler = createSpatialGlyphSampler(glyphRenderLimit, model.bbox);
       for (const [cid, transform] of globalCoordTransforms) {
         if (cid === 0) continue;
+        if (projectViewMask?.coords.has(cid)) continue;
         if (!transform) continue;
         const origin = new Vector3().setFromMatrixPosition(transform);
         coordTriadSampler.add(origin, `COORD:${cid}`, { cid, transform, origin });
@@ -19192,10 +19237,12 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     const size = box.getSize(new Vector3());
     const extent = axis => Math.abs(axis.x) * size.x + Math.abs(axis.y) * size.y + Math.abs(axis.z) * size.z;
     const aspect = Math.max(1e-6, Number(canvas.clientWidth) / Math.max(1, Number(canvas.clientHeight)));
-    const halfHeight = Math.max(1e-6, extent(screenUp), extent(right) / aspect) * 0.625;
+    const frame = workbenchUsableFrame();
+    const halfHeight = Math.max(1e-6, extent(screenUp) * frame.heightFactor, extent(right) / aspect * frame.widthFactor) * 0.625;
     const tangent = Math.tan((camera.isPerspectiveCamera ? camera.fov : perspectiveCamera.fov) * Math.PI / 360);
     const distance = extent(outward) * 0.5 + halfHeight / Math.max(1e-6, tangent);
     const center = box.getCenter(new Vector3());
+    center.addScaledVector(right,frame.dx*2*halfHeight/Math.max(1,canvas.clientHeight)).addScaledVector(screenUp,frame.dy*2*halfHeight/Math.max(1,canvas.clientHeight));
     controls.target.copy(center);
     camera.position.copy(center).add(outward.multiplyScalar(distance));
     camera.zoom = 1;
@@ -19208,11 +19255,23 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     camera.updateMatrixWorld(true);
     updateCameraClipping();
   }
+  function workbenchUsableFrame() {
+    const w=canvas.clientWidth,h=canvas.clientHeight,full={widthFactor:1,heightFactor:1,dx:0,dy:0};
+    if(typeof document==='undefined'||!canvas.getBoundingClientRect||!document.querySelector('.workspace'))return full;
+    const r=canvas.getBoundingClientRect();let left=0,right=w,top=64,bottom=h-38;
+    for(const el of document.querySelectorAll('.wb-inspector,.wb-panel,#wb-dialog[open]')){const b=el.getBoundingClientRect();if(!b.width||!b.height||b.bottom<=r.top||b.top>=r.bottom)continue;if(b.left<=r.left+1&&b.right>r.left)left=Math.max(left,b.right-r.left);if(b.right>=r.right-1&&b.left<r.right)right=Math.min(right,b.left-r.left);}
+    if(right-left<80||bottom-top<80)return full;
+    return {widthFactor:w/(right-left),heightFactor:h/(bottom-top),dx:w/2-(left+right)/2,dy:(top+bottom)/2-h/2};
+  }
   function workbenchViewportBounds(includePreview = false) {
     const haveModel = !model.nodes || model.nodes.size > 0;
     let box = haveModel && model.bbox && !model.bbox.isEmpty() ? model.bbox.clone() : null;
+    if(haveModel&&typeof projectViewMask!=='undefined'&&projectViewMask&&(projectViewMask.nodes.size||projectViewMask.elems.size)){
+      const mask=getDisplayHidden(),positions=resolveAllTransforms().globalPositions;box=new Box3();for(const [id,p]of positions)if(!mask.nodes.has(id))box.expandByPoint(p);if(box.isEmpty())box=null;
+    }
     const cadBounds = cadViewport ? cadViewport.getBounds() : null;
     if (cadBounds) box = box ? box.union(cadBounds) : cadBounds;
+    if(typeof projectCadReferences!=='undefined')for(const group of projectCadReferences.values())if(group.visible){const b=new Box3().setFromObject(group);if(!b.isEmpty())box=box?box.union(b):b;}
     if (includePreview && workbenchPreview) {
       const previewBox = new Box3().setFromObject(workbenchPreview);
       if (!previewBox.isEmpty()) box = box ? box.union(previewBox) : previewBox;
@@ -19243,7 +19302,9 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     const height = Math.max(1e-6, extent(screenUp));
     const depth = Math.max(1e-6, extent(outward));
     const aspect = Math.max(1e-6, Number(canvas.clientWidth) / Math.max(1, Number(canvas.clientHeight)));
-    const halfHeight = Math.max(height, width / aspect) * 0.625;
+    const frame=workbenchUsableFrame();
+    const halfHeight = Math.max(height*frame.heightFactor, width / aspect*frame.widthFactor) * 0.625;
+    center.addScaledVector(right,frame.dx*2*halfHeight/Math.max(1,canvas.clientHeight)).addScaledVector(screenUp,frame.dy*2*halfHeight/Math.max(1,canvas.clientHeight));
     const tangent = Math.tan(perspectiveCamera.fov * Math.PI / 360);
     const distance = depth * 0.5 + halfHeight / Math.max(1e-6, tangent);
     controls.target.copy(center);
@@ -19346,6 +19407,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     return deckCaseControl.subcases.find((subcase) => String(subcase && subcase.id || "") === key) || null;
   }
   function isLoadVisibleInActiveCase(load) {
+    if (projectViewMask?.loads.has(Number(load?.sid))) return false;
     const activeCase = getActiveVisibilityCase();
     if (!activeCase) return true;
     const activeLoadSid = Number(activeCase.loadSid);
@@ -19353,6 +19415,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     return Number(load && load.sid) === activeLoadSid;
   }
   function isConstraintVisibleInActiveCase(constraint) {
+    if (projectViewMask?.spc.has(Number(constraint?.sid))) return false;
     const activeCase = getActiveVisibilityCase();
     if (!activeCase) return true;
     const activeSpcSid = Number(activeCase.spcSid);
@@ -29038,6 +29101,13 @@ ${formatRanges(v.ranges, 500)}`;
     getState: workbenchState, getNextIds: workbenchNextIds, getMesh: workbenchGetMesh,
     previewProjectChange: (request) => previewProjectChange(request),
     getProjectSummary: () => workbenchProjectSummary(),
+    getProjectView: workbenchProjectView,
+    setProjectView,
+    setProjectCadReferences,
+    setActiveCadSource: id => { projectActiveCadSource = id || null; },
+    setObjectVisible: (id, visible) => { workbenchProjectView(); return setProjectView(window.WebMeshProjectView.setVisibility(projectViewIndex,projectViewPreferences,id,visible)); },
+    isolateObject: id => setProjectView({ ...projectViewPreferences, isolate: id === projectViewPreferences.isolate ? null : id }),
+    getObjectEntities: id => { workbenchProjectView(); const m = projectViewIndex.entries.get(id)?.members; return m ? { nodes: [...m.nodes], elements: [...m.elems] } : {nodes:[],elements:[]}; },
     getCardOwner: (namespace, id) => workbenchCardOwner(namespace, id),
     getProjectOwnership: () => model.projectOwnership ? structuredClone(model.projectOwnership) : null,
     saveProjectModel: () => saveProjectModel(), loadProjectModel: (data, name) => loadProjectModel(data, name),
@@ -29051,7 +29121,7 @@ ${formatRanges(v.ranges, 500)}`;
       return result;
     },
     clearCadGeometry: () => { if (cadViewport) cadViewport.clear(); },
-    setCadVisible: (visible) => cadViewport ? cadViewport.setVisible(visible) : null,
+    setCadVisible: (visible) => { projectCadRequestedVisible=!!visible;if(!projectActiveCadSource)return cadViewport?.setVisible(visible);refreshProjectViewMask();syncProjectCadVisibility();return cadViewport?.getState(); },
     setCadSelectionMode: (mode) => cadViewport ? cadViewport.setMode(mode) : null,
     selectCad: (selection) => cadViewport ? cadViewport.select(selection) : null,
     getCadState: () => cadViewport ? cadViewport.getState() : { loaded: false, visible: false, mode: "none", faces: [], edges: [], counts: { faces: 0, edges: 0, triangles: 0, segments: 0 } },

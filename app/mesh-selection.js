@@ -49,7 +49,7 @@
     }
     return {surface,faces,nodes,pick,box,dispose(){geometry.dispose();surface.material.dispose();}};
   }
-  function create({THREE:T,scene,canvas,getCamera,getControls,mesh,onChange,selected=[],mode='node'}){
+  function create({THREE:T,scene,canvas,getCamera,getControls,mesh,onChange,onDispose,selected=[],mode='node'}){
     const picker=createPicker(T,mesh),group=new T.Group(),hidden=scene.children.filter(o=>!o.isLight&&!o.isCamera).map(o=>[o,o.visible]);
     for(const [o]of hidden)o.visible=false;
     group.add(picker.surface);scene.add(group);
@@ -79,7 +79,7 @@
       set(ids){selection=new Set(ids);update();},
       configure(options){if(options.mode&&options.mode!==mode){const changed=(options.mode==='element')!==(mode==='element');mode=options.mode;if(changed)selection.clear();}if(options.tool)tool=options.tool;if(options.visibleOnly!==undefined){visibleOnly=options.visibleOnly;points.material.depthTest=visibleOnly;}update();},
       fit(){const box=new T.Box3().setFromObject(group),center=box.getCenter(new T.Vector3()),controls=getControls(),camera=getCamera(),span=box.getSize(new T.Vector3()).length()||1,direction=camera.position.clone().sub(controls.target).normalize();controls.target.copy(center);if(camera.isOrthographicCamera){const aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);camera.left=-span*Math.max(1,aspect)*.65;camera.right=-camera.left;camera.top=span*Math.max(1,1/aspect)*.65;camera.bottom=-camera.top;camera.zoom=1;}camera.position.copy(center).addScaledVector(direction,span*2.5);camera.updateProjectionMatrix();controls.update();},
-      dispose(){if(disposed)return;disposed=true;for(const [target,event,fn]of listeners)target.removeEventListener(event,fn,true);bounds.remove();scene.remove(group);group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});for(const [o,visible]of hidden)if(o.parent===scene)o.visible=visible;}
+      dispose(){if(disposed)return;disposed=true;onDispose?.();for(const [target,event,fn]of listeners)target.removeEventListener(event,fn,true);bounds.remove();scene.remove(group);group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});for(const [o,visible]of hidden)if(o.parent===scene)o.visible=visible;}
     };
   }
   return Object.freeze({surfaces,createPicker,create});

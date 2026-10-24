@@ -19,7 +19,7 @@
     const merge=(request,objects)=>({...request,objects:[...new Map([...(request.objects||[]),...objects].map(o=>[o.id,o])).values()]});
     function pickerMarkup(pending,entity){
       const owners=pending.state.project.objects.filter(o=>o.kind==='mesh'&&o.definition.cards?.some(c=>c.family==='elems'));
-      return `<fieldset class="wb-region-picker"><legend>Viewport selection · proposed model</legend>${select('pickMode','Pick entities',entity==='element'?[['element','Elements']]:[['node','Nodes'],['face','Face nodes']],entity==='element'?'element':'node')}${select('pickTool','Selection tool',[['pick','Click'],['box','Box'],['navigate','Navigate / orbit']],'pick')}${select('pickOwner','Mesh scope',[['','All mesh owners and plain cards'],...owners.map(o=>[o.id,o.name])],'')}<label><input type="checkbox" data-repair-visible checked> Visible surface only</label><p>Click or drag a box. Shift adds; Ctrl/⌘ subtracts. Face nodes selects the complete clicked facet. Boxes select nodes or facet centers. Use Navigate to orbit; view buttons and wheel zoom remain available.</p><p data-repair-count aria-live="polite"></p>${button('clearPick','Clear picked selection')}${button('fitPick','Fit proposed mesh')}</fieldset>`;
+      return `<fieldset class="wb-region-picker"><legend>Viewport selection · proposed model</legend>${select('pickMode','Pick entities',entity==='element'?[['element','Elements']]:[['node','Nodes'],['face','Face nodes']],entity==='element'?'element':'node')}${select('pickTool','Selection tool',[['pick','Click'],['box','Box'],['navigate','Navigate / orbit']],'pick')}${select('pickOwner','Mesh scope',[['','All mesh owners and plain cards'],...owners.map(o=>[o.id,o.name])],'')}<label><input type="checkbox" data-repair-visible checked> Visible surface only</label><label><input type="checkbox" data-repair-object-visibility checked> Use object visibility</label><p>Click or drag a box. Shift adds; Ctrl/⌘ subtracts. Face nodes selects the complete clicked facet. Boxes select nodes or facet centers. Use Navigate to orbit; view buttons and wheel zoom remain available.</p><p data-repair-count aria-live="polite"></p>${button('clearPick','Clear picked selection')}${button('fitPick','Fit proposed mesh')}</fieldset>`;
     }
     function startPicker(pending,entity,initial,onChange){
       let picker,selected=initial.slice();
@@ -27,15 +27,19 @@
       function start(){
         const owner=get('pickOwner'),object=all.find(o=>o.id===owner),cards=object?.definition.cards||[];
         const elements=owner?new Set(cards.filter(c=>c.family==='elems').map(c=>c.id)):null;
-        const es=mesh.elements.filter(e=>!elements||elements.has(e.id)),nodes=owner?new Set([...cards.filter(c=>c.family==='nodes').map(c=>c.id),...es.flatMap(e=>e.nodes)]):null;
+        const respect=body().querySelector('[data-repair-object-visibility]').checked,V=window.WebMeshProjectView,mask=respect&&V?V.mask(V.build(pending.state),h.engine().getProjectView?.().preferences,pending.semantic):null;
+        const es=mesh.elements.filter(e=>(!elements||elements.has(e.id))&&(!mask||!mask.elems.has(e.id))),nodes=owner?new Set([...cards.filter(c=>c.family==='nodes').map(c=>c.id),...es.flatMap(e=>e.nodes)]):null;
         const available=new Set(entity==='element'?es.map(e=>e.id):mesh.nodes.filter(n=>!nodes||nodes.has(n.id)).map(n=>n.id));
-        picker=h.engine().beginMeshSelection({mesh:{nodes:mesh.nodes.filter(n=>!nodes||nodes.has(n.id)),elements:es},mode:get('pickMode'),selected,onChange:ids=>{selected=ids;body().querySelector('[data-repair-count]').textContent=ids.length+' '+(entity==='element'?'elements':'nodes')+' selected'+(ids.some(id=>!available.has(id))?' · '+ids.filter(id=>!available.has(id)).length+' missing or outside this scope':'')+' · '+ids.join(', ');onChange(ids);}});
+        picker=h.engine().beginMeshSelection({mesh:{nodes:mesh.nodes.filter(n=>(!nodes||nodes.has(n.id))&&(!mask||!mask.nodes.has(n.id))),elements:es},mode:get('pickMode'),selected,onDispose:()=>window.removeEventListener('webmesh:change',viewChanged),onChange:ids=>{selected=ids;body().querySelector('[data-repair-count]').textContent=ids.length+' '+(entity==='element'?'elements':'nodes')+' selected'+(ids.some(id=>!available.has(id))?' · '+ids.filter(id=>!available.has(id)).length+' missing or outside this scope':'')+(ids.length?' · '+ids.slice(0,8).join(', ')+(ids.length>8?' …':''):'');onChange(ids);}});
         picker.configure({tool:get('pickTool'),visibleOnly:body().querySelector('[data-repair-visible]').checked});
+        window.addEventListener('webmesh:change',viewChanged);
       }
+      const viewChanged=e=>{if(e.detail?.reason==='view'&&body().querySelector('[data-repair-object-visibility]'))start();};
       h.dock();start();
       for(const key of ['pickMode','pickTool'])body().querySelector(`[data-repair="${key}"]`).onchange=()=>picker.configure({mode:get('pickMode'),tool:get('pickTool')});
       body().querySelector('[data-repair-visible]').onchange=e=>picker.configure({visibleOnly:e.target.checked});
       body().querySelector('[data-repair="pickOwner"]').onchange=start;
+      body().querySelector('[data-repair-object-visibility]').onchange=start;
       action('clearPick',()=>picker.set([]));action('fitPick',()=>picker.fit());
       return {get:()=>selected.slice(),set:ids=>picker.set(ids)};
     }
@@ -82,6 +86,6 @@
       action('back',()=>list(request,options));
     }
     async function open(id){const o=state()?.project.objects.find(o=>o.id===id);if(!R.isRegion(o))return false;await regionEditor(o,o.definition.entity);return true;}
-    return {list,open};
+    return {list,open,create:entity=>regionEditor(null,entity)};
   }};
 })();
