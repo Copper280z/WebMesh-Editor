@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'), require('./mesh-region-project.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates, root.WebMeshRegions);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates, Regions) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'), require('./mesh-region-project.js'), require('./part-project.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates, root.WebMeshRegions, root.WebMeshParts);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates, Regions, Parts) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
@@ -207,6 +207,7 @@
     }
     for (const object of objects.values()) {
       if(Regions.isRegion(object))Regions.validate(object,objects,semantic);
+      Parts.validate(object,objects);
       const frameRoles=new Set();
       for(const b of object.definition.nodeFrames||[]){const c=object.definition.cards?.find(c=>c.family==='nodes'&&c.role===b.role);if(frameRoles.has(b.role)||!c||(c.value.cd||0)!==Coordinates.frame(s,b.frame).cid||b.frame&&!object.dependsOn.includes(b.frame))fail(object.name+': invalid GRID displacement-frame assignment.');frameRoles.add(b.role);}
       if (object.definition.embeddedBy) {
@@ -255,6 +256,19 @@
       if (references.length) fail('Repair loads/references before excluding elements: ' + references.map(r => r.from + ' → ' + r.to).join(', '));
     }
     return [...excluded].sort((a,b) => a-b);
+  }
+  function analysisNodeExclusions(state, semantic, opaque = [], excludeElements = analysisExclusions(state, semantic, opaque)) {
+    const excluded = new Set(excludeElements), candidates = new Set();
+    const objects = new Map((state?.project.objects || []).map(o => [o.id, o]));
+    for (const o of objects.values()) if (o.definition.partSource) for (const id of o.dependsOn) {
+      for (const c of objects.get(id)?.definition.cards || []) if (c.family === 'nodes') candidates.add(c.id);
+    }
+    // Only omit reference-source GRIDs with no remaining card references. Keep
+    // nodes used by assembly connections, masses, loads or constraints.
+    if (candidates.size) for (const r of references(semantic, opaque).refs) {
+      if (r.to.startsWith('node:') && !(r.from.startsWith('element:') && excluded.has(Number(r.from.slice(8))))) candidates.delete(Number(r.to.slice(5)));
+    }
+    return [...candidates].sort((a,b) => a-b);
   }
   function guard(state, before, after, opaque = []) {
     if (!state) return;
@@ -323,9 +337,12 @@
     if (index.unsupported.length) fail('Cannot prove references for ' + index.unsupported.join(', ') + '; project generation is blocked.');
     if (index.missing.length) fail('Dangling reference: ' + index.missing.map(r => r.from + ' → ' + r.to).join(', '));
     validateRigidDependents(after, owners);
+    // getObject returns a detached copy, including the whole mesh. Resolve the
+    // dependency set once per owner instead of cloning it for every GRID link.
+    const dependencies = new Map(next.project.objects.map(o => [o.id, new Set(o.dependsOn)]));
     for (const ref of index.refs) {
       const from = owners.get(ref.from), to = owners.get(ref.to);
-      if (from && to && from.owner !== to.owner && !project.getObject(from.owner).dependsOn.includes(to.owner)) fail(from.owner + ' must declare dependency on ' + to.owner + '.');
+      if (from && to && from.owner !== to.owner && !dependencies.get(from.owner).has(to.owner)) fail(from.owner + ' must declare dependency on ' + to.owner + '.');
     }
     const nextRows = rows(after), changes = [];
     for (const k of new Set([...before.keys(), ...nextRows.keys()])) if (!equal(before.get(k), nextRows.get(k))) changes.push({ key: k, action: !before.has(k) ? 'add' : !nextRows.has(k) ? 'remove' : 'update', owner: owners.get(k)?.owner || previousByKey.get(k)?.owner || null, before: before.get(k) || null, after: nextRows.get(k) || null });
@@ -334,5 +351,5 @@
     const ownershipChanges = [...new Set([...previousOwners.keys(), ...nextOwners.keys()])].filter(k => !equal(previousOwners.get(k), nextOwners.get(k))).map(k => ({ key: k, before: previousOwners.get(k) || null, after: nextOwners.get(k) || null }));
     return copy({ semantic: after, ownership: next, changes, ownershipChanges, project: corePreview });
   }
-  return Object.freeze({ analysisExclusions, snapshot, rows, put, validate, preview, guard, references, empty, equal, canonical });
+  return Object.freeze({ analysisExclusions, analysisNodeExclusions, snapshot, rows, put, validate, preview, guard, references, empty, equal, canonical });
 }));

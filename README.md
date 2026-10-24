@@ -73,6 +73,12 @@ Scratch meshes use shared nodes within each primitive. Adjacent tetrahedral cell
 
 Nastran uses the same `CTETRA` and `CHEXA` card names for both orders. The meshing layer preserves all midside connectivity and converts the Gmsh plugin's node ordering to Nastran ordering. Generated shell properties are `PSHELL`; generated solid properties are `PSOLID`. Default material values are `E = 210000`, `nu = 0.3`, and `rho = 7.85e-9`, consistent with mm, N, s and tonne. The editor does not convert units: all imported geometry, material values, loads and results must use one consistent system.
 
+### Independent parts and live instances
+
+Use **Parts → Add CAD part** to retain multiple CAD sources in one project. **Prepare / mesh** switches between each part's own CAD preparation and mesh regions. **Add live instance** creates a reviewed translation/rotation/reflection of a meshed part; a source remesh updates every live copy with separate node/element IDs and shared materials/sections. Create an **instance region** from a named source region to use it in assembly supports, attachments or payloads.
+
+The original source placement stays at modeling coordinates. **Use source as reference only** excludes its elements and unused GRIDs from analysis exports while retaining them in saved projects. **Make independent mesh** freezes a placement as an editable mesh snapshot; it no longer follows the source CAD recipe. See the [milestone and limits](docs/design/implementation-12-parts-instances.md) and the [saved rover/wheel assembly](docs/design/validation/parts-instances/README.md).
+
 ### Patterns and joining
 
 Linear instance counts include the original. Use counts such as `[5,1,1]`, `[5,3,1]`, or `[5,3,2]` for one-, two-, or three-direction arrays, with a spacing vector for each active direction. Circular patterns use a center, axis, instance count and sweep angle. A full 360-degree sweep omits the duplicate final instance; partial sweeps include both endpoints.

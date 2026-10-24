@@ -8171,6 +8171,7 @@ function handleParseRequest(msg) {
 function handleWriteRequest(msg) {
   const options = msg && msg.options ? msg.options : {};
   const excludedElements = new Set(options.excludeElements || []);
+  const excludedNodes = new Set(options.excludeNodes || []);
   const normalizeWriteFormat = (v) => {
     const s = String(v ?? '').trim().toLowerCase();
     if (!s) return 'source';
@@ -10317,6 +10318,7 @@ function handleWriteRequest(msg) {
       }
       const kind = String(rec.kind || '');
       if (kind === 'card' && semanticFamilyForCardName(rec.name) === 'elements' && excludedElements.has(parseNastranInt(getHydrationTokens(rec)[1]))) continue;
+      if (kind === 'card' && String(rec.name).replace(/\*$/, '').toUpperCase() === 'GRID' && excludedNodes.has(parseNastranInt(getHydrationTokens(rec)[1]))) continue;
 
       if (kind === 'blank') {
         outLines.push('');

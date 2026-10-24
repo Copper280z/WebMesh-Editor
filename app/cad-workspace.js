@@ -73,6 +73,7 @@
     // any of the same ones, so meshes of different bodies stay side by side.
     // { id, kind, label, volumes, faces, all?, elements, properties, material, stale, inModel }
     let meshes = [], meshCounter = 0, removing = null, editingOwner = null, regionName = '';
+    let partId = null;
     const meshesBySession = new Map();  // the lists of sessions switched away from in this page
     // CAD sessions open on the server (Sessions): resume one after a reload, or close one to free storage.
     let sessionsInfo = null, sessionsOpen = false, sessionsLoading = false, closing = null;
@@ -379,6 +380,7 @@
       const data = await api('resume', { cadId });
       const original = data.original; delete data.original;
       const file = new File([fromBase64(original.content)], original.filename);
+      if(hooks.addSessionPart)return hooks.addSessionPart({file,imported:data,data:{filename:file.name,content:original.content}});
       if (session) meshesBySession.set(session.cadId, meshes);
       editingOwner = null; regionName = ''; source = file; meshes = meshesBySession.get(cadId) || []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
       display.hiddenSheets = new Set();
@@ -408,6 +410,7 @@
         <p class="cad-note">Resume picks a session up at its last step with its undo history; sizes and mesh settings start fresh. Close deletes it from the server.</p></div>`;
     }
     async function importFile(file) {
+      if(hooks.addPart)return hooks.addPart(file);
       if (file.size > 23 * 1024 * 1024) throw Error('Choose a CAD file smaller than 23 MB.');
       hooks.message(`Reading ${file.name}…`);
       const format = ({ stp: 'step', igs: 'iges' }[file.name.split('.').pop().toLowerCase()] || file.name.split('.').pop().toLowerCase());
@@ -677,6 +680,13 @@
     }
 
     function clearAll() {
+      clearTimeout(meshTimer);clearTimeout(previewTimer);
+      step='prepare';pick='face';tool=null;sliceDraft=cutDraft=null;passages=[];checkedFeatures=new Set();
+      surfaceDraft={mode:'two',place:'mid',thickness:null,offset:0,picked:[],busy:false};extendDraft={edges:[],busy:false};sheetEdit=removingSheet=null;
+      meshSettings={method:'mapped',order:1,scope:'all',live:true,pidPerSolid:false};
+      shell={element:'quad',mesher:'recombined',placement:'surface',scope:'all',faces:[],facesB:[],size:null,perCircle:12,offset:0,thickness:1,pidPerFace:false,pads:[],padSize:null,padSide:null};
+      legacy={method:'tet',size:null,layers:4,sourceFace:'',targetFace:'',sweepAxis:'z',layerCounts:{}};
+      display={color:'status',xray:false,seeds:true,labels:true,groups:true,hidden:new Set(),hiddenSheets:new Set(),showResult:true};
       source = null; session = null; editingOwner = null; regionName = ''; selection = { kind: null, ids: [] }; report = null; meshes = []; auditHistory = []; pending = null; clearPreview();
       analysis = recognized = geometry = intervals = null; meshPreview = null; sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map() };
       engine()?.clearCadGeometry?.(); updateViewTools();
@@ -708,7 +718,7 @@
         <div class="cad-top">
         <section class="cad-file">
           <div class="cad-file-row">${icon('file')}<div class="cad-file-name"><strong title="${esc(source?.name)}">${esc(source?.name || session.filename)}</strong><small>${t.volumes.length} solid${t.volumes.length === 1 ? '' : 's'} · ${t.faces.length} faces · ${t.edges.length} edges</small></div>
-          ${btn('undo', '', { cls: 'icon ghost', iconName: 'undo', title: undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo', disabled: !undoLabel })}${btn('redo', '', { cls: 'icon ghost', iconName: 'redo', title: redoLabel ? `Redo: ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo', disabled: !redoLabel })}${btn('import', 'Replace', { cls: 'ghost small' })}</div>
+          ${btn('undo', '', { cls: 'icon ghost', iconName: 'undo', title: undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo', disabled: !undoLabel })}${btn('redo', '', { cls: 'icon ghost', iconName: 'redo', title: redoLabel ? `Redo: ${redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo', disabled: !redoLabel })}${btn('import', hooks.addPart?'Add part…':'Replace', { cls: 'ghost small' })}</div>
           <div class="cad-file-sessions"><button type="button" class="cad-link" data-act="sessions" title="CAD sessions open on the server: resume or close them">${sessionsOpen ? 'Hide sessions' : 'Sessions'}</button>${sessionsInfo && !sessionsInfo.failed ? `<small>${sessionsInfo.sessions.length} open · ${fmt(sessionsInfo.bytes / 1048576, 3)} of ${fmt(sessionsInfo.budget / 1048576, 3)} MiB</small>` : ''}</div>
         </section>
         ${sessionsOpen ? `<section id="cad-sessions">${sessionsCard()}</section>` : ''}
@@ -1542,7 +1552,7 @@
       const sibling=meshes.map(m=>owners.find(o=>o.id===m.projectOwner)).find(Boolean);
       const snapshot={filename:source.name,content:base64(await source.arrayBuffer()),prepared:await api('export',token())};
       snapshot.prepared.history=[...auditHistory,...(snapshot.prepared.history||[])];beforeCommit();
-      await hooks.reviewMappedMesh({id,name,sourceId:sibling?.definition.source,kind:kind==='shell'?'shell':'solid',snapshot,topology:topology(),settings:savedSettings(),perSolid:meshSettings.pidPerSolid,[kind==='shell'?'faces':'volumes']:targets,mesh,...extra},{beforeCommit,onApplied(){
+      await hooks.reviewMappedMesh({id,name,part:partId,sourceId:sibling?.definition.source,kind:kind==='shell'?'shell':'solid',snapshot,topology:topology(),settings:savedSettings(),perSolid:meshSettings.pidPerSolid,[kind==='shell'?'faces':'volumes']:targets,mesh,...extra},{beforeCommit,onApplied(){
         const record={id:previous?.id??++meshCounter,kind,label:name,projectOwner:id,volumes:kind==='hex'?targets:[],faces:kind==='shell'?targets:[],stale:false,inModel:true};
         Object.assign(record,meshOwnership(record));meshes=[...meshes.filter(m=>m!==previous),record];editingOwner=id;regionName=name;finish();hooks.render();
       }});
@@ -2054,7 +2064,19 @@
         }
         updateViewTools();
       },
-      clear() { clearAll(); },
+      clear() { partId=null;clearAll(); },
+      setPart(id) { partId=id; },
+      // Capturing a draft retains its server revision and in-session undo stack.
+      captureDraft() {
+        if(!session)return null;
+        return {runtime:true,file:source,imported:session,data:{filename:source.name,settings:savedSettings(),report,editingOwner,regionName,meshes:meshes.map(m=>({...m})),prepared:{history:auditHistory}},partId,selection:structuredClone(selection),pick,display:{...display,hidden:new Set(display.hidden),hiddenSheets:new Set(display.hiddenSheets)},expanded:{...expanded}};
+      },
+      restoreDraft(draft) { this.commitRestore(draft);if(!draft)return;partId=draft.partId||null;if(draft.runtime)auditHistory=structuredClone(draft.data.prepared?.history||[]);if(draft.selection){selection=structuredClone(draft.selection);pick=draft.pick||pick;display=draft.display||display;expanded=draft.expanded||expanded;engine().selectCad({faces:selection.kind==='face'?selection.ids:[],edges:selection.kind==='edge'?selection.ids:[],vertices:selection.kind==='vertex'?selection.ids:[],volumes:selection.kind==='solid'?selection.ids:[]});updateDisplay();} },
+      async serializeDraft(draft) {
+        if(!draft)return null;
+        const data={...structuredClone(draft.data),filename:draft.file.name,content:base64(await draft.file.arrayBuffer())};
+        data.prepared=await api('export',{cadId:draft.imported.cadId,revision:draft.imported.revision});data.prepared.history=[...(draft.data.prepared?.history||[]),...(data.prepared.history||[])];return data;
+      },
       /** [owner tag, element IDs] of each mesh a project saved, for the restored CAD session. */
       savedOwners(staged) { return staged ? savedMeshes(staged.data).filter(m => !m.projectOwner).map(m => [`${staged.imported.cadId}#${m.id}`, m.elements]) : []; },
       async serialize() {
@@ -2079,8 +2101,8 @@
       },
       commitRestore(staged) {
         this.clear(); if (!staged) return;
-        const { data, file, imported } = staged; source = file;
-        auditHistory = Array.isArray(data.prepared?.history) ? data.prepared.history.filter(h => typeof h === 'string' || h && typeof h.label === 'string').map(h => typeof h === 'string' ? { label: 'Saved: ' + h } : { ...h, label: 'Saved: ' + h.label }) : [];
+        const { data, file, imported } = staged; source = file;partId=staged.partId||null;
+        auditHistory = Array.isArray(data.prepared?.history) ? data.prepared.history.filter(h => typeof h === 'string' || h && typeof h.label === 'string').map(h => typeof h === 'string' ? { label: 'Saved: ' + h.replace(/^(Saved: )+/, '') } : { ...h, label: 'Saved: ' + h.label.replace(/^(Saved: )+/, '') }) : [];
         const s = data.settings || {};
         if (s.version === 2) {
           if (Number(s.sizing?.size) > 0) sizing.size = Number(s.sizing.size);

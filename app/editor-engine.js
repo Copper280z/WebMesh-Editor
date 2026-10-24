@@ -2969,6 +2969,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
       if (!gate.allowed && !(optionsOverride && optionsOverride.projectSave)) throw Error(gate.blockers.map(b => b.name + ": " + b.reason).join("; "));
     }
     const excludeElements = window.WebMeshOwnership.analysisExclusions(model.projectOwnership, window.WebMeshOwnership.snapshot(model), workerModel && workerModel.cardStream || []);
+    const excludeNodes = window.WebMeshOwnership.analysisNodeExclusions(model.projectOwnership, window.WebMeshOwnership.snapshot(model), workerModel && workerModel.cardStream || [], excludeElements);
     const w = ensureCardEngineWorker();
     assertCoordinateContractBeforeExport(modelToWrite);
     const exportFormatEl2 = document.getElementById("exportFormat");
@@ -2999,7 +3000,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
         }
       };
       w.addEventListener("message", onMessage);
-      w.postMessage({ type: "WRITE_REQUEST", model: payloadModel, options: { writeFormat, excludeElements: optionsOverride && optionsOverride.projectSave ? [] : excludeElements } });
+      w.postMessage({ type: "WRITE_REQUEST", model: payloadModel, options: { writeFormat, excludeElements: optionsOverride && optionsOverride.projectSave ? [] : excludeElements, excludeNodes: optionsOverride && optionsOverride.projectSave ? [] : excludeNodes } });
     });
   }
   function ensureWorkerBackedModelReady() {

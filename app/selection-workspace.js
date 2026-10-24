@@ -49,6 +49,15 @@
       action('review',async()=>{await check(options);return h.review(request,options);});action('discard',()=>h.close());
     }
     async function regionEditor(o,entity,request={objects:[],label:'Edit mesh region'},options={}){
+      if(o?.definition.scope){
+        const c=await context(request,options);options=c.options;const all=c.pending.state.project.objects,base=all.find(x=>x.id===o.definition.scope.region),instance=all.find(x=>x.id===o.definition.scope.instance);if(!base||!instance)throw Error('The source region or instance is missing.');
+        const entry=P.inspect(state(),c.semantic,request).find(r=>r.id===o.id);
+        h.dialog('Instance region · '+o.name,field('name','Region name',o.name)+`<p>Source: ${esc(base.name)} · Placement: ${esc(instance.name)}.</p><p>${o.definition.resolved.nodes.length} mapped nodes / ${o.definition.resolved.elements.length} elements. Membership follows the source region; edit its selection to change every scoped copy.</p>${entry?.issues.length?'<p role="alert">'+esc(entry.issues.join(' '))+'</p>':''}`+button('sourceRegion','Inspect / repair source region')+button('scopeHighlight','Highlight current mapped nodes')+button('scopeName','Review name')+button('scopeRemove','Review region removal')+tail);
+        action('sourceRegion',()=>edit(P.inspect(state(),c.semantic,request).find(r=>r.id===base.id),base,request,options));
+        action('scopeHighlight',()=>{const live=state()?.project.objects.find(x=>x.id===o.id);if(live)h.engine().select({nodes:live.definition.resolved.nodes,elements:live.definition.resolved.elements,mode:entity==='element'?'element':'node'});});
+        action('scopeName',async()=>{await check(options);const name=get('name').trim();if(!name)throw Error('Enter a region name.');return h.review({...merge(request,[{...structuredClone(o),name}]),label:'Rename '+o.name},options);});
+        action('scopeRemove',async()=>{await check(options);const r=R.remove(c.pending.state,o.id);return h.review({...request,label:r.label,objects:(request.objects||[]).filter(x=>x.id!==o.id),removeObjects:[...(request.removeObjects||[]),o.id]},options);});return;
+      }
       const c=await context(request,options);options=c.options;
       const old=o?.definition.ids||h.engine().getState().selection[entity==='node'?'nodes':'elems'];
       const issues=o?P.inspect(state(),c.semantic,request).find(r=>r.id===o.id)?.issues||[]:[];

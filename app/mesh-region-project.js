@@ -64,9 +64,16 @@
     const needed=new Set(selected.map(id=>d.entity+':'+id)),nodes=new Set();
     for(const id of selected){const b=bound.get(d.entity+':'+id);if(!b)fail('membership is not bound.');for(const n of d.entity==='node'?[id]:b.shape.n){needed.add('node:'+n);nodes.add(n);}}
     if(needed.size!==bound.size||[...needed].some(k=>!bound.has(k)))fail('entity bindings do not match the region membership.');
-    const deps=[...new Set([...bound.values()].map(b=>b.owner).filter(Boolean))].sort();
+    const deps=[...new Set([...bound.values()].map(b=>b.owner).filter(Boolean))];
+    if(d.scope){
+      const base=catalog.get(d.scope.region),mesh=catalog.get(d.scope.instance+'/mesh'),mapping=new Map(mesh?.definition.mapping?.[d.entity==='node'?'nodes':'elements']||[]);
+      const expected=base?.definition.resolved?.[d.entity==='node'?'nodes':'elements']?.map(id=>mapping.get(id));
+      if(!expected?.length||expected.some(id=>!id)||canonical(ids(expected))!==canonical(selected))fail('instance membership differs from its source region.');
+      deps.push(d.scope.region,d.scope.instance);
+    }
+    const dependencies=[...new Set(deps)].sort();
     const ns=[...nodes].sort((a,b)=>a-b),points=ns.map(id=>bound.get('node:'+id).shape);
-    return {...copy(object),dependsOn:deps,definition:{...copy(d),resolved:{nodes:ns,elements:d.entity==='element'?selected:[],centroid:['x','y','z'].map(k=>points.reduce((v,p)=>v+p[k],0)/points.length)},cards:[]}};
+    return {...copy(object),dependsOn:dependencies,definition:{...copy(d),resolved:{nodes:ns,elements:d.entity==='element'?selected:[],centroid:['x','y','z'].map(k=>points.reduce((v,p)=>v+p[k],0)/points.length)},cards:[]}};
   }
   function validate(object,catalog,semantic){
     const resolved=resolve(object,catalog,semantic);

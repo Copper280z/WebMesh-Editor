@@ -65,11 +65,11 @@
       </div>
     </div>
     <nav class="wb-tabs" aria-label="Workspace">
-      ${[['build','Geometry','cube'],['mesh','CAD & mesh','mesh'],['pattern','Pattern','pattern'],['setup','Model setup','setup'],['results','Post-process','results']].map(([id,label,name])=>`<button class="wb-tab ${id==='build'?'active':''}" data-tab="${id}">${icon(name)}${label}</button>`).join('')}
+      ${[['parts','Parts','folder'],['build','Geometry','cube'],['mesh','CAD & mesh','mesh'],['pattern','Pattern','pattern'],['setup','Model setup','setup'],['results','Post-process','results']].map(([id,label,name])=>`<button class="wb-tab ${id==='build'?'active':''}" data-tab="${id}">${icon(name)}${label}</button>`).join('')}
       <div class="wb-tabs-end"><span class="wb-unit-label">Consistent units</span><span style="color:#35485e">|</span><span class="wb-engine"><i id="wb-engine-dot" class="wb-dot"></i><span id="wb-engine-status">Browser engine</span></span></div>
     </nav>
     <nav class="wb-rail" aria-label="Tools">
-      ${[['build','cube','Create geometry'],['mesh','mesh','CAD meshing'],['pattern','pattern','Pattern mesh'],['setup','material','Materials and analysis'],['results','results','Results']].map(([tab,name,label])=>`<button data-tab="${tab}" class="${tab==='build'?'active':''}" title="${label}" aria-label="${label}">${icon(name)}</button>`).join('')}
+      ${[['parts','folder','Parts and live instances'],['build','cube','Create geometry'],['mesh','mesh','CAD meshing'],['pattern','pattern','Pattern mesh'],['setup','material','Materials and analysis'],['results','results','Results']].map(([tab,name,label])=>`<button data-tab="${tab}" class="${tab==='build'?'active':''}" title="${label}" aria-label="${label}">${icon(name)}</button>`).join('')}
       <div class="wb-spacer"></div><button id="wb-display" title="Display settings" aria-label="Display settings">${icon('eye')}</button><button id="wb-quality" title="Check mesh" aria-label="Check mesh">${icon('check')}</button>
     </nav>
     <aside class="wb-panel" aria-label="Active tool"><div class="wb-panel-head" id="wb-panel-head"></div><div class="wb-panel-body" id="wb-panel-body"></div><div class="wb-panel-foot" id="wb-panel-foot"></div></aside>
@@ -85,7 +85,7 @@
     <footer class="wb-statusbar"><span class="message" id="wb-message">${icon('check')}Ready to build</span><div class="wb-spacer"></div><span class="wb-unit-label">GLOBAL · XYZ</span><button id="wb-log">Activity log</button><span>WebMesh 3.0</span></footer>
     <dialog id="wb-dialog" class="wb-dialog"><div class="wb-dialog-head"><h2 id="wb-dialog-title"></h2>${button('wb-dialog-close','','close','ghost icon')}</div><div id="wb-dialog-body" class="wb-dialog-body"></div></dialog>
     <input id="wb-project-file" type="file" accept=".webmesh,.json" hidden>
-    <input id="wb-cad-file" type="file" accept=".step,.stp,.iges,.igs,.brep,.stl" hidden>
+    <input type="file" id="wb-part-file" accept=".step,.stp,.iges,.igs,.brep" hidden><input id="wb-cad-file" type="file" accept=".step,.stp,.iges,.igs,.brep,.stl" hidden>
   `);
   $('wb-dialog-close').setAttribute('aria-label','Close dialog');
   $('viewport').insertAdjacentHTML('beforeend', `<div class="wb-view-head"><div><div class="wb-view-title"><strong id="wb-viewport-name">Untitled model</strong><span id="wb-view-type">Geometry</span></div></div><button id="wb-projection" class="wb-view-mode" title="Toggle orthographic/perspective">Orthographic</button></div>
@@ -120,8 +120,9 @@
     finally{setBusy(false);refresh(true);}
   }
   const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy,
-    reviewMappedMesh: reviewCadMesh, editMeshOwner:id=>run(async()=>{await restoreCadOwner(id);}),
+    addPart:file=>partWorkspace.addFile(file), addSessionPart:staged=>partWorkspace.addImported(staged), reviewMappedMesh: reviewCadMesh, editMeshOwner:id=>run(async()=>{await restoreCadOwner(id);}),
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
+  const partWorkspace=window.WebMeshPartWorkspace.create({engine,cad:()=>cadWorkspace,run,dialog,review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
   const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
@@ -129,7 +130,7 @@
   const massWorkspace=window.WebMeshMassWorkspace.create({engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
   let restoringAnalysisProject=false;
   const analysisRequest=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||'Solver request failed.');return value;};
-  const analysisSession=window.WebMeshAnalysisSession.create({engine,request:analysisRequest,changed:updateRunCaption,restored:()=>cadWorkspace.clear()});
+  const analysisSession=window.WebMeshAnalysisSession.create({engine,request:analysisRequest,changed:updateRunCaption,restored:()=>partWorkspace.clear()});
   const analysisWorkspace=window.WebMeshAnalysisWorkspace.create({engine,run,dialog,review:reviewProject,session:analysisSession,request:analysisRequest,health:async()=>{const r=await fetch('/api/health');if(!r.ok)throw Error('Local solver service unavailable.');return r.json();},download,results:()=>setTimeout(()=>{setTab('results');openTool('results');updateRunCaption();},0)});
   function updateRunCaption(){
     let el=$('wb-run-caption');if(!el){el=document.createElement('div');el.id='wb-run-caption';el.className='wb-run-caption';$('viewport').appendChild(el);}
@@ -141,12 +142,12 @@
   const actionWorkspace=window.WebMeshActionWorkspace.create({engine,run,dialog,review:reviewProject});
   const interfaceWorkspace=window.WebMeshInterfaceWorkspace.create({engine,run,dialog,review:reviewProject});
   function invalidatePreview() {preview=null;engine()?.previewMesh?.(null);const el=$('wb-preview-info');if(el)el.textContent='Preview updates before adding to the model.';}
-  function setTab(tab) {
-    if(busy)return;
+  function setTab(tab,internal=false) {
+    if(busy&&!internal)return;
     closeDialog();app.classList.remove('parameters-hidden');
-    rememberForm();cadWorkspace.activate(false);activeTab=tab;cadWorkspace.activate(tab==='mesh');invalidatePreview();
+    rememberForm();if(activeTab==='parts')partWorkspace.activate(false);cadWorkspace.activate(false);activeTab=tab;cadWorkspace.activate(tab==='mesh');invalidatePreview();if(tab==='parts')partWorkspace.activate(true);
     document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
-    $('wb-view-type').textContent={build:'Geometry',mesh:'Meshing',pattern:'Patterns',setup:'Model setup',results:'Post-processing'}[tab];
+    $('wb-view-type').textContent={parts:'Assembly',build:'Geometry',mesh:'Meshing',pattern:'Patterns',setup:'Model setup',results:'Post-processing'}[tab];
     renderPanel();
   }
   function topologyOptions(kind) {return kind==='plate'?[['quad','Quadrilateral'],['tri','Triangle']]:kind==='annulus'?[['quad','Quad ring shell'],['tri','Triangle ring shell'],['hex','Hollow structured hex'],['tet','Hollow tetrahedra']]:[['hex','Structured hex'],['tet','Tetrahedron'],...(kind==='cylinder'?[['quad','Quad shell'],['tri','Triangle shell']]:[])];}
@@ -157,11 +158,11 @@
     $('wb-undo').title=cad?'Undo geometry change (Ctrl+Z)':'Undo (Ctrl+Z)';$('wb-redo').title=cad?'Redo geometry change (Ctrl+Shift+Z)':'Redo (Ctrl+Shift+Z)';
   }
   function renderPanel() {
-    const titles={build:['CREATE','Geometry','Parametric primitives and structured meshes.'],mesh:['CAD WORKFLOW','Hex meshing','Prepare CAD, solve edge counts and map hex elements.'],pattern:['REPEAT & ASSEMBLE','Pattern','Repeat mesh instances and connect interfaces.'],setup:['PRE-PROCESS','Model setup','Materials, sections and boundary conditions.'],results:['POST-PROCESS','Results','MYSTRAN output and load contours.']};
+    const titles={parts:['ASSEMBLY','Parts','Independent CAD sources and live mesh placements.'],build:['CREATE','Geometry','Parametric primitives and structured meshes.'],mesh:['CAD WORKFLOW','Hex meshing','Prepare CAD, solve edge counts and map hex elements.'],pattern:['REPEAT & ASSEMBLE','Pattern','Repeat mesh instances and connect interfaces.'],setup:['PRE-PROCESS','Model setup','Materials, sections and boundary conditions.'],results:['POST-PROCESS','Results','MYSTRAN output and load contours.']};
     const [eyebrow,title,description]=titles[activeTab];
     $('wb-panel-head').innerHTML=`<div class="wb-eyebrow">${eyebrow}</div><h2>${title}</h2><p>${description}</p>`;
     let html='',foot='';
-    if(activeTab==='build') {
+    if(activeTab==='parts') {const view=partWorkspace.render();html=view.body;foot=view.foot;} else if(activeTab==='build') {
       const options=[['block','Block','cube'],['plate','Plate','plate'],['cylinder','Cylinder','cylinder'],['annulus','Annulus','ring']];
       html=section('Primitive',`<div class="wb-primitive-grid">${options.map(([id,label,name])=>`<button class="wb-primitive ${primitive===id?'active':''}" data-primitive="${id}">${icon(name)}${label}</button>`).join('')}</div>`);
       if(primitive==='plate')html+=editingPlate?`<div class="wb-report">Editing an existing plate. Changes stay in this form until applied.</div>${button('wb-new-plate','Create another plate',null,'ghost')}${button('wb-convert-plate','Convert to plain cards',null,'ghost')}`:select('authoring','Authoring',[['editable','Editable project object'],['plain','Plain solver cards']],'editable');
@@ -201,6 +202,7 @@
     else{$('wb-panel-body').innerHTML=html;$('wb-panel-foot').innerHTML=foot;}
     $('wb-panel-foot').querySelectorAll('button').forEach(el=>el.dataset.operation='true');
     const saved=savedForms.get(formKey());if(saved){for(const el of $('wb-panel-body').querySelectorAll('[data-key]'))if(Object.hasOwn(saved,el.dataset.key))el.value=saved[el.dataset.key];}
+    if(activeTab==='parts')partWorkspace.bind();
     if(activeTab==='mesh')cadWorkspace.bind();
     if(activeTab==='pattern'&&patternKind==='bolts')boltWorkspace.bind();
     if(activeTab==='build'&&primitive==='plate'){
@@ -272,6 +274,7 @@
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    if(partWorkspace.open(id))return;
     if([window.WebMeshAnalysisProject.SET,window.WebMeshAnalysisProject.CASE].includes(object.definition.generator)){run(()=>analysisWorkspace.open(id));return;}
     if(window.WebMeshRegions.isRegion(object)){run(()=>selectionWorkspace.open(id));return;}
     if(coordinateWorkspace.open(id))return;
@@ -300,14 +303,18 @@
     $('wb-cad-remove').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id)));
   }
   async function restoreCadOwner(id){
+    const root=window.WebMeshCadProject.rootFor(engine().getProjectOwnership(),id);
+    if(root?.definition.part)return partWorkspace.edit(root.definition.part,window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id));
     const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id));cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed mesh region reopened. Other regions stay in the model.');
   }
   async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,note}={}){
-    const state=engine().getProjectOwnership(),original=request,options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,note};
+    const state=engine().getProjectOwnership(),options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,note};
     const semantic=await engine().getAuthoringModel();
     try {
     request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshInterfaceProject.rebuild(state,request,engine().getNextIds());
+    request=window.WebMeshParts.rebuild(state,request,engine().getNextIds());
+    request=window.WebMeshParts.scopedRegions(state,request);
     if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(request,options);
     request=window.WebMeshRegions.rebuild(state,window.WebMeshSelections.project(state,semantic,request).semantic,request);
     request=window.WebMeshAttachmentProject.rebuild(state,request);
@@ -315,7 +322,7 @@
     request=window.WebMeshActionProject.rebuild(state,request,window.WebMeshSelections.project(state,semantic,request).semantic);
     request=window.WebMeshAnalysisProject.rebuild(state,request);
     request=window.WebMeshCoordinates.rebuild(state,request);
-    } catch(error){return selectionWorkspace.list(original,options,error.message);}
+    } catch(error){return selectionWorkspace.list(request,options,error.message);}
     const attachmentNote=window.WebMeshAttachmentProject.describe(state,request);
     const massNote=window.WebMeshMassProject.describe(state,request);
     if(massNote)note=[note,massNote].filter(Boolean).join(' ');
@@ -324,18 +331,27 @@
       const cards=(request.objects||[]).flatMap(o=>o.definition.cards||[]),connections=cards.filter(c=>c.family==='elems'&&['RBE2','RBE3','CBUSH'].includes(c.value.type));
       if(connections.length)mesh=ownedCardPreview([...cards.filter(c=>c.family==='nodes'),...connections],engine().getMesh().nodes,'Connection preview');
     }
-    if((request.objects||[]).some(o=>o.definition.generator===window.WebMeshEmbeddedInterface.GENERATOR)){
+    if((request.objects||[]).some(o=>[window.WebMeshEmbeddedInterface.GENERATOR,window.WebMeshParts.MESH].includes(o.definition.generator))){
       mesh=ownedCardPreview((request.objects||[]).flatMap(o=>o.definition.cards||[]),engine().getMesh().nodes,'Embedded interface and dependents');
     }
 
-    let candidate;try{candidate=await engine().previewProjectChange(request);}catch(error){return selectionWorkspace.list(original,options,error.message);}
+    let candidate;try{candidate=await engine().previewProjectChange(request);}catch(error){return selectionWorkspace.list(request,options,error.message);}
     const report=candidate.preview();
     const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
     const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
     const affected=report.project.checks.filter(c=>report.project.affected.includes(c.id)),blocked=affected.some(c=>c.status==='invalid');
     const value=v=>v===undefined?'—':JSON.stringify(v);
-    const diff=changes=>changes.map(c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<details class="wb-card-diff"><summary>${esc(c.key)} · ${esc(c.action)}</summary><table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table></details>`;}).join('');
-    dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change · ${report.project.changes.length} project objects change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?[...groups].map(([id,changes])=>`<details class="wb-owner-diff"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary>${diff(changes)}</details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?'<h3>Affected project checks</h3>'+checksHtml(affected):''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    const diff=c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table>`;};
+    const changeGroups=[...groups];
+    dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change · ${report.project.changes.length} project objects change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?changeGroups.map(([id,changes],index)=>`<details class="wb-owner-diff" data-diff-group="${index}"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary><div data-diff-content></div></details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?'<h3>Affected project checks</h3>'+checksHtml(affected):''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    // Large assembly remeshes can change tens of thousands of cards. Keep the
+    // review readable and cheap until an analyst opens an owner and card.
+    $('wb-dialog-body').querySelectorAll('[data-diff-group]').forEach(group=>group.addEventListener('toggle',()=>{
+      if(!group.open||group.dataset.loaded)return;group.dataset.loaded='true';
+      const changes=changeGroups[Number(group.dataset.diffGroup)][1],content=group.querySelector('[data-diff-content]');
+      content.innerHTML=changes.map((c,i)=>`<details class="wb-card-diff" data-card-index="${i}"><summary>${esc(c.key)} · ${esc(c.action)}</summary><div data-card-content></div></details>`).join('');
+      content.querySelectorAll('[data-card-index]').forEach(card=>card.addEventListener('toggle',()=>{if(!card.open||card.dataset.loaded)return;card.dataset.loaded='true';card.querySelector('[data-card-content]').innerHTML=diff(changes[Number(card.dataset.cardIndex)]);}));
+    }));
     const actions=(request.objects||[]).flatMap(o=>o.definition.actions||[]);
     if(actions.length){const details=document.createElement('details');details.innerHTML='<summary>Composed actions ('+actions.length+')</summary><pre>'+esc(JSON.stringify(actions,null,2))+'</pre>';$('wb-dialog-body').prepend(details);}
     if(note){const p=document.createElement('p');p.textContent=note;$('wb-dialog-body').prepend(p);}
@@ -463,8 +479,9 @@
   function download(text,filename,type='text/plain') {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
   async function saveProject() {
     const saved=await engine().saveProjectModel();
-    const cad=await cadWorkspace.serialize();
-    download(JSON.stringify({format:'webmesh-project',version:saved.ownership?2:1,name:projectName,...saved,cad,analysisRuns:analysisSession.list(),history:historyItems},null,2),projectName.replace(/[^\w.-]+/g,'_')+'.webmesh','application/json');
+    const cad=partWorkspace.active()?null:await cadWorkspace.serialize();
+    const cadParts=await partWorkspace.serialize();
+    download(JSON.stringify({format:'webmesh-project',version:saved.ownership?2:1,name:projectName,...saved,cad,cadParts,analysisRuns:analysisSession.list(),history:historyItems},null,2),projectName.replace(/[^\w.-]+/g,'_')+'.webmesh','application/json');
     message('Project saved with the model deck and source CAD.');
   }
   async function example() {
@@ -479,7 +496,7 @@
     const next2=engine().getNextIds();const copies=modeling().circularPattern(rib,{count:8,angle:360,axis:[0,0,1],center:[0,0,0],includeSeed:false,startNode:next2.node,startElement:next2.element,mergeTolerance:0});
     await engine().appendMesh(copies);nameProject('Flange assembly · Example');engine().fitView?.();logOperation('Created flange assembly example');message('Example ready. Try patterns, selection, setup and mesh checks.');refresh(true);
   }
-  document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>setTab(el.dataset.tab));
+  document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{try{setTab(el.dataset.tab);}catch(e){message(e.message,true);console.error(e);}});
   $('wb-dialog-close').onclick=closeDialog;
   $('wb-dialog').addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
   $('wb-dialog').addEventListener('click',event=>{if(event.target===$('wb-dialog')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog();}});
@@ -494,7 +511,7 @@
   $('wb-dialog-body').addEventListener('click',event=>{
     if(busy)return;
     if(event.target.closest('#wb-save-before-new'))run(saveProject);
-    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();analysisSession.clear();cadWorkspace.clear();editingPlate=null;savedForms.delete('build:plate');historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');renderPanel();refresh(true);}
+    if(event.target.closest('#wb-confirm-new')){operationRevision++;closeDialog();engine().previewMesh?.(null);$('btnClear').click();analysisSession.clear();partWorkspace.clear();editingPlate=null;savedForms.delete('build:plate');historyItems=[];$('wb-history').textContent='Your modeling operations appear here.';nameProject('Untitled model');invalidatePreview();message('New workspace ready.');renderPanel();refresh(true);}
   });
   $('wb-export').onclick=()=>run(async()=>{const checks=engine().getProjectSummary().checks.filter(c=>c.status==='invalid');if(checks.length){dialog('Resolve project checks before export',checksHtml(checks)+'<p>You can still save the editable project.</p>');bindOwnerButtons($('wb-dialog-body'));return;}download(await engine().exportDeck(),projectName.replace(/[^\w.-]+/g,'_')+'.bdf');message('Nastran deck exported.');});
   $('wb-save').onclick=()=>run(saveProject);
@@ -503,14 +520,16 @@
     const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||![1,2].includes(data.version)||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
     if(data.version===2&&!data.ownership)throw Error('Version 2 projects require ownership metadata.');
     await analysisSession.validate(data.analysisRuns);
-    const cadRestore=await cadWorkspace.stageRestore(data.cad);
+    const partRestore=await partWorkspace.stageRestore(data.cadParts,data.ownership);
+    const cadRestore=partRestore?null:await cadWorkspace.stageRestore(data.cad);
     restoringAnalysisProject=true;try{await engine().loadProjectModel(data.version===2?data:{deck:data.deck},data.name||file.name);await analysisSession.restore(data.analysisRuns);}finally{restoringAnalysisProject=false;}nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
     for(const [tag,elements] of cadWorkspace.savedOwners(cadRestore))await engine().bindMeshOwner(tag,elements);
-    cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
+    partWorkspace.commitRestore(partRestore);if(!partRestore)cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
     operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';
   });
+  $('wb-part-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file&&!busy)run(()=>partWorkspace.addFile(file));};
   $('wb-cad-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file&&!busy)run(()=>cadWorkspace.importFile(file));};
-  $('file').addEventListener('change',event=>{if(event.target.files[0]){operationRevision++;invalidatePreview();cadWorkspace.clear();nameProject(event.target.files[0].name.replace(/\.[^.]+$/,''));}});
+  $('file').addEventListener('change',event=>{if(event.target.files[0]){operationRevision++;invalidatePreview();partWorkspace.clear();nameProject(event.target.files[0].name.replace(/\.[^.]+$/,''));}});
   $('fileResults').addEventListener('change',()=>{logOperation('Imported results file');message('Results file selected. Open result controls to inspect output.');});
   $('wb-example').onclick=()=>run(example);
   // While preparing CAD, the view's undo/redo walk the geometry history instead of the model's.
@@ -529,10 +548,10 @@
     if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)||$('wb-dialog').open)return;
     if(event.key.toLowerCase()==='f'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();$('btnReset').click();}
   });
-  window.addEventListener('webmesh:change',event=>{operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
+  window.addEventListener('webmesh:change',event=>{operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){partWorkspace.synchronize();if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
   function filterTree(){const term=$('wb-tree-filter').value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));}
   $('wb-tree-filter').addEventListener('input',filterTree);
-  window.WebMeshWorkbench={setTab,openTool,refresh,cad:cadWorkspace,example:()=>run(example)};
+  window.WebMeshWorkbench={setTab,openTool,refresh,parts:partWorkspace,cad:cadWorkspace,example:()=>run(example)};
   $('wb-panel-body').addEventListener('input',invalidatePreview);
   $('flyoutCloseBtn').click();nameProject('Untitled model');
   renderPanel();refresh(true);checkBridge();setInterval(()=>refresh(),700);

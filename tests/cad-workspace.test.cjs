@@ -740,3 +740,11 @@ test('restoring a midsurface region ignores leftover solid-scope selections',asy
   f.workspace.commitRestore(await f.workspace.stageRestore(saved));
   assert.equal((await f.workspace.serialize()).meshes[0].stale,false);
 });
+
+test('per-part draft switching retains CAD revision, sizing, selection and mesh settings without another import',async()=>{
+ const h=setup(),w=h.workspace;await w.importFile(new File(['first'],'first.step'));w.setPart('first');w.api.setSize(2);w.api.setCount([1],7);w.api.select('face',[1]);w.api.step('size');const a=w.captureDraft(),before=plain(w.getState());
+ await w.importFile(new File(['second'],'second.step'));w.setPart('second');w.api.setSize(5);w.api.select('solid',[1]);const b=w.captureDraft(),imports=h.calls.requests.filter(r=>r.action==='import').length;
+ w.restoreDraft(a);assert.equal(w.getState().filename,'first.step');assert.equal(w.getState().revision,before.revision);assert.deepEqual(plain(w.getState().selection),before.selection);assert.equal(w.getState().intervals.counts[1],7);assert.equal(w.getState().step,'size');
+ w.restoreDraft(b);assert.equal(w.getState().filename,'second.step');assert.equal(w.getState().selection.kind,'solid');assert.equal(h.calls.requests.filter(r=>r.action==='import').length,imports);
+ const saved=await w.serializeDraft(a);assert.equal(saved.filename,'first.step');assert.equal(atob(saved.content),'first');assert.equal(saved.settings.sizing.size,2);assert.equal(saved.settings.sizing.edges[0].count,7);assert.ok(saved.prepared.content);w.clear();assert.equal(w.hasGeometry(),false);
+});

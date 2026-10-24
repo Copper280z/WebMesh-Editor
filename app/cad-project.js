@@ -32,7 +32,9 @@
     const topo=input.topology;
     if(target.some(id=>!(shell?topo.faces:topo.volumes).some(v=>v.id===id)))throw Error('A target entity does not exist in this CAD snapshot.');
     const geometryKey=await geometryFingerprint(topo);
-    const sourceId=old?.definition.source||input.sourceId||input.id+'/source',materialId=input.id+'/material';
+    const partId=old?.definition.part||input.part||null,part=partId?find(partId):null;
+    if(partId&&part?.definition.generator!=='part-v1')throw Error('Select the owning part.');
+    const sourceId=old?.definition.source||part?.definition.source||input.sourceId||input.id+'/source',materialId=input.id+'/material';
     const shared=find(sourceId),siblings=(state?.project.objects||[]).filter(o=>o.id!==input.id&&[GENERATOR,SHELL].includes(o.definition.generator)&&o.definition.source===sourceId);
     if(shared&&shared.definition.generator!=='cad-source-v1')throw Error('Invalid shared CAD source.');
     if(shared&&shared.definition.geometryKey!==geometryKey&&siblings.length)throw Error('Shared CAD topology changed. Restore the committed source or remove its mesh regions and interfaces before changing topology.');
@@ -82,7 +84,7 @@
       return {id:s.id,kind:'section',name:input.name+' · '+(shell?'Shell faces ':'Solids ')+s.volumes.join(', '),dependsOn:[materialId],definition:{region:{geometryKey,[shell?'faces':'volumes']:s.volumes},cards:[{family:'properties',id:s.pid,role:shell?'shell':'solid',value:shell?{type:'PSHELL',pid:s.pid,mid1:mid,mid2:mid,mid3:mid,t}:{type:'PSOLID',pid:s.pid,mid}}]}};
     });
     const objects=[source,material,...sectionObjects,
-      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...sections.map(s=>s.id)],definition:{generator:shell?SHELL:GENERATOR,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,cards}}];
+      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...(partId?[partId]:[]),...sections.map(s=>s.id)],definition:{...(partId?{part:partId}:{}),generator:shell?SHELL:GENERATOR,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,cards}}];
     const removeObjects=(old?.definition.sections||[]).filter(s=>!sections.some(n=>n.id===s.id)).map(s=>s.id);
     return {mesh:generated,owner:input.id,newMeshIdentity:!!old&&!same,regions:sections,request:{label:(old?'Replace ':'Create ')+input.name,objects,removeObjects,reservations:[{owner:input.id,namespace:'node',role:nr,start:layout.node,count:nodes.length},{owner:input.id,namespace:'element',role:er,start:layout.element,count:elements.length}]}};
   }

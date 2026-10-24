@@ -39,7 +39,7 @@
     let built;
     ids={...ids};for(const [family,ns] of [['nodes','node'],['elems','element']])ids[ns]=Math.max(ids[ns]||1,...objects(s).flatMap(o=>(o.definition.cards||[]).filter(c=>(c.family===family||family==='elems'&&c.family==='masses')).map(c=>c.id+1)));
     const bindings=d.nodeFrames??objects(state).find(x=>x.id===o.id)?.definition.nodeFrames;
-    if(bindings?.length&&['cad-mapped-v1','cad-shell-v1','analysis-point-v1'].includes(d.generator)){const next=copy(o);next.definition.nodeFrames=bindings.filter(b=>!b.source).map(b=>{const id=n(b.node),card=next.definition.cards.find(c=>c.family==='nodes'&&c.id===id);if(!card)throw Error('Select a replacement for GRID '+b.node+'.');return {...b,node:id,role:card.role};});built={objects:[next]};}
+    if(bindings?.length&&['cad-mapped-v1','cad-shell-v1','analysis-point-v1','instance-mesh-v1','independent-mesh-v1'].includes(d.generator)){const next=copy(o);next.definition.nodeFrames=bindings.filter(b=>!b.source).map(b=>{const id=n(b.node),card=next.definition.cards.find(c=>c.family==='nodes'&&c.id===id);if(!card)throw Error('Select a replacement for GRID '+b.node+'.');return {...b,node:id,role:card.role};});built={objects:[next]};}
     else if(R.isRegion(o))built=R.build({id:o.id,name:o.name,entity:d.entity,ids:d.entity==='node'?(input.selectedNodes||d.ids.map(n)):(input.selectedElements||d.ids.map(e))},s,m);
     else if(d.generator===M.REGION)built=M.region({id:o.id,name:o.name,mesh:input.mesh||d.selector.mesh,kind:input.kind||d.selector.kind,faces:input.faces||d.selector.faces},s);
     else if([Tie.GENERATOR,Embedded.GENERATOR].includes(d.generator))built=(d.generator===Tie.GENERATOR?Tie:Embedded).build({...d,id:o.id,name:o.name,edges:input.edges||d.edges,faces:input.faces||d.faces},s,ids);
