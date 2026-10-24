@@ -38,6 +38,8 @@ Browser validation reopened the complete rover three times with only two session
 
 See [reproducible validation evidence](validation/cad-sessions/README.md), including the portable CAD checkpoint, verifier and screenshots. No solver change or new external solver defect was involved.
 
+Follow-up usability fixes preserve per-body and per-sheet visibility through preparation (including Extend), previews, history and save/reopen. Partial blind-hole floors on the balancer are now included in feature removal. See the [reproduction and validation notes](validation/cad-preparation-fixes/README.md).
+
 ## Remaining boundaries
 
 - Legacy projects with audit labels only cannot recover missing historical geometry. Their current prepared geometry and labels still open; subsequent saves preserve executable history from that point forward.

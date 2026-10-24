@@ -83,6 +83,25 @@
     return norm(sub(offset, scale(axis, dot(offset, axis)))) < tolerance;
   }
 
+  // A bore that breaks through a neighboring wall can leave only a crescent
+  // of its floor. Its straight edge belongs to that wall, not the cylinder.
+  // Require the entire boundary to fit inside the bore's disk; mere adjacency
+  // (or vertices alone, for curved edges) would also select surrounding plates.
+  function insideBore(ctx, face, surface, tolerance) {
+    const axis = unit(surface.axis), radius = surface.radius + tolerance;
+    const radial = p => { const d = sub(p, surface.origin); return norm(sub(d, scale(axis, dot(d, axis)))); };
+    const edges = ctx.faceEdges.get(face.id) || [];
+    return edges.length > 0 && edges.every(id => {
+      const edge = ctx.edges.get(id), curve = edge?.curve;
+      if (curve?.kind === 'line') {
+        const points = (edge.vertices || []).map(v => ctx.vertices.get(v));
+        return points.length === 2 && points.every(p => p && radial(p) <= radius);
+      }
+      return curve?.kind === 'circle' && Math.abs(dot(axis, unit(curve.axis))) > 1 - 1e-6
+        && radial(curve.center) + curve.radius <= radius;
+    });
+  }
+
   function recognize(topology) {
     const ctx = context(topology);
     const tolerance = ctx.span * 1e-6;
@@ -137,7 +156,8 @@
           if (face.type === 'Cone') { faces.push(n); continue; }
           if (face.surface?.kind === 'plane' && Math.abs(Math.abs(dot(unit(face.surface.normal), axis)) - 1) < 1e-6 && (face.orientedLoops || []).length === 1) {
             const loopEdges = ctx.faceEdges.get(n) || [];
-            if (loopEdges.every(e => [...(ctx.edgeFaces.get(e) || [])].some(o => o !== n && faces.includes(o)))) faces.push(n);
+            if (loopEdges.every(e => [...(ctx.edgeFaces.get(e) || [])].some(o => o !== n && faces.includes(o)))
+                || (kind === 'hole' && insideBore(ctx, face, s, tolerance))) faces.push(n);
           }
         }
         const blind = faces.some(f => ctx.faces.get(f).surface?.kind === 'plane');

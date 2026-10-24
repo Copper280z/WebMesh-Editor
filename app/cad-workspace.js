@@ -206,6 +206,39 @@
       return lost;
     }
 
+    // Entity numbers are local to a BREP revision. Match geometry, not tags,
+    // when keeping display choices after preparation, history or reopening.
+    // Bounds may include tessellation tolerances that change after a reload;
+    // analytic area/centroid/normal are independent of that display cache.
+    const geometryKey = item => JSON.stringify([item.type, item.area ?? item.volume, ...(item.center || []), ...(item.normal || [])].map(v => typeof v === 'number' ? Number(v.toFixed(5)) : v));
+    function visibilityGeometry(t) {
+      const faces = new Map((t.faces || []).map(f => [f.id, geometryKey(f)]));
+      const solids = new Map((t.volumes || []).map(v => [v.id, geometryKey(v) + '|' + (v.faces || []).map(id => faces.get(id)).sort().join('|')]));
+      return { faces, solids };
+    }
+    function remapHidden(previous, next, hidden = display.hidden) {
+      if (!previous || !next || !hidden.size) return new Set();
+      const old = previous.volumes || [], keys = new Map(), exterior = new Map(), a = visibilityGeometry(previous), b = visibilityGeometry(next);
+      for (const v of old) {
+        const key = a.solids.get(v.id);
+        if (!keys.has(key)) keys.set(key, []);
+        keys.get(key).push(v.id);
+      }
+      for (const f of previous.faces || []) if (f.volumes?.length === 1) {
+        const key = a.faces.get(f.id);
+        if (!exterior.has(key)) exterior.set(key, new Set());
+        exterior.get(key).add(f.volumes[0]);
+      }
+      return new Set((next.volumes || []).filter(v => {
+        const exact = keys.get(b.solids.get(v.id));
+        if (exact?.length === 1) return hidden.has(exact[0]);
+        // Split/edited solids inherit surviving exterior faces. A merged
+        // solid is hidden only if all identifiable contributors were hidden.
+        const owners = new Set((v.faces || []).flatMap(id => [...(exterior.get(b.faces.get(id)) || [])]));
+        return owners.size > 0 && [...owners].every(id => hidden.has(id));
+      }).map(v => v.id));
+    }
+
     /** Solids of the current pick: picked solids, or the solids owning picked faces. */
     function selectedSolids() {
       if (selection.kind === 'solid') return selection.ids.slice();
@@ -381,13 +414,15 @@
     function accept(data, { fit = true, keepStep = false } = {}) {
       const previous = session?.topology;
       const lost = previous && session?.cadId === data.cadId ? remapControls(previous, data.topology) : (sizing.edges = new Map(), sizing.faces = new Map(), 0);
+      display.hidden = session?.cadId === data.cadId ? remapHidden(previous, data.topology) : new Set();
+      display.hiddenSheets = new Set([...display.hiddenSheets].filter(id => data.topology.sheets?.some(s => s.sheet === id)));
       session = data;
       if (discrete()) { step = 'mesh'; meshSettings.method = 'gmsh'; legacy.method = ['tet', 'tri'].includes(legacy.method) ? legacy.method : 'tet'; }
       else if (!keepStep) step = step === 'mesh' && meshSettings.method === 'gmsh' ? 'mesh' : step;
       if (!(Number(sizing.size) > 0)) sizing.size = defaultSize();
       if (!(Number(legacy.size) > 0)) legacy.size = sizing.size;
       selection = { kind: null, ids: [] }; pending = null; sliceDraft = null; cutDraft = null; tool = tool === 'slice' ? null : tool; clearPreview();
-      checkedFeatures = new Set(); display.hidden = new Set(); meshPreview = null; meshError = null; report = null;
+      checkedFeatures = new Set(); meshPreview = null; meshError = null; report = null;
       analyse();
       engine().setCadGeometry(data.preview, { name: source?.name || data.filename, cadId: data.cadId, revision: data.revision, fit, topology: data.topology });
       const vp = viewport();
@@ -629,7 +664,11 @@
     }
     function showResultPreview(data) {
       const vp = viewport(); if (!vp || !data?.preview) return;
-      const t = data.topology, ids = data.preview.triangleFaceIds || [], pos = data.preview.positions || [];
+      const t = data.topology, hidden = remapHidden(topology(), t);
+      const hiddenFaces = new Set((t.faces || []).filter(f => f.volumes?.length && f.volumes.every(id => hidden.has(id))).map(f => f.id));
+      for (const sheet of t.sheets || []) if (display.hiddenSheets.has(sheet.sheet)) hiddenFaces.add(sheet.face);
+      const ids = [], pos = [];
+      (data.preview.triangleFaceIds || []).forEach((face, i) => { if (!hiddenFaces.has(face)) { ids.push(face); pos.push(...data.preview.positions.slice(i * 9, i * 9 + 9)); } });
       const owner = new Map((t.faces || []).map(f => [f.id, (f.volumes || [])[0]]));
       const order = new Map((t.volumes || []).map((v, i) => [v.id, i]));
       const result = previewState.analysis;
@@ -644,7 +683,8 @@
         for (let k = 0; k < 3; k++) { colors[tri * 9 + k * 3] = c[0]; colors[tri * 9 + k * 3 + 1] = c[1]; colors[tri * 9 + k * 3 + 2] = c[2]; }
       }
       const edges = [];
-      for (const e of data.preview.edges || []) { const p = e.points; for (let i = 3; i < p.length; i += 3) edges.push(p[i - 3], p[i - 2], p[i - 1], p[i], p[i + 1], p[i + 2]); }
+      const edgeFaces = new Map((t.edges || []).map(e => [e.id, e.faces || []]));
+      for (const e of data.preview.edges || []) { if (edgeFaces.get(e.id)?.length && edgeFaces.get(e.id).every(f => hiddenFaces.has(f))) continue; const p = e.points; for (let i = 3; i < p.length; i += 3) edges.push(p[i - 3], p[i - 2], p[i - 1], p[i], p[i + 1], p[i + 2]); }
       vp.setOverlay('result', { type: 'mesh', positions: pos, colors, owners: ids, edges, edgeColor: 0x0f1a24, opacity: 1, renderOrder: 2 });
       setBaseVisible(false);
     }
@@ -1562,8 +1602,10 @@
       return { faces, colors, edges };
     }
     function savedSettings() {
+      const hiddenKeys = display.hidden.size ? visibilityGeometry(topology()).solids : new Map();
       return { version: 2, step, sizing: { size: sizing.size, minCount: sizing.minCount, edges: [...sizing.edges].map(([id, c]) => ({ id, ...c })) },
-        mesh: { ...meshSettings, ...(meshSettings.scope === 'selected' ? { selectedVolumes: meshVolumes() } : {}) }, legacy: JSON.parse(JSON.stringify(legacy)), shell: {...JSON.parse(JSON.stringify(shell)),...(shell.scope==='selected'?{selectedFaces:shellFaces()}: {})}, passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups } };
+        mesh: { ...meshSettings, ...(meshSettings.scope === 'selected' ? { selectedVolumes: meshVolumes() } : {}) }, legacy: JSON.parse(JSON.stringify(legacy)), shell: {...JSON.parse(JSON.stringify(shell)),...(shell.scope==='selected'?{selectedFaces:shellFaces()}: {})}, passages: JSON.parse(JSON.stringify(passages)), display: { color: display.color, seeds: display.seeds, labels: display.labels, groups: display.groups,
+          hiddenSolids: [...display.hidden].map(id => hiddenKeys.get(id)).filter(Boolean), hiddenSheets: [...display.hiddenSheets] } };
     }
     function finishMappedMesh(result) {
       const q = result.quality;
@@ -2166,6 +2208,11 @@
           if (s.stage === 'mesh') step = 'mesh';
         }
         accept(imported, { keepStep: true });
+        if (s.version === 2 && s.display) {
+          const keys = new Set(Array.isArray(s.display.hiddenSolids) ? s.display.hiddenSolids.filter(k => typeof k === 'string').slice(0, 10000) : []);
+          display.hidden = new Set([...visibilityGeometry(session.topology).solids].filter(([, key]) => keys.has(key)).map(([id]) => id));
+          display.hiddenSheets = new Set((Array.isArray(s.display.hiddenSheets) ? s.display.hiddenSheets : []).filter(id => Number.isSafeInteger(id) && session.topology.sheets?.some(s => s.sheet === id)));
+        }
         let invalid = false;
         const available = new Set((session.topology.edges || []).map(e => e.id));
         const savedEdges = s.version === 2 ? (s.sizing?.edges || []) : [

@@ -16,7 +16,7 @@ function element(id) {
 }
 
 function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectReview = false, storage = null, locks = null } = {}) {
-  const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [] };
+  const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [], hidden: [], overlayData: new Map() };
   const listeners = new Map(), elements = new Map();
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
   const owned = { elements: [], properties: [] }, owners = new Map();
@@ -27,7 +27,10 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectR
     { cadId: 'e'.repeat(32), filename: 'scrap.step', steps: 0, kept: 1, label: 'Imported geometry', revision: 0, created: 0, lastUsed: Date.now() / 1000 - 7200, bytes: 5 * 1048576, discrete: false }];
   const failNext = {}, transform = { fn: null };
   const payload = (name, rev) => ({ ...plain(fixture(name)), cadId: 'c'.repeat(32), revision: rev, filename: 'part.step', history: Array.from({ length: rev + 1 }, (_, i) => ({ revision: i, label: i ? 'Changed' : 'Imported geometry' })) });
-  const viewport = new Proxy({}, { get: (_, key) => key === 'section' ? () => new Float32Array() : key === 'volumeFaces' || key === 'faceVolumes' ? () => [] : (...args) => { if (key === 'setOverlay') calls.overlays.push(args[0]); } });
+  const viewport = new Proxy({}, { get: (_, key) => key === 'section' ? () => new Float32Array() : key === 'volumeFaces' || key === 'faceVolumes' ? () => [] : (...args) => {
+    if (key === 'setOverlay') { calls.overlays.push(args[0]); calls.overlayData.set(args[0], args[1]); }
+    if (key === 'setHiddenVolumes') calls.hidden.push(plain(args));
+  } });
   const engine = {
     setCadGeometry() {}, clearCadGeometry() {}, setCadSelectionMode() {}, setCadSplitPlane() {}, setCadVisible(v) { visible = v; },
     getCadState: () => ({ visible }), getCadViewport: () => viewport, getMeshOwner: tag => ({ elements: (owners.get(tag) || []).slice(), properties: [5] }),
@@ -616,12 +619,16 @@ test('Extend takes sheet edges, then the face to reach; Join fuses the sheets', 
   const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
   // Two of the box's faces stand in for sheets.
   const withSheets = result => { const t = result.topology; t.faces[0].volumes = []; t.faces[1].volumes = []; t.sheets = [{ face: t.faces[0].id, sheet: 1, thickness: 4, offset: 0, label: 'A' }, { face: t.faces[1].id, sheet: 2, thickness: 4, offset: 0, label: 'B' }]; return result; };
-  f.transform.fn = (action, data, result) => (action === 'prepare' ? withSheets(result) : result);
+  f.transform.fn = (action, data, result) => (['prepare', 'undo', 'redo', 'restore'].includes(action) ? withSheets(result) : result);
   f.workspace.api.tool('surface');
   f.click('surface-mode', { value: 'one' });
   const first = f.workspace.getState().topology.faces[0].id;
   f.workspace.api.select('face', [first]); await settle();
   const t = f.workspace.getState().topology;
+  f.click('toggle-visible', { id: String(t.volumes[0].id) });
+  f.click('toggle-sheet', { id: '2' });
+  const hiddenBefore = f.calls.hidden.at(-1);
+  assert.deepEqual(hiddenBefore, [[t.volumes[0].id], [t.faces[1].id]]);
   f.workspace.api.tool('extend');
   assert.match(f.workspace.render().body, /Pick straight edges of a flat sheet/);
   const sheetEdge = t.faces[0].edges[0], solidEdge = t.edges.find(e => !e.faces.some(x => x === t.faces[0].id || x === t.faces[1].id))?.id;
@@ -631,7 +638,9 @@ test('Extend takes sheet edges, then the face to reach; Join fuses the sheets', 
   const extend = f.calls.requests.filter(r => r.action === 'prepare').pop().data.operation;
   assert.deepEqual(plain(extend), { kind: 'extend', edges: [sheetEdge], target: t.faces[1].id, label: `Extended 1 sheet edge to face ${t.faces[1].id}` });
   assert.equal(f.workspace.getState().tool, 'extend', 'the tool stays on');
+  assert.deepEqual(f.calls.hidden.at(-1), hiddenBefore, 'Extend keeps hidden solids and sheets hidden');
   f.click('sheets-join'); await settle();
+  assert.deepEqual(f.calls.hidden.at(-1), hiddenBefore, 'Join also retains visibility');
   assert.equal(f.calls.requests.filter(r => r.action === 'prepare').pop().data.operation.kind, 'join');
   // A flat sheet's card splits the other sheets along its plane (control curves for a brace on a floor).
   f.workspace.api.tool('extend');
@@ -643,6 +652,76 @@ test('Extend takes sheet edges, then the face to reach; Join fuses the sheets', 
   assert.equal(split.kind, 'split-sheets');
   assert.deepEqual(plain(split.plane), { origin: plain(now.faces[0].surface.origin), normal: plain(now.faces[0].surface.normal) });
   assert.deepEqual(plain(split.faces), [now.faces[1].id], 'the other sheets');
+  await f.workspace.api.history('undo');
+  assert.deepEqual(f.calls.hidden.at(-1), hiddenBefore, 'undo retains display choices');
+  await f.workspace.api.history('redo');
+  assert.deepEqual(f.calls.hidden.at(-1), hiddenBefore, 'redo retains display choices');
+  const saved = await f.workspace.serialize();
+  f.workspace.commitRestore(await f.workspace.stageRestore(saved));
+  assert.deepEqual(f.calls.hidden.at(-1), hiddenBefore, 'reopening retains hidden solids and sheets');
+});
+
+test('CAD visibility survives renumbering, previews, history, draft switching and save/reopen', async () => {
+  const f = await imported({ imported: 'split-box', prepared: 'split-box' });
+  const ids = f.workspace.getState().topology.volumes.map(v => v.id);
+  f.click('toggle-visible', { id: String(ids[0]) });
+  const saved = await f.workspace.serialize();
+  assert.equal(saved.settings.display.hiddenSolids.length, 1);
+  // Same solids, reversed tags. Numeric IDs alone would hide the other half.
+  const renumber = result => {
+    const map = new Map(ids.map((id, i) => [id, ids[ids.length - 1 - i]]));
+    for (const v of result.topology.volumes) v.id = map.get(v.id);
+    for (const face of result.topology.faces) face.volumes = face.volumes.map(id => map.get(id));
+    // Mapping fixtures omit tessellation. Give each face one distinct triangle
+    // to verify visibility filtering, including the shared face of the blocks.
+    result.preview.triangleFaceIds = result.topology.faces.map(f => f.id);
+    result.preview.positions = result.topology.faces.flatMap(f => [f.id, 0, 0, f.id, 1, 0, f.id, 1, 1]);
+    return result;
+  };
+  f.transform.fn = (action, data, result) => ['preview', 'prepare', 'redo'].includes(action) ? renumber(result) : result;
+  f.workspace.api.select('face', [f.workspace.getState().topology.faces[0].id]); f.workspace.render();
+  f.workspace.api.runAction(f.workspace.api.infer().findIndex(a => a.key === 'slice-parallel'));
+  await f.workspace.api.waitForPreview();
+  const preview = f.calls.overlayData.get('result');
+  const hiddenFaces = new Set(f.workspace.getState().topology.faces.filter(face => face.volumes.length && face.volumes.every(id => id === ids[0])).map(face => face.id));
+  assert.ok(preview.owners.length > 0);
+  assert.ok(preview.owners.every(id => !hiddenFaces.has(id)), 'result preview respects hidden geometry');
+  await f.workspace.api.apply();
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [ids.at(-1)]);
+  await f.workspace.api.history('undo');
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [ids[0]]);
+  await f.workspace.api.history('redo');
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [ids.at(-1)]);
+  const draft = f.workspace.captureDraft();
+  f.workspace.clear(); f.workspace.restoreDraft(draft);
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [ids.at(-1)]);
+  const reopened = setup({ imported: 'split-box' });
+  reopened.transform.fn = (action, data, result) => action === 'restore' ? renumber(result) : result;
+  reopened.workspace.commitRestore(await reopened.workspace.stageRestore(saved));
+  assert.deepEqual(reopened.calls.hidden.at(-1)[0], [ids.at(-1)], 'saved visibility matches shape, not old tags');
+  await reopened.workspace.importFile(new File(['OTHER'], 'other.step'));
+  assert.deepEqual(reopened.calls.hidden.at(-1)[0], [], 'new imports do not inherit previous visibility');
+});
+
+test('split descendants inherit hidden state and a mixed visible/hidden merge stays visible', async () => {
+  const f = await imported();
+  f.click('toggle-visible', { id: '1' });
+  f.workspace.api.select('face', [f.workspace.getState().topology.faces[0].id]); f.workspace.render();
+  f.workspace.api.runAction(f.workspace.api.infer().findIndex(a => a.key === 'slice-parallel'));
+  await f.workspace.api.waitForPreview();
+  f.click('cancel-pending');
+  assert.equal(f.workspace.getState().pending, null);
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [1], 'cancelling a preview preserves visibility');
+  f.workspace.api.select('face', [f.workspace.getState().topology.faces[0].id]); f.workspace.render();
+  f.workspace.api.runAction(f.workspace.api.infer().findIndex(a => a.key === 'slice-parallel'));
+  await f.workspace.api.apply();
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [1, 2]);
+  await f.workspace.api.history('undo');
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [1]);
+  await f.workspace.api.history('redo');
+  f.click('toggle-visible', { id: '2' });
+  await f.workspace.api.history('undo');
+  assert.deepEqual(f.calls.hidden.at(-1)[0], [], 'visible geometry must not disappear in a merge');
 });
 
 test('picked neighboring solids are fused through the preview and apply flow', async () => {

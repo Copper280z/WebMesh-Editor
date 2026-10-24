@@ -1,0 +1,100 @@
+{
+  "fixture": "examples/balancer_chassis.step",
+  "fixtureSHA256": "60c2fe639913229f6b712fdfeca505e408ca97d921cd544ee8da6258c5cfd2a6",
+  "checkpointSHA256": "912a9cba9c09109219d870d8da959a0cc8521d3e6eb6e181797525c5ff036085",
+  "cursor": 4,
+  "hiddenSolidCount": 1,
+  "hiddenSheets": [],
+  "states": [
+    {
+      "label": "Imported geometry",
+      "operation": {
+        "kind": "import"
+      },
+      "solids": 1,
+      "faces": 148,
+      "volume": 86384.95895815208,
+      "sheetArea": 0
+    },
+    {
+      "label": "Removed faces [92, 93, 94, 95]",
+      "operation": {
+        "faceIds": [
+          92,
+          93,
+          94,
+          95
+        ],
+        "kind": "defeature"
+      },
+      "solids": 1,
+      "faces": 144,
+      "volume": 86511.87884120339,
+      "sheetArea": 0
+    },
+    {
+      "label": "Sliced at Y = 100",
+      "operation": {
+        "kind": "slice",
+        "label": "Sliced at Y = 100",
+        "planes": [
+          {
+            "normal": [
+              0,
+              1,
+              0
+            ],
+            "origin": [
+              0.585854664,
+              100,
+              23.5
+            ]
+          }
+        ]
+      },
+      "solids": 2,
+      "faces": 162,
+      "volume": 86511.87884120335,
+      "sheetArea": 0
+    },
+    {
+      "label": "Midsurface of faces 129 and 130",
+      "operation": {
+        "faces": [
+          129,
+          130
+        ],
+        "kind": "surface",
+        "label": "Midsurface of faces 129 and 130",
+        "place": "mid"
+      },
+      "solids": 2,
+      "faces": 163,
+      "volume": 86511.87884120335,
+      "sheetArea": 2196.4570503324785
+    },
+    {
+      "label": "Extended 1 sheet edge to face 42",
+      "operation": {
+        "edges": [
+          476
+        ],
+        "kind": "extend",
+        "label": "Extended 1 sheet edge to face 42",
+        "target": 42
+      },
+      "solids": 2,
+      "faces": 163,
+      "volume": 86511.87884120335,
+      "sheetArea": 3010.5965381446676
+    }
+  ],
+  "browserChecks": [
+    "Original UI selected only faces 92 and 94 and reported no solid change.",
+    "Fixed UI selected faces 92, 93, 94, 95; preview and Apply succeeded.",
+    "Split at Y=100; midsurfaced faces 129/130; hid solid 2.",
+    "Extended sheet edge 476 to face 42 with solid 2 hidden.",
+    "Undo and Redo kept solid 2 hidden.",
+    "Saved and reopened the project: solid 2 remains hidden; four CAD undo steps retained."
+  ]
+}
