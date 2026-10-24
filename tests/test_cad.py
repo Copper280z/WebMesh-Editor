@@ -75,6 +75,24 @@ class CadAcceptanceTests(unittest.TestCase):
         self.assertEqual(set(cad["preview"]["triangleFaceIds"]), {face["id"] for face in cad["topology"]["faces"]})
         self.assertGreater(len(cad["preview"]["edges"]), 0)
 
+    def test_portable_history_restores_real_brep_and_can_continue_preparing(self):
+        cad=self.import_file(ROOT / "examples/block.step")
+        bounds=cad["topology"]["bounds"]
+        operation={"kind":"slice","planes":[{"origin":[(bounds[0]+bounds[3])/2,0,0],"normal":[1,0,0]}]}
+        split=self.sessions.prepare(self.request(cad,operation=operation))
+        self.assertEqual(len(split["topology"]["volumes"]),2)
+        undone=self.sessions.undo(self.request(split))
+        checkpoint=self.sessions.export(self.request(undone,checkpoint=True))["checkpoint"]
+        fresh=CadSessions(server.run_cad_worker);self.addCleanup(fresh.temporary.cleanup)
+        request={"client":"new-browser","transaction":"new-transaction","scope":"block-part","checkpoint":checkpoint}
+        restored=fresh.restore(request);fresh.restore_finish({**request,"commit":True})
+        self.assertEqual(restored["topology"],undone["topology"])
+        self.assertEqual(restored["preview"],undone["preview"])
+        redone=fresh.redo(self.request(restored));self.assertEqual(redone["topology"],split["topology"])
+        another=fresh.prepare(self.request(redone,operation={"kind":"slice","planes":[{"origin":[0,(bounds[1]+bounds[4])/2,0],"normal":[0,1,0]}]}))
+        self.assertEqual(len(another["topology"]["volumes"]),4)
+        self.assertEqual(fresh.undo(self.request(another))["topology"],split["topology"])
+
     def test_iges_and_brep_files_import_like_the_step_they_came_from(self):
         reference = self.import_file(ROOT / "examples/plate-hole.step")["topology"]
         geom = cad_kernel.geometry_module()

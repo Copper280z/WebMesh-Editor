@@ -44,8 +44,9 @@
     function changed(){epoch++;active=null;manual=false;hooks.engine().clearResults();hooks.changed?.();}
     async function restoreSnapshot(id){const run=find(id),kept=runs;await hooks.engine().loadProjectModel(run.snapshot,run.name);runs=kept;active=null;epoch++;hooks.restored?.();return show(id);}
     async function validate(items){if(items!=null&&!Array.isArray(items))throw Error('Invalid saved run list.');const ids=new Set();for(const r of items||[]){await R.validate(r);if(ids.has(r.id))throw Error('Duplicate run identity.');ids.add(r.id);}}
+    function checkpoint(){const before={runs,active,manual,epoch};return ()=>{({runs,active,manual,epoch}=before);};}
     async function restore(items){await validate(items);runs=copy(items||[]);active=null;manual=false;epoch++;hooks.changed?.();}
-    return{capture,launch,poll,show,restoreSnapshot,restore,validate,changed,current,summaries:()=>runs.map(r=>({id:r.id,name:r.name,status:r.status,solver:r.profile.solver,revision:r.revision})),list:()=>copy(runs),get:id=>copy(find(id)),active:()=>active,manual:()=>manual,unbound:()=>{active=null;manual=true;hooks.changed?.();},clear:()=>{runs=[];changed();},cancel:id=>hooks.request('/api/solve/cancel',{id:find(id).job})};
+    return{capture,launch,poll,show,restoreSnapshot,restore,validate,checkpoint,changed,current,summaries:()=>runs.map(r=>({id:r.id,name:r.name,status:r.status,solver:r.profile.solver,revision:r.revision})),list:()=>copy(runs),get:id=>copy(find(id)),active:()=>active,manual:()=>manual,unbound:()=>{active=null;manual=true;hooks.changed?.();},clear:()=>{runs=[];changed();},cancel:id=>hooks.request('/api/solve/cancel',{id:find(id).job})};
   }
   return Object.freeze({create});
 }));

@@ -224,7 +224,7 @@ def plugin_feature(endpoint, data):
         return "Gmsh meshing"
     if endpoint == "/api/cad/shell" and data.get("element") == "tri":
         return "Triangle shell meshing"
-    if endpoint == "/api/cad/import" and str(data.get("format", "")).lower() == "stl":
+    if endpoint in ("/api/cad/import", "/api/cad/restore") and str(data.get("format", "")).lower() == "stl":
         return "STL import"
     return None
 
@@ -652,8 +652,8 @@ class WebMeshHandler(SimpleHTTPRequestHandler):
         endpoint = urlsplit(self.path).path
         # Session bookkeeping is small and quick: it runs beside meshing, without a slot.
         solver = endpoint in {"/api/solve", "/api/solve/status", "/api/solve/cancel", "/api/solve/result"}
-        light = endpoint in {"/api/cad/sessions", "/api/cad/resume", "/api/cad/close", "/api/solve/status", "/api/solve/cancel", "/api/solve/result"}
-        if not light and not solver and endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
+        light = endpoint in {"/api/cad/sessions", "/api/cad/resume", "/api/cad/close", "/api/cad/restore_finish", "/api/solve/status", "/api/solve/cancel", "/api/solve/result"}
+        if not light and not solver and endpoint not in {"/api/mesh", "/api/cad/import", "/api/cad/restore", "/api/cad/prepare", "/api/cad/preview", "/api/cad/undo", "/api/cad/redo", "/api/cad/revert", "/api/cad/export", "/api/cad/mesh", "/api/cad/shell"}:
             self.json_response(404, {"error": "Unknown API endpoint."})
             return
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":

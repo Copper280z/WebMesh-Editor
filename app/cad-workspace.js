@@ -55,6 +55,35 @@
     const engine = hooks.engine;
     const viewport = () => engine()?.getCadViewport?.() || null;
     let source = null, session = null, active = false;
+    // Keep a tab identity across reloads without letting a duplicated tab inherit
+    // the same mutable sessions (browsers copy sessionStorage when duplicating).
+    const restoreClientReady=new Promise(resolve=>{
+      const fresh=()=>crypto.randomUUID();
+      if(typeof navigator==='undefined'||!navigator?.locks){resolve(fresh());return;}
+      let saved;try{saved=sessionStorage.getItem('webmesh.cad.client');}catch{}
+      const claim=id=>navigator.locks.request('webmesh.cad.client:'+id,{ifAvailable:true},lock=>{
+        if(!lock){claim(fresh());return;}
+        try{sessionStorage.setItem('webmesh.cad.client',id);}catch{}
+        resolve(id);
+        return new Promise(release=>window.addEventListener('pagehide',release,{once:true}));
+      }).catch(()=>resolve(fresh()));
+      claim(saved||fresh());
+    });
+    const beginRestore=async()=>({client:await restoreClientReady,transaction:crypto.randomUUID()});
+    async function finishRestore(transaction,commit){if(!transaction)return;return api('restore_finish',{...transaction,commit});}
+    async function abortRestore(transaction){
+      if(!transaction)return;
+      try { await finishRestore(transaction,false); }
+      catch(error) { if(error.unsupportedRestore)return;try { await finishRestore(transaction,false); }catch{hooks.message('Restore cancelled. The service could not confirm cleanup; unadopted candidates expire after 15 minutes. Existing drafts are retained.',true);} }
+    }
+    function validateRestore(data){
+      if(!data)return;
+      if(typeof data.filename!=='string'||typeof data.content!=='string')throw Error('Invalid CAD source in the project.');
+      fromBase64(data.content);
+      const edges=data.settings?.sizing?.edges;
+      if(Array.isArray(edges)&&edges.length>MAX_CONTROLS)throw Error(`Saved sizing exceeds ${MAX_CONTROLS} edge controls. Reduce the saved control list before restoring this project.`);
+    }
+
     let analysis = null, recognized = null, geometry = null, intervals = null;
     let step = 'prepare', pick = 'face', selection = { kind: null, ids: [] }, tool = null;
     let pending = null, previewState = { key: null, status: 'idle', data: null, error: null, analysis: null }, previewTimer = null, previewPromise = null;
@@ -111,7 +140,8 @@
         if (!response.ok || data.error) {
           // Full storage is resolved by closing sessions: show them.
           if (/under Sessions/.test(data.error || '') && path !== 'sessions') { sessionsOpen = true; refreshSessions().then(() => hooks.render()); }
-          throw Error(data.error || 'CAD operation failed.');
+          const unsupportedRestore=['restore','restore_finish'].includes(path)&&data.error==='Unknown API endpoint.';
+          const error=Error(unsupportedRestore?'This server predates reliable project restore. Start the updated server on another port; keep this server running to preserve its CAD undo history.':data.error || 'CAD operation failed.');error.status=response.status;error.unsupportedRestore=unsupportedRestore;throw error;
         }
         return data;
       } catch (error) {
@@ -380,7 +410,7 @@
       const data = await api('resume', { cadId });
       const original = data.original; delete data.original;
       const file = new File([fromBase64(original.content)], original.filename);
-      if(hooks.addSessionPart)return hooks.addSessionPart({file,imported:data,data:{filename:file.name,content:original.content}});
+      if(hooks.addSessionPart){const retained=data.draft||{filename:file.name,content:original.content};const prepared=await api('export',{cadId:data.cadId,revision:data.revision,checkpoint:true});return hooks.addSessionPart(await thisWorkspace.stageRestore({...retained,editingOwner:null,meshes:[],prepared:{...prepared,history:retained.prepared?.history||[]}}));}
       if (session) meshesBySession.set(session.cadId, meshes);
       editingOwner = null; regionName = ''; source = file; meshes = meshesBySession.get(cadId) || []; auditHistory = []; step = 'prepare'; tool = null; session = null; sizing.size = null; legacy.size = null;
       display.hiddenSheets = new Set();
@@ -401,13 +431,13 @@
       const ago = time => { const s = Math.max(0, Date.now() / 1000 - time); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
       const rows = info.sessions.map(s => {
         const here = session?.cadId === s.cadId, confirm = closing === s.cadId;
-        return `<div class="cad-session${here ? ' here' : ''}"><div class="cad-session-name"><strong title="${esc(s.filename)}">${esc(s.filename)}</strong><small title="${esc(s.label)}">${s.steps} step${s.steps === 1 ? '' : 's'}${s.steps ? ` · ${esc(s.label)}` : ''} · ${mib(s.bytes)} MiB · ${ago(s.lastUsed)}</small></div>
+        return `<div class="cad-session${here ? ' here' : ''}"><div class="cad-session-name"><strong title="${esc(s.filename)}">${esc(s.filename)}</strong><small title="${esc(s.label)}">${s.provisional?'Restoring · ':''}${s.steps} step${s.steps === 1 ? '' : 's'}${s.kept>s.steps+1?' · '+(s.kept-s.steps-1)+' redo':''}${s.hasDraft?' · draft retained':''}${s.steps ? ` · ${esc(s.label)}` : ''} · ${mib(s.bytes)} MiB · ${ago(s.lastUsed)}</small></div>
           ${here ? chip('Open here', 'ok') : btn('session-resume', 'Resume', { cls: 'ghost mini', data: { value: s.cadId }, title: 'Work in this session from its last step' })}${btn('session-close', confirm ? 'Confirm close' : 'Close', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: s.cadId }, title: 'Delete this session and its undo steps from the server' })}</div>`;
       }).join('');
       const share = info.bytes / info.budget;
-      return `<div class="cad-card"><div class="cad-card-title">Sessions on this server <small>${mib(info.bytes)} of ${mib(info.budget)} MiB</small></div>
+      return `<div class="cad-card"><div class="cad-card-title">Sessions on this server <small>${info.sessions.length}/${info.capacity||24} · ${mib(info.bytes)} of ${mib(info.budget)} MiB</small></div>
         <div class="cad-meter${share > 0.9 ? ' bad' : share > 0.7 ? ' warn' : ''}"><i style="width:${Math.min(100, Math.round(100 * share))}%"></i></div>${rows}
-        <p class="cad-note">Resume picks a session up at its last step with its undo history; sizes and mesh settings start fresh. Close deletes it from the server.</p></div>`;
+        <p class="cad-note">Resume preserves retained draft settings and undo/redo. Unadopted restore candidates expire automatically; other sessions stay until you close them. Save a project before closing a retained session.</p></div>`;
     }
     async function importFile(file) {
       if(hooks.addPart)return hooks.addPart(file);
@@ -2048,7 +2078,8 @@
     });
 
     /* ------------------------------------------------------- persistence -- */
-    return {
+    const thisWorkspace = {
+      beginRestore,finishRestore,abortRestore,validateRestore,
       render, bind, importFile, updateAvailability, hasGeometry: () => !!session, getFile: () => source,
       activate(value) {
         active = value;
@@ -2072,10 +2103,11 @@
         return {runtime:true,file:source,imported:session,data:{filename:source.name,settings:savedSettings(),report,editingOwner,regionName,meshes:meshes.map(m=>({...m})),prepared:{history:auditHistory}},partId,selection:structuredClone(selection),pick,display:{...display,hidden:new Set(display.hidden),hiddenSheets:new Set(display.hiddenSheets)},expanded:{...expanded}};
       },
       restoreDraft(draft) { this.commitRestore(draft);if(!draft)return;partId=draft.partId||null;if(draft.runtime)auditHistory=structuredClone(draft.data.prepared?.history||[]);if(draft.selection){selection=structuredClone(draft.selection);pick=draft.pick||pick;display=draft.display||display;expanded=draft.expanded||expanded;engine().selectCad({faces:selection.kind==='face'?selection.ids:[],edges:selection.kind==='edge'?selection.ids:[],vertices:selection.kind==='vertex'?selection.ids:[],volumes:selection.kind==='solid'?selection.ids:[]});updateDisplay();} },
-      async serializeDraft(draft) {
+      async serializeDraft(draft,{checkpoint=true}={}) {
         if(!draft)return null;
         const data={...structuredClone(draft.data),filename:draft.file.name,content:base64(await draft.file.arrayBuffer())};
-        data.prepared=await api('export',{cadId:draft.imported.cadId,revision:draft.imported.revision});data.prepared.history=[...(draft.data.prepared?.history||[]),...(data.prepared.history||[])];return data;
+        const retained={...data,prepared:{history:data.prepared?.history||[]}};
+        data.prepared=await api('export',{cadId:draft.imported.cadId,revision:draft.imported.revision,checkpoint,draft:retained});data.prepared.history=[...(draft.data.prepared?.history||[]),...(data.prepared.checkpoint?[]:data.prepared.history||[])];return data;
       },
       /** [owner tag, element IDs] of each mesh a project saved, for the restored CAD session. */
       savedOwners(staged) { return staged ? savedMeshes(staged.data).filter(m => !m.projectOwner).map(m => [`${staged.imported.cadId}#${m.id}`, m.elements]) : []; },
@@ -2084,21 +2116,24 @@
         for (const m of meshes) if (!ownedMatches(m) && !m.stale) { m.stale = true; report = null; }
         const settings = savedSettings();
         const original = { filename: source.name, content: base64(await source.arrayBuffer()), settings, report, editingOwner, regionName };
-        if (session) { original.prepared = await api('export', token()); original.prepared.history = [...auditHistory, ...(original.prepared.history || [])]; }
+        if (session) { original.prepared = await api('export', {...token(),checkpoint:true,draft:{...original,prepared:{history:auditHistory},meshes}}); original.prepared.history = [...auditHistory, ...(original.prepared.checkpoint?[]:original.prepared.history || [])]; }
         const saved = meshes.filter(m => m.inModel !== false).map(m => { const owned = meshOwnership(m); return { ...m, elements: owned.elements, properties: owned.properties }; });
         if (saved.length) original.meshes = saved;
         return original;
       },
-      async stageRestore(data) {
-        if (!data) return null;
-        if (typeof data.filename !== 'string' || typeof data.content !== 'string') throw Error('Invalid CAD source in the project.');
-        const edges = data.settings?.sizing?.edges;
-        if (Array.isArray(edges) && edges.length > MAX_CONTROLS) throw Error(`Saved sizing exceeds ${MAX_CONTROLS} edge controls. Reduce the saved control list before restoring this project.`);
-        const file = new File([fromBase64(data.content)], data.filename), prepared = data.prepared?.content ? data.prepared : null;
-        const format = prepared?.format || ({ stp: 'step', igs: 'iges' }[file.name.split('.').pop().toLowerCase()] || file.name.split('.').pop().toLowerCase());
-        const imported = await api('import', { filename: prepared?.filename || file.name, format, content: prepared?.content || data.content, ...(Array.isArray(prepared?.sheets) ? { sheets: prepared.sheets } : {}) });
-        return { data, file, imported };
+      async stageRestore(data,transaction=null,scope=null) {
+        if(!data)return null;
+        validateRestore(data);
+        const own=!transaction,tx=transaction||await beginRestore();scope=scope||'part-'+crypto.randomUUID();
+        const file=new File([fromBase64(data.content)],data.filename),prepared=data.prepared?.content?data.prepared:null;
+        const format=prepared?.format||({stp:'step',igs:'iges'}[file.name.split('.').pop().toLowerCase()]||file.name.split('.').pop().toLowerCase());
+        try {
+          const imported=await api('restore',{...tx,scope,filename:file.name,format,...(prepared?.checkpoint?{checkpoint:prepared.checkpoint}:{content:prepared?.content||data.content,...(Array.isArray(prepared?.sheets)?{sheets:prepared.sheets}:{})})});
+          return {data,file,imported,transaction:tx,scope};
+        } catch(error){if(own&&!error.unsupportedRestore)await abortRestore(tx);throw error;}
       },
+      async adoptRestore(staged){if(staged?.transaction)await finishRestore(staged.transaction,true);},
+      async discardRestore(staged){if(staged?.transaction)await abortRestore(staged.transaction);},
       commitRestore(staged) {
         this.clear(); if (!staged) return;
         const { data, file, imported } = staged; source = file;partId=staged.partId||null;
@@ -2175,5 +2210,6 @@
         setCount: (edges, count) => setEdgeCount(edges, () => count), preview: buildMeshPreview, addMesh, waitForPreview: async () => { clearTimeout(previewTimer); await runPreview(); }
       }
     };
+    return thisWorkspace;
   } };
 })();

@@ -48,7 +48,7 @@
   const tool = (key,title,subtitle,name) => `<button class="wb-tool-card" data-tool="${key}">${icon(name)}<span><strong>${title}</strong><small>${subtitle}</small></span></button>`;
   let activeTab = 'parts', primitive = 'block', patternKind = 'linear', preview = null, busy = false;
   let projectName = 'Untitled model', historyItems = [], moved = [], lastState = '', operationRevision = 0;
-  let editingPlate = null, pendingProject = null;
+  let editingPlate = null, pendingProject = null, pendingDiscard = null;
   let workspaceShell = null;
   const savedForms = new Map();
   const formKey = () => activeTab+':'+(activeTab==='build'?primitive:activeTab==='pattern'?patternKind:'');
@@ -310,10 +310,10 @@
   async function restoreCadOwner(id){
     const root=window.WebMeshCadProject.rootFor(engine().getProjectOwnership(),id);
     if(root?.definition.part)return partWorkspace.edit(root.definition.part,window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id));
-    const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id));cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed mesh region reopened. Other regions stay in the model.');
+    const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id),null,id);await cadWorkspace.adoptRestore(staged);cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed mesh region reopened. Other regions stay in the model.');
   }
-  async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,note}={}){
-    const state=engine().getProjectOwnership(),options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,note};
+  async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,onDiscard,note}={}){
+    const state=engine().getProjectOwnership(),options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,onDiscard,note};
     const semantic=await engine().getAuthoringModel();
     try {
     request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
@@ -361,12 +361,12 @@
     const actions=(request.objects||[]).flatMap(o=>o.definition.actions||[]);
     if(actions.length){const details=document.createElement('details');details.innerHTML='<summary>Composed actions ('+actions.length+')</summary><pre>'+esc(JSON.stringify(actions,null,2))+'</pre>';$('wb-dialog-body').prepend(details);}
     if(note){const p=document.createElement('p');p.textContent=note;$('wb-dialog-body').prepend(p);}
-    pendingProject=candidate;bindOwnerButtons($('wb-dialog-body'));if(mesh)try{previewInfo(mesh,true);}catch(error){closeDialog();throw error;}
+    pendingProject=candidate;pendingDiscard=onDiscard||null;bindOwnerButtons($('wb-dialog-body'));if(mesh)try{previewInfo(mesh,true);}catch(error){closeDialog();throw error;}
     $('wb-apply-project').disabled=blocked;
     $('wb-discard-project').onclick=()=>{closeDialog();message('Changes discarded. The model is unchanged.');};
     // The docked review keeps errors visible; commit rejects stale candidates,
     // including a stale candidate after an intervening model operation.
-    $('wb-apply-project').onclick=()=>{if(busy||blocked)return;try{beforeCommit?.();candidate.commit();pendingProject=null;closeDialog();invalidatePreview();onApplied?.();engine().fitView?.();logOperation(request.label);message(report.changes.length||report.ownershipChanges.length||report.project.changes.length?request.label+' applied.':'Already up to date.');if(owner)openProjectOwner(owner);else{editingPlate=null;savedForms.delete('build:plate');renderPanel();}refresh(true);}catch(error){$('wb-project-error').textContent=error.message;}};
+    $('wb-apply-project').onclick=async()=>{if(busy||blocked)return;let applied=false;await run(async()=>{try{candidate.assertCurrent?.();await beforeCommit?.();candidate.commit();pendingProject=null;pendingDiscard=null;closeDialog();invalidatePreview();onApplied?.();engine().fitView?.();logOperation(request.label);message(report.changes.length||report.ownershipChanges.length||report.project.changes.length?request.label+' applied.':'Already up to date.');applied=true;}catch(error){const target=$('wb-project-error');if(target)target.textContent=error.message;else throw error;}});if(applied){if(owner)openProjectOwner(owner);else{editingPlate=null;savedForms.delete('build:plate');renderPanel();}refresh(true);}};
   }
   function patternMesh() {
     const source=engine().getMesh({selectedOnly:get('scope')==='selected'});
@@ -436,7 +436,7 @@
   function closeDialog() {
     document.querySelector('.wb-panel').inert=false;
     engine()?.endMeshSelection?.();
-    if(pendingProject){pendingProject.discard();pendingProject=null;invalidatePreview();}
+    if(pendingProject){pendingProject.discard();pendingProject=null;const discard=pendingDiscard;pendingDiscard=null;Promise.resolve(discard?.()).catch(error=>message(error.message,true));invalidatePreview();}
     engine()?.closeTool?.();
     for(const {node,marker,classes} of moved){marker.replaceWith(node);node.className=classes;}moved=[];
     $('wb-dialog').close();if(activeTab==='mesh')cadWorkspace.activate(true);
@@ -530,16 +530,40 @@
   });
   $('wb-export').onclick=()=>run(async()=>{const checks=engine().getProjectSummary().checks.filter(c=>c.status==='invalid');if(checks.length){dialog('Resolve project checks before export',checksHtml(checks)+'<p>You can still save the editable project.</p>');bindOwnerButtons($('wb-dialog-body'));return;}download(await engine().exportDeck(),projectName.replace(/[^\w.-]+/g,'_')+'.bdf');message('Nastran deck exported.');});
   $('wb-save').onclick=()=>run(saveProject);
+  async function restoreProject(data,fileName){
+    await analysisSession.validate(data.analysisRuns);
+    // Retain outgoing CAD drafts on the server before replacing the workspace.
+    // A failed restore never changes these drafts or the editable model/history.
+    await partWorkspace.retain();if(!partWorkspace.active()&&cadWorkspace.hasGeometry())await cadWorkspace.serialize();
+    const previousParts=partWorkspace.captureState(),restoreRuns=analysisSession.checkpoint();let partRestore=null,cadRestore=null,guard=null;
+    restoringAnalysisProject=true;
+    try{
+      partRestore=await partWorkspace.stageRestore(data.cadParts,data.ownership);
+      cadRestore=partRestore?null:await cadWorkspace.stageRestore(data.cad,null,'legacy-project');
+      guard=await engine().beginProjectRestore();
+      await engine().loadProjectModel(data.version===2?data:{deck:data.deck},data.name||fileName);
+      for(const [tag,elements]of cadWorkspace.savedOwners(cadRestore))await engine().bindMeshOwner(tag,elements);
+      partWorkspace.commitRestore(partRestore);if(!partRestore)cadWorkspace.commitRestore(cadRestore);
+      await analysisSession.restore(data.analysisRuns);
+      if(partRestore)await partWorkspace.finishRestore(partRestore,true);else await cadWorkspace.adoptRestore(cadRestore);
+      guard.commit();
+    }catch(error){
+      // Cleanup must run even if a renderer/UI rollback also reports an error.
+      const failures=[];
+      for(const undo of [()=>guard?.rollback(),()=>partWorkspace.restoreState(previousParts),restoreRuns,
+        ()=>partRestore?partWorkspace.finishRestore(partRestore,false):cadWorkspace.discardRestore(cadRestore)]){
+        try{await undo();}catch(rollbackError){failures.push(rollbackError.message);}
+      }
+      if(failures.length)error.message+=' Recovery: '+failures.join('; ');
+      throw error;
+    }finally{restoringAnalysisProject=false;}
+  }
   $('wb-project-file').onchange=event=>run(async()=>{
     const file=event.target.files[0];event.target.value='';if(!file)return;
     const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||![1,2].includes(data.version)||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
     if(data.version===2&&!data.ownership)throw Error('Version 2 projects require ownership metadata.');
-    await analysisSession.validate(data.analysisRuns);
-    const partRestore=await partWorkspace.stageRestore(data.cadParts,data.ownership);
-    const cadRestore=partRestore?null:await cadWorkspace.stageRestore(data.cad);
-    restoringAnalysisProject=true;try{await engine().loadProjectModel(data.version===2?data:{deck:data.deck},data.name||file.name);await analysisSession.restore(data.analysisRuns);}finally{restoringAnalysisProject=false;}nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
-    for(const [tag,elements] of cadWorkspace.savedOwners(cadRestore))await engine().bindMeshOwner(tag,elements);
-    partWorkspace.commitRestore(partRestore);if(!partRestore)cadWorkspace.commitRestore(cadRestore);nameProject(data.name||file.name);
+    await restoreProject(data,file.name);
+    nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
     workspaceShell?.restore(data.workspace);workspaceShell?.units(data.ownership?.project.units||{length:'mm',force:'N',mass:'t',time:'s'});
     activeTab='parts';$('wb-view-type').textContent='Assembly';operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';
   });
@@ -564,7 +588,7 @@
     if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName))return;
     if(event.key.toLowerCase()==='f'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();$('btnReset').click();}
   });
-  window.addEventListener('webmesh:change',event=>{operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){partWorkspace.synchronize();if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
+  window.addEventListener('webmesh:change',event=>{if(restoringAnalysisProject)return;operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){partWorkspace.synchronize();if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
   function filterTree(){const term=$('wb-tree-filter').value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));}
   $('wb-tree-filter').addEventListener('input',filterTree);
   workspaceShell=window.WebMeshWorkspaceShell?.create({engine,owner:openProjectOwner,message,runs:()=>analysisSession.summaries(),openRun:id=>run(()=>analysisWorkspace.runView(id)),

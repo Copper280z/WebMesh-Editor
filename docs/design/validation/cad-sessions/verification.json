@@ -1,0 +1,20 @@
+{
+  "modelDigest": "420c05a9c6f9c9b9ca137da1a71bd55a03bf3e279ba018c9e84ca955ab539b3f",
+  "savedRuns": 2,
+  "histories": [
+    {
+      "file": "wheel.step",
+      "states": 2,
+      "cursor": 0,
+      "revision": 2,
+      "sha256": "dd133ad8519200a8bb0bf3cab06fc1c12614a99c24b74b027079d602de1c4a2d"
+    },
+    {
+      "file": "rover_chassis.step",
+      "states": 1,
+      "cursor": 0,
+      "revision": 0,
+      "sha256": "0ba9b2cd8712c3f04f98b9af461b047a0ae4630efa27d76cd887f4054149a6de"
+    }
+  ]
+}

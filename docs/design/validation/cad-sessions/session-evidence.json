@@ -1,0 +1,59 @@
+{
+  "8797": {
+    "capacity": 24,
+    "bytes": 4079042,
+    "sessions": [
+      {
+        "cadId": "59d0e419daf94452acf6317cf9e789e4",
+        "filename": "rover_chassis.step",
+        "revision": 0,
+        "steps": 0,
+        "kept": 1,
+        "provisional": false,
+        "hasDraft": true
+      },
+      {
+        "cadId": "c81a18ccc9724b4f8b21d52b56aa929f",
+        "filename": "wheel.step",
+        "revision": 2,
+        "steps": 0,
+        "kept": 2,
+        "provisional": false,
+        "hasDraft": true
+      }
+    ]
+  },
+  "8798": {
+    "capacity": 24,
+    "bytes": 3240706,
+    "sessions": [
+      {
+        "cadId": "d2c319cd77354ea19752af2b170e3613",
+        "filename": "rover_chassis.step",
+        "revision": 0,
+        "steps": 0,
+        "kept": 1,
+        "provisional": false,
+        "hasDraft": false
+      },
+      {
+        "cadId": "e385ba14d4c64d8d9e813999fce50bec",
+        "filename": "wheel.step",
+        "revision": 2,
+        "steps": 0,
+        "kept": 2,
+        "provisional": false,
+        "hasDraft": false
+      },
+      {
+        "cadId": "9d6eaf8d08a04b32a019feb01efedc92",
+        "filename": "wheel.step",
+        "revision": 4,
+        "steps": 0,
+        "kept": 2,
+        "provisional": false,
+        "hasDraft": false
+      }
+    ]
+  }
+}

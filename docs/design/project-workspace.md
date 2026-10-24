@@ -358,9 +358,9 @@ The file stays JSON. A sketch:
   - Overrides are saved on their objects, never on card IDs (R9).
   - A card nobody owns is still saved, and stays editable as a card.
 - **Runs** keep the exact deck they solved, compressed, along with units at launch, the solver version and export profile (R27).
-- **CAD:** a part's geometry is saved as its current revision (BREP) with its sheets. Reopening imports that BREP into a fresh session.
-  - Preparation history before that point comes back as text only. The UI says so instead of offering an undo it can't keep.
-  - This matches what is saved today, but makes it explicit.
+- **CAD:** new saves retain a portable checkpoint of every retained preparation state, the undo cursor and redo branch, sheets and topology/display metadata. Reopening reuses an exact unchanged session for that workspace/part, or stages a separate session. Failed restores remove only their unadopted candidates and preserve the current draft and histories.
+  - Older projects retain their current prepared BREP and audit labels. Missing historical geometry cannot be reconstructed from text.
+  - Committed server sessions are never silently expired; save the project before stopping its server. Portable history limits fail explicitly without truncating the live history (milestone 15).
 - **References to geometry** use scoped anchors, context and rule-preserving lineage (R21–R22), never entity numbers alone. Signatures are matching evidence, not unique identities. Splits, merges and duplicate signatures have explicit outcomes.
 - **Result files** are referenced by name, size and hash, and re-attached on open. *Include result files* embeds them; they can be large (17 MB for the rover).
 - **Version 1 projects** still open. Their deck becomes one "imported" part, and their CAD becomes that part's source.
@@ -466,4 +466,6 @@ The [payload/mass milestone](implementation-08-payload-masses.md) adds editable 
 
 [Project tree, visibility and docked editing](implementation-14-project-workspace.md) now delivers a searchable hierarchy, per-object display controls, reversible isolation, compact stage palettes, resizable inspectors and linked checks. Visibility preferences survive remeshing and project reopen without changing solver participation or run identity. The full rover wheel-remesh/graphical-contact-repair workflow passes two MYSTRAN cases and reopened postprocessing. The [acceptance evidence](validation/project-workspace/README.md) includes the runnable project, exact deck, results, screenshots and an independent verifier.
 
-The next usability follow-up is CAD session lifecycle: repeated project opens/imports retain server sessions, and a full 24-session server blocks restoration. Avoid partial-import leaks, make staged restores atomic, and offer explicit reuse/cleanup with clear recoverable state. Do not silently discard CAD sessions or their undo history. Wider original-plan gaps remain: CAD topology replacement, a unified CAD/FE history, read-only old-run viewing, field-granular recipe inheritance, owned load combinations, broader result fields/probes and a consistent units/material editing workflow.
+[CAD session reuse and transactional restoration](implementation-15-cad-sessions.md) now provides exact per-workspace/part reuse, cleanup after failed or abandoned restores, rollback of the current model/drafts/histories, and portable executable CAD undo/redo. Browser rover reopening and failures, fresh-server redo/undo and continued real-kernel preparation are validated. Committed sessions are retained until explicitly closed; duplicate browser tabs receive independent session ownership. See [acceptance evidence](validation/cad-sessions/README.md).
+
+The next substantial redesign milestone remains CAD source replacement and explicit topology matching/repair. Other original-plan gaps remain: CAD topology replacement, a unified CAD/FE history, read-only old-run viewing, field-granular recipe inheritance, owned load combinations, broader result fields/probes and a consistent units/material editing workflow.

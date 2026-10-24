@@ -31,17 +31,18 @@
       return addImported(await cad().stageRestore({filename:file.name,content}));
     }
     async function addImported(staged){
-      stash();const before=JSON.stringify(state()),legacy=await legacyDraft(),file=staged.file;
-      const id='part-'+crypto.randomUUID(),source=id+'/source',snapshot=await cad().serializeDraft(staged),geometryKey=await C.geometryFingerprint(staged.imported.topology);
+      stash();try{const before=JSON.stringify(state()),legacy=await legacyDraft(),file=staged.file;
+      const id=staged.scope||'part-'+crypto.randomUUID(),source=id+'/source',snapshot=await cad().serializeDraft(staged),geometryKey=await C.geometryFingerprint(staged.imported.topology);
       const src={id:source,name:file.name+' · CAD source',kind:'source',definition:{generator:'cad-source-v1',geometryKey,snapshot,cards:[]}};
       const p=P.part({id,name:file.name.replace(/\.[^.]+$/,''),source},{project:{objects:[...objects(),src]}}).objects[0];
-      await h.review({label:'Add part '+p.name,objects:[...(legacy?.objects||[]),src,p]},{owner:id,beforeCommit(){if(JSON.stringify(state())!==before)throw Error('The project changed while importing. Add this part again.');},onApplied(){if(legacy)drafts.set(legacy.id,legacy.draft);staged.partId=id;drafts.set(id,staged);active=id;h.engine().setActiveCadSource?.(source);cad().restoreDraft(staged);refreshVisibility();h.parts();}});
+      await h.review({label:'Add part '+p.name,objects:[...(legacy?.objects||[]),src,p]},{owner:id,onDiscard:()=>cad().discardRestore?.(staged),async beforeCommit(){if(JSON.stringify(state())!==before)throw Error('The project changed while importing. Add this part again.');await cad().adoptRestore?.(staged);},onApplied(){if(legacy)drafts.set(legacy.id,legacy.draft);staged.partId=id;drafts.set(id,staged);active=id;h.engine().setActiveCadSource?.(source);cad().restoreDraft(staged);refreshVisibility();h.parts();}});
+      }catch(error){await cad().discardRestore?.(staged);throw error;}
     }
     async function edit(id,restore=null){
       stash();const p=part(id);if(!P.isPart(p))throw Error('This part is no longer in the project.');
-      let d=restore?await cad().stageRestore(restore):drafts.get(id);
-      if(!d){const src=part(p.definition.source);if(!src)throw Error('This independent mesh has no CAD draft.');d=await cad().stageRestore(src.definition.snapshot);}
-      d.partId=id;drafts.set(id,d);active=id;h.engine().setActiveCadSource?.(p.definition.source);cad().restoreDraft(d);h.mesh();refreshVisibility();
+      let d=restore?await cad().stageRestore(restore,null,id):drafts.get(id);
+      if(!d){const src=part(p.definition.source);if(!src)throw Error('This independent mesh has no CAD draft.');d=await cad().stageRestore(src.definition.snapshot,null,id);}
+      await cad().adoptRestore?.(d);d.partId=id;drafts.set(id,d);active=id;h.engine().setActiveCadSource?.(p.definition.source);cad().restoreDraft(d);h.mesh();refreshVisibility();
     }
     function refreshVisibility(){
       stash();const entries=live().filter(p=>p.definition.source).map(p=>({id:p.definition.source,preview:drafts.get(p.id)?.imported.preview})).filter(e=>e.preview);
@@ -57,13 +58,29 @@
     function bind(){document.querySelectorAll('#wb-panel-body [data-part-action]').forEach(b=>b.onclick=()=>h.run(async()=>{const id=b.dataset.partId;switch(b.dataset.partAction){case'add':document.getElementById('wb-part-file').click();break;case'show':show();break;case'edit':await edit(id);break;case'instance':editor(null,id);break;case'editInstance':editor(id);break;case'owner':h.owner(id);break;case'participation':await h.review(P.sourceReference(state(),id,!part(id+'/source-participation')));break;case'remove':await h.review(P.remove(state(),id));break;case'rename':{const p=part(id);h.dialog('Rename '+p.name,field('name','Part name',p.name)+btn('renamePart','Review name'));action('renamePart',()=>h.review(P.part({id,name:get('name'),source:p.definition.source},state()),{owner:id}));break;}}}));}
     async function serialize(){stash();const entries=[];for(const p of live()){const draft=drafts.get(p.id);if(draft)entries.push({part:p.id,data:await cad().serializeDraft(draft)});}return{version:1,active,entries};}
     async function stageRestore(data,ownership){
-      if(!data)return null;if(data.version!==1||!Array.isArray(data.entries))throw Error('Invalid saved part drafts.');const ids=new Set(),map=new Map((ownership?.project.objects||[]).map(o=>[o.id,o])),entries=[];
-      for(const item of data.entries){if((item.data.meshes||[]).some(m=>m.projectOwner&&map.get(m.projectOwner)?.definition.part!==item.part)||item.data.editingOwner&&map.get(item.data.editingOwner)?.definition.part!==item.part)throw Error('Saved mesh draft belongs to a different part.');if(ids.has(item.part)||!P.isPart(map.get(item.part))||!map.get(item.part).definition.source)throw Error('Saved CAD draft has no unique part.');ids.add(item.part);const d=await cad().stageRestore(item.data);d.partId=item.part;entries.push([item.part,d]);}
-      if(data.active!=null&&!ids.has(data.active))throw Error('Saved active CAD part is missing.');return entries.length?{active:data.active,entries}:null;
+      if(!data)return null;if(data.version!==1||!Array.isArray(data.entries))throw Error('Invalid saved part drafts.');
+      const ids=new Set(),map=new Map((ownership?.project.objects||[]).map(o=>[o.id,o])),entries=[];
+      // Validate the complete envelope before opening any server sessions.
+      for(const item of data.entries){
+        if(!item?.data||(item.data.meshes||[]).some(m=>m.projectOwner&&map.get(m.projectOwner)?.definition.part!==item.part)||item.data.editingOwner&&map.get(item.data.editingOwner)?.definition.part!==item.part)throw Error('Saved mesh draft belongs to a different part.');
+        if(ids.has(item.part)||!P.isPart(map.get(item.part))||!map.get(item.part).definition.source)throw Error('Saved CAD draft has no unique part.');
+        ids.add(item.part);cad().validateRestore?.(item.data);
+      }
+      if(data.active!=null&&!ids.has(data.active))throw Error('Saved active CAD part is missing.');
+      if(!data.entries.length)return null;
+      const transaction=await cad().beginRestore();
+      try{for(const item of data.entries){const d=await cad().stageRestore(item.data,transaction,item.part);d.partId=item.part;entries.push([item.part,d]);}
+        return {active:data.active,entries,transaction};
+      }catch(error){await cad().abortRestore(transaction);throw error;}
     }
+    async function retain(){stash();for(const draft of drafts.values())await cad().serializeDraft(draft,{checkpoint:false});}
+    async function finishRestore(data,commit){if(data?.transaction)return commit?cad().finishRestore(data.transaction,true):cad().abortRestore(data.transaction);}
+
     function commitRestore(data){drafts.clear();active=null;referenceEntries=[];cad().clear();h.engine().setActiveCadSource?.(null);h.engine().setProjectCadReferences?.([]);if(!data)return;for(const[id,d]of data.entries)drafts.set(id,d);active=data.active||data.entries[0]?.[0]||null;if(active){h.engine().setActiveCadSource?.(part(active)?.definition.source);cad().restoreDraft(drafts.get(active));}refreshVisibility();}
+    function captureState(){stash();return {active,entries:[...drafts],legacy:active?null:cad().captureDraft()};}
+    function restoreState(snapshot){commitRestore(snapshot);if(snapshot?.legacy)cad().restoreDraft(snapshot.legacy);}
     function activate(value){if(value){stash();show();}}
     function open(id){const o=part(id);if(P.isPart(o)){partEditor(id);return true;}if(o?.kind==='source'){const p=live().find(p=>p.definition.source===id);if(p){partEditor(p.id);return true;}}if(P.isInstance(o)){editor(id);return true;}if(o?.definition.generator===P.MESH){editor(o.definition.instance);return true;}return false;}
-    return{render,bind,open,addFile,addImported,edit,activate,show,serialize,stageRestore,commitRestore,synchronize,refreshVisibility,clear(){drafts.clear();active=null;referenceEntries=[];cad().clear();h.engine().setActiveCadSource?.(null);h.engine().setProjectCadReferences?.([]);},active:()=>active};
+    return{render,bind,open,addFile,addImported,edit,activate,show,serialize,retain,captureState,restoreState,stageRestore,finishRestore,commitRestore,synchronize,refreshVisibility,clear(){drafts.clear();active=null;referenceEntries=[];cad().clear();h.engine().setActiveCadSource?.(null);h.engine().setProjectCadReferences?.([]);},active:()=>active};
   }};
 })();

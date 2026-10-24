@@ -20,6 +20,8 @@ import threading
 import time
 import uuid
 
+from cad_persistence import CadPersistence
+
 
 # Undoable preparation steps per session; total snapshot storage is bounded separately.
 MAX_SNAPSHOTS = 96
@@ -29,7 +31,6 @@ MAX_STAGED = 8
 # sessions are never closed to make room: the user closes them (Sessions).
 BUDGET = 512 * 1024 * 1024
 MAX_SESSIONS = 24
-IDLE = 24 * 3600  # a session unused this long is closed
 CHANGED = "The CAD geometry changed. Refresh it before applying this operation."
 
 
@@ -93,6 +94,7 @@ class CadSessions:
         self.records = {}
         self.runner = runner
         self.lock = threading.RLock()
+        self.persistence = CadPersistence(self, CadError, lambda: (BUDGET, MAX_SESSIONS, MAX_SNAPSHOTS))
 
     def total_size(self):
         total = 0
@@ -110,9 +112,7 @@ class CadSessions:
         shutil.rmtree(self.root / key, ignore_errors=True)
 
     def prune(self):
-        expired = [key for key, record in self.records.items() if time.time() - record["lastUsed"] > IDLE]
-        for key in expired:
-            self.close(key)
+        self.persistence.prune()
 
     def relieve(self, limit=BUDGET, keep=()):
         """Drop finished previews, least recently used sessions first, until storage
@@ -155,7 +155,7 @@ class CadSessions:
                                for item in record["states"]])
         return result
 
-    def import_cad(self, data):
+    def import_cad(self, data, provisional=None):
         kind = data.get("format", "").lower() if isinstance(data.get("format"), str) else ""
         kind = {"stp": "step", "igs": "iges"}.get(kind, kind)
         if kind not in {"step", "iges", "brep", "stl"}:
@@ -200,7 +200,7 @@ class CadSessions:
                 raise full(used)
             now = time.time()
             self.records[key] = {"filename": filename, "revision": 0, "cursor": 0, "lastUsed": now, "created": now,
-                                 "discrete": kind == "stl", "source": source,
+                                 "discrete": kind == "stl", "source": source, "provisional": provisional,
                                  "states": [{"path": snapshot, "json": json_path, "sheets": result["topology"].get("sheets", []) if isinstance(result.get("topology"), dict) else [],
                                              "revision": 0, "operation": {"kind": "import"}, "label": "Imported geometry"}]}
             return self.payload(key, self.records[key])
@@ -501,12 +501,26 @@ class CadSessions:
             key, record = self.lookup(data)
             state = record["states"][record["cursor"]]
             discrete = record.get("discrete")
-            return {"filename": record["filename"] if discrete else Path(record["filename"]).stem + "-prepared.brep",
+            result = {"filename": record["filename"] if discrete else Path(record["filename"]).stem + "-prepared.brep",
                     "format": "stl" if discrete else "brep",
                     "content": base64.b64encode((record["source"] if discrete else state["path"]).read_bytes()).decode(),
                     "history": self.payload(key, record)["history"][:record["cursor"] + 1],
                     # A project reimports the prepared snapshot: it names the sheets in it.
                     "sheets": state.get("sheets", [])}
+            if data.get("checkpoint"):
+                result["checkpoint"] = self.persistence.checkpoint(key, record)
+            if data.get("draft") is not None:
+                draft = data["draft"]
+                if not isinstance(draft, dict) or not isinstance(draft.get("filename"), str) or not isinstance(draft.get("content"), str):
+                    raise CadError("Invalid retained CAD draft.", 400)
+                record["draft"] = json.loads(dumps(draft))
+            return result
+
+    def restore(self, data):
+        return self.persistence.restore(data)
+
+    def restore_finish(self, data):
+        return self.persistence.restore_finish(data)
 
     def mesh(self, data):
         with self.lock:
@@ -523,9 +537,9 @@ class CadSessions:
                 items.append({"cadId": key, "filename": record["filename"], "steps": record["cursor"], "kept": len(record["states"]),
                               "label": record["states"][record["cursor"]]["label"], "revision": record["revision"],
                               "created": record.get("created", record["lastUsed"]), "lastUsed": record["lastUsed"],
-                              "bytes": size_of(path for path in (self.root / key).rglob("*") if path.is_file()), "discrete": bool(record.get("discrete"))})
+                              "bytes": size_of(path for path in (self.root / key).rglob("*") if path.is_file()), "discrete": bool(record.get("discrete")), "provisional": bool(record.get("provisional")), "hasDraft": bool(record.get("draft"))})
             items.sort(key=lambda item: -item["lastUsed"])
-            return {"sessions": items, "bytes": self.total_size(), "budget": BUDGET}
+            return {"sessions": items, "bytes": self.total_size(), "budget": BUDGET, "capacity": MAX_SESSIONS}
 
     def pick(self, data):
         key = data.get("cadId")
@@ -538,8 +552,11 @@ class CadSessions:
         with self.lock:
             key, record = self.pick(data)
             record["lastUsed"] = time.time()
+            record.pop("provisional", None)  # explicit Resume adopts the draft
             result = self.payload(key, record)
             source = record["source"]
+            if record.get("draft"):
+                result["draft"] = json.loads(dumps(record["draft"]))
             result["original"] = {"filename": record["filename"], "format": source.suffix.lstrip("."), "content": base64.b64encode(source.read_bytes()).decode()}
             return result
 

@@ -15,7 +15,7 @@ function element(id) {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) };
 }
 
-function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectReview = false } = {}) {
+function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectReview = false, storage = null, locks = null } = {}) {
   const calls = { requests: [], messages: [], appends: [], selections: [], overlays: [], removed: [] };
   const listeners = new Map(), elements = new Map();
   for (const id of ['wb-panel-body', 'wb-panel-foot', 'cad-tool', 'cad-context', 'cad-edge-editor', 'cad-equations', 'cad-mesh-report', 'app', 'wb-cad-file']) elements.set(id, element(id));
@@ -38,7 +38,7 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectR
     addEventListener() {}, createElement: () => element('created'), activeElement: null
   };
   const window = { addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); } };
-  const context = { window, document, location: { protocol: 'http:' }, File, btoa, atob, structuredClone, AbortController, setTimeout, clearTimeout, performance, console, crypto: require('node:crypto').webcrypto,
+  const context = { window, document, sessionStorage:storage, navigator:locks?{locks}:undefined, location: { protocol: 'http:' }, File, btoa, atob, structuredClone, AbortController, setTimeout, clearTimeout, performance, console, crypto: require('node:crypto').webcrypto,
     async fetch(url, request) {
       // The service reports which optional plugins it has (the Gmsh plugin may be missing).
       if (url === '/api/health') return { ok: true, json: async () => ({ cad: { available: true }, plugins: { gmsh: { available: gmsh } } }) };
@@ -46,7 +46,8 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectR
       calls.requests.push({ action, data });
       if (failNext[action]) { const error = failNext[action]; delete failNext[action]; return { ok: false, json: async () => ({ error }) }; }
       let result;
-      if (action === 'import') result = payload(imported, revision);
+      if (action === 'import' || action === 'restore') result = payload(imported, revision);
+      else if(action==='restore_finish')result={status:data.commit?'committed':'aborted'};
       else if (action === 'preview') result = { ...payload(prepared, revision), staged: true };
       else if (action === 'prepare') { assert.equal(data.revision, revision, 'prepare uses the current revision token'); revision++; result = payload(prepared, revision); }
       else if (action === 'undo') { revision++; result = payload(imported, revision); }
@@ -747,4 +748,32 @@ test('per-part draft switching retains CAD revision, sizing, selection and mesh 
  w.restoreDraft(a);assert.equal(w.getState().filename,'first.step');assert.equal(w.getState().revision,before.revision);assert.deepEqual(plain(w.getState().selection),before.selection);assert.equal(w.getState().intervals.counts[1],7);assert.equal(w.getState().step,'size');
  w.restoreDraft(b);assert.equal(w.getState().filename,'second.step');assert.equal(w.getState().selection.kind,'solid');assert.equal(h.calls.requests.filter(r=>r.action==='import').length,imports);
  const saved=await w.serializeDraft(a);assert.equal(saved.filename,'first.step');assert.equal(atob(saved.content),'first');assert.equal(saved.settings.sizing.size,2);assert.equal(saved.settings.sizing.edges[0].count,7);assert.ok(saved.prepared.content);w.clear();assert.equal(w.hasGeometry(),false);
+});
+
+test('portable CAD history is saved once, staged without duplicate BREP payload and adopted or aborted explicitly',async()=>{
+ const f=setup();await f.workspace.importFile(new File(['CAD'],'part.step'));
+ const checkpoint={version:1,encoding:'gzip+base64',sha256:'test',content:'archive'};
+ f.transform.fn=(action,data,result)=>action==='export'?{...result,checkpoint,history:[{label:'Executable step'}]}:result;
+ const saved=await f.workspace.serialize();assert.deepEqual(plain(saved.prepared.checkpoint),checkpoint);assert.deepEqual(plain(saved.prepared.history),[]);
+ const exported=f.calls.requests.findLast(x=>x.action==='export').data;assert.equal(exported.checkpoint,true);assert.equal(exported.draft.filename,'part.step');assert.equal(exported.draft.settings.version,2);
+ const staged=await f.workspace.stageRestore(saved,null,'part-stable');assert.equal(staged.scope,'part-stable');const req=f.calls.requests.at(-1).data;assert.equal(req.scope,'part-stable');assert.deepEqual(req.checkpoint,checkpoint);assert.equal(req.content,undefined);
+ await f.workspace.adoptRestore(staged);assert.equal(f.calls.requests.at(-1).data.commit,true);
+ f.failNext.restore='broken archive';const before=f.workspace.captureDraft();await assert.rejects(f.workspace.stageRestore(saved),/broken archive/);assert.equal(f.calls.requests.at(-1).action,'restore_finish');assert.equal(f.calls.requests.at(-1).data.commit,false);assert.equal(f.workspace.captureDraft().imported,before.imported);
+});
+
+
+test('duplicated tabs cannot share mutable CAD sessions, while a reloaded tab can reclaim its identity',async()=>{
+ const held=new Set();const locks={async request(id,options,fn){if(held.has(id))return fn(null);held.add(id);try{return await fn({name:id});}finally{held.delete(id);}}};
+ const storage=value=>({value,getItem(){return this.value;},setItem(k,v){this.value=v;}});
+ const firstStorage=storage(null),a=setup({storage:firstStorage,locks});const first=await a.workspace.beginRestore();
+ const duplicateStorage=storage(firstStorage.value),b=setup({storage:duplicateStorage,locks});const second=await b.workspace.beginRestore();assert.notEqual(first.client,second.client);
+ a.emit('pagehide',{});await new Promise(resolve=>setTimeout(resolve,0));
+ const reload=setup({storage:firstStorage,locks});assert.equal((await reload.workspace.beginRestore()).client,first.client);
+ b.emit('pagehide',{});reload.emit('pagehide',{});
+});
+
+test('an older running CAD server reports a safe upgrade path without claiming to have cleaned unknown candidates',async()=>{
+ const f=setup();f.failNext.restore='Unknown API endpoint.';
+ await assert.rejects(f.workspace.stageRestore({filename:'box.step',content:btoa('CAD')}),/another port.*preserve its CAD undo history/);
+ assert.equal(f.calls.requests.filter(x=>x.action==='restore_finish').length,0);
 });

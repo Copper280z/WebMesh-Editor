@@ -49,3 +49,9 @@ test('equilibrium scales cancelling components by contributing loads and retains
  const coords=[[1,[-100,0,0]],[2,[100,0,0]]],r=R.equilibrium(text,coords);assert.equal(r.status,'passed');assert.equal(r.cases[0].strictResultantPassed,false);assert.equal(r.cases[0].scale[4],200);assert.ok(r.cases[0].printBound[4]>0);assert.ok(Math.abs(r.cases[0].normalizedResidual[4])<1e-5);
  assert.equal(R.equilibrium(text.replace('9.999990E-01','9.900000E-01'),coords).status,'failed');
 });
+
+test('project restore rollback retains the active run and its results binding',async()=>{
+ const f=fixture(),r=await f.session.launch(await f.session.capture('mystran'));await f.session.poll(r.id);await f.session.show(r.id);
+ const before=f.session.list(),rollback=f.session.checkpoint();await f.session.restore([]);assert.equal(f.session.active(),null);rollback();
+ assert.deepEqual(f.session.list(),before);assert.equal(f.session.active(),r.id);assert.equal(f.session.manual(),false);
+});

@@ -133,6 +133,25 @@ class HTTPTests(unittest.TestCase):
             self.httpd.mesh_slot.release()
         self.assertEqual(self.request('POST','/api/solve/status','{'+ ' '*5000+'}',headers)[0],413)
 
+    def test_cad_restore_routes_reuse_and_abort_without_waiting_for_the_kernel_slot(self):
+        from test_cad_sessions import runner
+        from test_cad_restore import request
+        sessions=server.CadSessions(runner)
+        self.addCleanup(sessions.temporary.cleanup)
+        headers={"Content-Type":"application/json"}
+        with patch.object(self.httpd, 'cad_sessions', sessions):
+            r=request()
+            status,_,body=self.request('POST','/api/cad/restore',json.dumps(r),headers)
+            self.assertEqual(status,200);cad=json.loads(body)
+            self.assertEqual(self.request('POST','/api/cad/restore',json.dumps(r),{**headers,'Origin':'https://evil.example'})[0],403)
+            self.httpd.mesh_slot.acquire()
+            try:
+                self.assertEqual(self.request('POST','/api/cad/restore_finish',json.dumps({**r,'commit':False}),headers)[0],200)
+            finally:
+                self.httpd.mesh_slot.release()
+            self.assertNotIn(cad['cadId'],sessions.records)
+            self.assertEqual(self.request('POST','/api/cad/restore_finish','{'+ ' '*5000+'}',headers)[0],413)
+
     def test_dns_rebinding_host_rejected(self):
         self.assertEqual(self.request("GET", "/api/health", headers={"Host": "evil.example"})[0], 403)
 

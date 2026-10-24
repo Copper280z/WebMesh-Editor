@@ -28636,6 +28636,7 @@ ${formatRanges(v.ranges, 500)}`;
     let closed = false;
     const open = () => { if (closed) throw Error("Project candidate is closed."); };
     return Object.freeze({
+      assertCurrent: () => { open(); if(base!==projectModelSignature())throw Error("Outdated project candidate. Recompute against the current model."); },
       preview: () => { open(); return structuredClone({ changes: candidate.changes, ownershipChanges: candidate.ownershipChanges, project: candidate.project }); },
       discard: () => { open(); closed = true; },
       commit: () => {
@@ -28687,6 +28688,40 @@ ${formatRanges(v.ranges, 500)}`;
     let deck = await writeCardEngine(workerModel, { writeFormat: "free", projectSave: true });
     if (window.WebMeshAnalysisProject) deck = window.WebMeshAnalysisProject.projectDeck(deck, model.projectOwnership);
     return { deck, ...(ownership ? { ownership, snapshotDigest: await projectDeckDigest(deck + "\0" + window.WebMeshOwnership.canonical(ownership)) } : {}) };
+  }
+  function captureProjectRestoreView() {
+    const saved={showContour,showDeformed,showCriteriaValues,deformationScale,contourField,temperatureLoadSid};
+    return ()=>{
+      ({showContour,showDeformed,showCriteriaValues,deformationScale,contourField,temperatureLoadSid}=saved);
+      temperatureValueCache=null;refreshVisibilityCaseSelector();refreshTemperatureLoadSelector();
+      refreshResultDisplayExclusions();computeNodeAveragedResults();refreshContourFieldOptions();updateResultSetSelector();
+      for(const [id,value]of [["chkShowContour",showContour],["chkShowDeformed",showDeformed],["chkShowCriteriaValues",showCriteriaValues]]){
+        const el=document.getElementById(id);if(el)el.checked=value;
+      }
+      const scale=document.getElementById("deformScaleInput");if(scale)scale.value=String(deformationScale);
+      if(showContour)updateContourDisplay();
+    };
+  }
+  async function beginProjectRestore() {
+    await ensureRichEditableSemanticElementAuthority("restore-backup");
+    const before=captureHistoryState(),workerBefore=structuredClone(workerModel),coreBefore=model.coreSoa;
+    const lines={preLines:model.preLines,postLines:model.postLines},restoreView=captureProjectRestoreView();
+    const protocolBefore=structuredClone(runtime.protocol),stack=historyManager.stack.slice(),pointer=historyManager.pointer;
+    const results=typeof solverResults!=="undefined"?solverResults:null,caseControl=typeof deckCaseControl!=="undefined"?deckCaseControl:null;
+    const sourceName=typeof solverResultsSourceName!=="undefined"?solverResultsSourceName:"",activeCase=typeof activeVisibilityCaseId!=="undefined"?activeVisibilityCaseId:null;
+    let closed=false;
+    return {commit(){closed=true;},rollback(){
+      if(closed)return;closed=true;
+      for(const family of HISTORY_SEMANTIC_FAMILIES)applyHistorySemanticFamilySnapshot(family,before.semantic[family]);
+      model.coreSoa=coreBefore;Object.assign(model,lines);workerModel=workerBefore;Object.assign(runtime.protocol,protocolBefore);
+      historyManager.stack=stack;historyManager.pointer=pointer;
+      if(typeof solverResults!=="undefined"){solverResults=results;solverResultsSourceName=sourceName;}
+      if(typeof deckCaseControl!=="undefined"){deckCaseControl=caseControl;activeVisibilityCaseId=activeCase;}
+      syncWorkerModelDebugRef();if(workerModel?.cardStream)indexWorkerCardStream(workerModel.cardStream);
+      invalidateElementLookup();refreshSemanticRelationshipIndexes("restore-rollback");
+      restoreView();buildGeometries(true);refreshCounts();restoreHistoryUiState(before.ui);updateUndoRedoButtons();
+      postSemanticWorkerSnapshot("restore-rollback");
+    }};
   }
   async function loadProjectModel(data, name = "project.bdf") {
     if (!data || typeof data.deck !== "string") throw Error("Missing project deck.");
@@ -29110,6 +29145,7 @@ ${formatRanges(v.ranges, 500)}`;
     getObjectEntities: id => { workbenchProjectView(); const m = projectViewIndex.entries.get(id)?.members; return m ? { nodes: [...m.nodes], elements: [...m.elems] } : {nodes:[],elements:[]}; },
     getCardOwner: (namespace, id) => workbenchCardOwner(namespace, id),
     getProjectOwnership: () => model.projectOwnership ? structuredClone(model.projectOwnership) : null,
+    beginProjectRestore,
     saveProjectModel: () => saveProjectModel(), loadProjectModel: (data, name) => loadProjectModel(data, name),
     bindMeshOwner: workbenchBindMeshOwner, getMeshOwner: workbenchGetMeshOwner, removeMeshOwner: workbenchRemoveMeshOwner,
     appendMesh: workbenchAppendMesh, previewMesh: workbenchPreviewMesh, beginMeshSelection: beginWorkbenchMeshSelection, endMeshSelection: endWorkbenchMeshSelection, fitView: () => workbenchMeshSelection ? workbenchMeshSelection.fit() : fitView(),

@@ -34,6 +34,7 @@ function fixture() {
   c.restoreHistoryUiState = () => {};
   const bridge = source.indexOf('  // Project ownership adapter.');
   vm.runInContext(source.slice(bridge, source.indexOf('  // Small public bridge:', bridge)), c);
+  c.captureProjectRestoreView=()=>()=>{};
   return c;
 }
 async function exportParsed(c, format='free', retainedDeck=null, writeOptions={}) {
@@ -1177,4 +1178,18 @@ test('case-control FORCE output is opaque while bulk FORCE remains a validated l
  const parsed=await worker.parseDeckToCardStream(deck,'case-force.bdf',{}, {strictMode:true,retainParseSession:true,retainSourceSession:true});assert.deepEqual(copy(parsed.errors),[]);assert.equal(worker.getParseSession(parsed.model.parseSessionId).indexes.loads.get(2).length,1);
  worker.handleWriteRequest({model:parsed.model,options:{writeFormat:'free'}});const written=messages.find(m=>m.type==='WRITE_COMPLETE').text;assert.match(written,/FORCE = ALL/);assert.match(written,/FORCE,2,1/);
  const bad=await worker.parseDeckToCardStream(deck.replace('FORCE,2,1,0,1.,0.,4.9,0.','FORCE,2,1,0,1.'),'bad-force.bdf',{}, {strictMode:true});assert.ok(bad.errors.some(e=>e.message.includes('FORCE')));
+});
+
+
+test('failed project load rolls back the model, worker state, results and executable undo/redo history',async()=>{
+ const c=fixture();(await c.previewProjectChange(request())).commit();c.historyManager.undo();
+ c.model.preLines=['CEND'];c.model.postLines=['ENDDATA'];c.solverResults={activeSetId:'gravity'};c.solverResultsSourceName='Saved run';c.deckCaseControl={subcases:[1]};c.activeVisibilityCaseId='1';
+ const before=O.snapshot(c.model),stack=c.historyManager.stack.slice(),pointer=c.historyManager.pointer,worker=structuredClone(c.workerModel),protocol=structuredClone(c.runtime.protocol);
+ const guard=await c.beginProjectRestore();
+ c.model.nodes.clear();c.model.projectOwnership=null;c.model.preLines=[];c.model.postLines=[];c.historyManager.clear();c.workerModel=null;c.runtime.protocol.revision=999;c.solverResults=null;c.deckCaseControl=null;
+ guard.rollback();guard.rollback();
+ assert.deepEqual(O.snapshot(c.model),before);assert.deepEqual(c.workerModel,worker);assert.deepEqual(c.runtime.protocol,protocol);
+ assert.deepEqual(c.historyManager.stack,stack);assert.equal(c.historyManager.pointer,pointer);assert.deepEqual(c.model.preLines,['CEND']);assert.deepEqual(c.model.postLines,['ENDDATA']);assert.equal(c.solverResults.activeSetId,'gravity');assert.equal(c.deckCaseControl.subcases[0],1);
+ c.historyManager.redo();assert.ok(c.model.projectOwnership);assert.ok(c.model.nodes.has(1));c.historyManager.undo();assert.deepEqual(O.snapshot(c.model),before);
+ const committed=await c.beginProjectRestore();c.model.nodes.set(99,{x:1,y:2,z:3});committed.commit();committed.rollback();assert.ok(c.model.nodes.has(99));
 });

@@ -54,6 +54,6 @@ Open the resulting `rover-remesh.webmesh` in WebMesh. The gzip contains the full
 
 ## Remaining usability issue
 
-Repeated project opens accumulated 24 CAD sessions on port 8795 and blocked restoration. The saved project was intact; final reopen checks used a fresh local server on **8796**, preserving the older sessions. The current workflow needs session reuse, atomic cleanup of failed staged restores, and clearer capacity recovery. This was not a solver failure.
+Repeated project opens accumulated 24 CAD sessions on port 8795 and blocked restoration. The saved project was intact; final reopen checks used a fresh local server on **8796**, preserving the older sessions. The current workflow needs session reuse, atomic cleanup of failed staged restores, and clearer capacity recovery. This was not a solver failure. The [CAD session milestone](../../implementation-15-cad-sessions.md) now addresses reuse, atomic failure cleanup and portable history; its [acceptance evidence](../cad-sessions/README.md) records the follow-up checks.
 
 Regression: `npm test` passes **506 tests** in the working tree; no unrelated baseline changes are included in this milestone’s commit.
