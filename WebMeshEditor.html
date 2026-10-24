@@ -68,7 +68,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WebMesh Editor v2.3</title>
   <link rel="stylesheet" href="styles/editor.css">
-  <link rel="stylesheet" href="styles/workbench.css?v=parts-9">
+  <link rel="stylesheet" href="styles/workbench.css?v=assembly-5">
 <link rel="stylesheet" href="styles/cad-workspace.css">
 </head>
 
@@ -352,6 +352,8 @@
               </div>
               <div id="resultSetInfo" style="color: var(--muted); font-size: 11px; margin-bottom: 8px;">Load a MYSTRAN
                 .F06 file to inspect results.</div>
+              <div class="row" style="justify-content:space-between"><label for="chkShowAnalysisExcluded">Show analysis-excluded mesh</label><input
+                  id="chkShowAnalysisExcluded" type="checkbox" title="Display reference parts and excluded elements without changing solver participation"></div>
               <!-- Deformation -->
               <div style="font-weight:600;font-size:11px;margin-bottom:4px;color:#8af">DEFORMATION</div>
               <div class="row" style="justify-content:space-between"><label>Deformed Shape</label><input
@@ -1141,45 +1143,47 @@
 
   <!-- Three.js import map + modules -->
 <script src="vendor/three-runtime.js"></script>
-<script src="app/card-worker.js?parts-9"></script>
+<script src="app/card-worker.js?assembly-5"></script>
 <script src="app/nastran-schema.js"></script>
 <script src="app/cad-viewport.js"></script>
 <script src="app/project.js"></script>
-<script src="app/connection-actions.js?v=parts-9"></script>
-<script src="app/mesh-region-project.js?v=parts-9"></script>
-<script src="app/mesh-selection.js?v=parts-9"></script>
-<script src="app/coordinate-project.js?v=parts-9"></script>
-<script src="app/analysis-actions.js?v=parts-9"></script>
-<script src="app/attachment-project.js?v=parts-9"></script>
-<script src="app/part-project.js?v=parts-9"></script>
-<script src="app/engine-ownership.js?v=parts-9"></script>
-<script src="app/editor-engine.js?v=parts-9"></script>
+<script src="app/connection-actions.js?v=assembly-4"></script>
+<script src="app/mesh-region-project.js?v=assembly-4"></script>
+<script src="app/mesh-selection.js?v=assembly-4"></script>
+<script src="app/coordinate-project.js?v=assembly-4"></script>
+<script src="app/analysis-actions.js?v=assembly-4"></script>
+<script src="app/attachment-project.js?v=assembly-4"></script>
+<script src="app/part-project.js?v=assembly-4"></script>
+<script src="app/assembly-project.js?v=assembly-4"></script>
+<script src="app/engine-ownership.js?v=assembly-4"></script>
+<script src="app/editor-engine.js?v=assembly-6"></script>
 <script src="app/mesh-actions.js?v=actions-4"></script>
 <script src="app/modeling.js?v=actions-4"></script>
 <script src="app/primitive-project.js?v=owned-plate-1"></script>
-<script src="app/cad-project.js?v=parts-9"></script>
+<script src="app/cad-project.js?v=assembly-4"></script>
 <script src="app/hex-mapping.js?v=mixed-3"></script>
 <script src="app/cad-features.js"></script>
 <script src="app/dom-morph.js"></script>
-<script src="app/cad-workspace.js?v=parts-9"></script>
+<script src="app/cad-workspace.js?v=assembly-4"></script>
 <script src="app/bolt-workspace.js"></script>
-<script src="app/mesh-action-project.js?v=parts-9"></script>
-<script src="app/mesh-action-workspace.js?v=parts-9"></script>
-<script src="app/embedded-interface.js?v=parts-9"></script>
-<script src="app/interface-project.js?v=parts-9"></script>
+<script src="app/mesh-action-project.js?v=assembly-4"></script>
+<script src="app/mesh-action-workspace.js?v=assembly-4"></script>
+<script src="app/embedded-interface.js?v=assembly-4"></script>
+<script src="app/interface-project.js?v=assembly-4"></script>
 <script src="app/interface-workspace.js?actions-4"></script>
-<script src="app/attachment-workspace.js?v=parts-9"></script>
-<script src="app/mass-project.js?v=parts-9"></script>
-<script src="app/mass-workspace.js?v=parts-9"></script>
-<script src="app/analysis-project.js?v=parts-9"></script>
-<script src="app/analysis-runs.js?v=parts-9"></script>
-<script src="app/analysis-session.js?v=parts-9"></script>
-<script src="app/analysis-workspace.js?v=parts-9"></script>
-<script src="app/selection-project.js?v=parts-9"></script>
-<script src="app/coordinate-workspace.js?v=parts-9"></script>
-<script src="app/selection-workspace.js?v=parts-9"></script>
-<script src="app/part-workspace.js?v=parts-9"></script>
-<script src="app/workbench.js?v=parts-9"></script>
+<script src="app/attachment-workspace.js?v=assembly-4"></script>
+<script src="app/mass-project.js?v=assembly-4"></script>
+<script src="app/mass-workspace.js?v=assembly-4"></script>
+<script src="app/analysis-project.js?v=assembly-4"></script>
+<script src="app/analysis-runs.js?v=assembly-4"></script>
+<script src="app/analysis-session.js?v=assembly-4"></script>
+<script src="app/analysis-workspace.js?v=assembly-4"></script>
+<script src="app/selection-project.js?v=assembly-4"></script>
+<script src="app/coordinate-workspace.js?v=assembly-4"></script>
+<script src="app/selection-workspace.js?v=assembly-4"></script>
+<script src="app/part-workspace.js?v=assembly-4"></script>
+<script src="app/assembly-workspace.js?v=assembly-4"></script>
+<script src="app/workbench.js?v=assembly-4"></script>
 <script src="app/compact-forms.js"></script>
 
 </body>

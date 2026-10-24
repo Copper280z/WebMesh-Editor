@@ -43,7 +43,7 @@ test('clearing a model drops solver data, derived values, animation and result U
     showContour: true, showDeformed: true, showCriteriaValues: true, deformationScale: 100,
     animationPlaying: true, animationPaused: true, animationPhase: 1, animationTimer: 17,
     document: { getElementById: id => controls[id] }, clearInterval: id => { timerCleared = id; },
-    updateResultSetSelector: () => { selectorUpdates++; },
+    updateResultSetSelector: () => { selectorUpdates++; }, refreshResultDisplayExclusions: noop,
     btnClear: { addEventListener: (_event, handler) => { clearHandler = handler; } },
     historyManager: { recordAction: action => action() },
     selection: Object.fromEntries(['nodes', 'elems', 'loads', 'constraints', 'props'].map(key => [key, new Set([1])])),
@@ -102,7 +102,7 @@ test('readable worker factory can recover source cards after compact import', as
 
 test('run-bound result display does not queue an unverified manual-import notification', () => {
   const notifications = [], context = vm.createContext({ window: {},
-    solverResults: null, solverResultsSourceName: '',
+    solverResults: null, solverResultsSourceName: '', refreshResultDisplayExclusions() {},
     emitWorkbenchChange: reason => notifications.push(reason),
     getSolverResultSets: () => [{setId: '1'}], getSolverResultSetById: () => null,
     syncSolverResultsActiveSet: id => id

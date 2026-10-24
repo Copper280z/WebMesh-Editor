@@ -133,6 +133,28 @@
   });
   var solverResults = null;
   var solverResultsSourceName = "";
+  var showAnalysisExcluded = false;
+  var resultDisplayExclusions = { elems: new Set(), nodes: new Set() };
+  function refreshResultDisplayExclusions() {
+    resultDisplayExclusions = { elems: new Set(), nodes: new Set() };
+    if (!solverResults || !model.projectOwnership || !window.WebMeshOwnership) return;
+    const ownership = window.WebMeshOwnership, semantic = ownership.snapshot(model);
+    const elems = ownership.analysisExclusions(model.projectOwnership, semantic, workerModel?.cardStream || []);
+    const nodes = ownership.analysisNodeExclusions(model.projectOwnership, semantic, workerModel?.cardStream || [], elems);
+    resultDisplayExclusions = { elems: new Set(elems), nodes: new Set(nodes) };
+  }
+  function getDisplayHidden() {
+    // A temporary display mask, never a change to analysis participation or
+    // the analyst's manual hide/show choices. Shared active nodes stay visible.
+    if (!solverResults || showAnalysisExcluded || !resultDisplayExclusions.elems.size) return hidden;
+    return { ...hidden, elems: new Set([...hidden.elems, ...resultDisplayExclusions.elems]), nodes: new Set([...hidden.nodes, ...resultDisplayExclusions.nodes]) };
+  }
+  function setShowAnalysisExcluded(value) {
+    showAnalysisExcluded = !!value;
+    const checkbox = document.getElementById("chkShowAnalysisExcluded");
+    if (checkbox) checkbox.checked = showAnalysisExcluded;
+    buildGeometries(true);
+  }
   var contourField = "vonMises";
   var temperatureLoadSid = null;
   var temperatureInterpolation = "linear";
@@ -1433,6 +1455,7 @@
   function clearSolverResults() {
     // Results belong to a particular model, not to reusable GRID/element IDs.
     solverResults = null;
+    refreshResultDisplayExclusions();
     solverResultsSourceName = "";
     nodeAvgStress = {};
     nodeAvgStressByField = {};
@@ -1461,6 +1484,7 @@
     if (resultsObj && window.WebMeshCoordinates) window.WebMeshCoordinates.normalizeResults(resultsObj, window.WebMeshOwnership.snapshot(model));
     solverResults = resultsObj && typeof resultsObj === "object" ? resultsObj : null;
     solverResultsSourceName = String(sourceName || "");
+    refreshResultDisplayExclusions();
     if (!boundToRun) emitWorkbenchChange("results");
     if (!solverResults) {
       updateResultSetSelector();
@@ -2813,6 +2837,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
     return count > 0 ? sum / count : null;
   }
   function updateContourValueLabels(pos) {
+    const hidden = getDisplayHidden();
     contourValueLabelGroup.clear();
     if (!(showContour && showCriteriaValues && hasActiveContourData())) return;
     if (criteriaMode === "node") {
@@ -2828,6 +2853,7 @@ function nearestTemperatureTriangle(point, vertices, values) {
       const candidates = [];
       for (let i = 0; i < nodeIds.length; i++) {
         const nid = nodeIds[i];
+        if (hidden.nodes.has(nid)) continue;
         const value = getContourValue(nid, false);
         if (!Number.isFinite(value)) continue;
         const d = solverResults && solverResults.displacements ? solverResults.displacements[nid] : null;
@@ -6866,6 +6892,7 @@ This will also delete any elements that reference them.`);
     return null;
   }
   function ensureShellFaceSelectionCache() {
+    const hidden = getDisplayHidden();
     if (!shellFaceSelectionCache.dirty) return shellFaceSelectionCache;
     const adjacency = /* @__PURE__ */ new Map();
     const normals = /* @__PURE__ */ new Map();
@@ -15957,6 +15984,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     return [0, 1, 2].map((axis) => midsides.reduce((sum, p) => sum + p[axis] * 0.5, 0) - corners.reduce((sum, p) => sum + p[axis] * 0.25, 0));
   }
   function buildGeometriesFromCoreSoa(coreSoa, pos, options = {}) {
+    const hidden = getDisplayHidden();
     if (!coreSoa || !coreSoa.active) return 0;
     const nodeIds = coreSoa.nodeIds instanceof Int32Array ? coreSoa.nodeIds : null;
     const coreIndexToModelIndex = coreSoa.coreIndexToModelIndex instanceof Int32Array ? coreSoa.coreIndexToModelIndex : null;
@@ -16436,6 +16464,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     return { faces: boundary, edges };
   }
   function buildGeometries(preserveView = false) {
+    const hidden = getDisplayHidden();
     invalidateElementLookup();
     invalidateShellFaceSelectionCache();
     resetElementSurfaceDepthCache();
@@ -16513,7 +16542,11 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     model._renderPos = pos;
     const bbox = new Box3();
     if (N > 0) {
-      bbox.setFromArray(pos);
+      if (hidden.nodes.size) {
+        const point = new Vector3();
+        for (let i = 0; i < N; i++) if (!hidden.nodes.has(model.indexToNid[i])) bbox.expandByPoint(point.fromArray(pos, 3 * i));
+        if (bbox.isEmpty()) bbox.set(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+      } else bbox.setFromArray(pos);
       if (bbox.min.equals(bbox.max)) {
         bbox.expandByScalar(0.5);
       }
@@ -16593,6 +16626,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     }
     const ptsGeom = new BufferGeometry();
     ptsGeom.setAttribute("position", new BufferAttribute(pos, 3));
+    if (hidden.nodes.size) ptsGeom.setIndex(model.indexToNid.map((nid, i) => hidden.nodes.has(nid) ? -1 : i).filter(i => i >= 0));
     points = new Points(ptsGeom, new PointsMaterial({ size: 7, sizeAttenuation: false, color: 6737151, clippingPlanes: [clippingPlane] }));
     points.visible = visibility.nodes;
     scene.add(points);
@@ -18905,11 +18939,13 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     clearGroup(selectedElemLabelGroup);
   }
   function updateSelectedLabels() {
+    const hidden = getDisplayHidden();
     const el = document.getElementById("selSelectedLabels");
     const on = !!(el && el.checked);
     clearSelectedLabels();
     if (!on) return;
     for (const nid of selection.nodes) {
+      if (hidden.nodes.has(nid)) continue;
       const idx = model.nodeIndex.get(nid);
       if (idx === void 0) continue;
       const p = nodePosition(idx);
@@ -18919,6 +18955,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     }
     if (selection.elems.size) {
       for (const eid of selection.elems) {
+        if (hidden.elems.has(eid)) continue;
         const elem = getElementByEidFast(eid);
         if (!elem) continue;
         const c = getElementLabelAnchor(elem);
@@ -18931,9 +18968,11 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     updateLabelVisibility();
   }
   function buildNodeLabels() {
+    const hidden = getDisplayHidden();
     const candidates = [];
     for (let i = 0; i < model.indexToNid.length; i++) {
       const nid = model.indexToNid[i];
+      if (hidden.nodes.has(nid)) continue;
       const idx = model.nodeIndex.get(nid);
       if (idx === void 0) continue;
       const p = nodePosition(idx);
@@ -18949,6 +18988,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     }
   }
   function buildElemLabels() {
+    const hidden = getDisplayHidden();
     const candidates = [];
     forEachAuthoritativeElementId((eidAny) => {
       const eid = Number(eidAny);
@@ -19503,11 +19543,13 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     applyOverlaySelectionVisuals();
   }
   function updateSelectionVisual() {
+    const hidden = getDisplayHidden();
     if (!highlightPoints) return;
     syncSelectModeFromUI();
     const arr = [];
     if (selectionManager.state.mode === "node") {
       for (const nid of selection.nodes) {
+        if (hidden.nodes.has(nid)) continue;
         const idx = model.nodeIndex.get(nid);
         if (idx !== void 0) {
           const p = nodePosition(idx);
@@ -19522,6 +19564,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
     applyOverlaySelectionVisuals();
   }
   function highlightSelectedElementVisual() {
+    const hidden = getDisplayHidden();
     syncSelectModeFromUI();
     try {
       window.__WEBMESH_EDITOR_RENDER_STATS__ = window.__WEBMESH_EDITOR_RENDER_STATS__ || {};
@@ -19590,6 +19633,7 @@ Press OK to override warnings and continue export, or Cancel to abort.`
         sel = byPid;
       }
     }
+    sel = sel.filter(eid => !hidden.elems.has(Number(eid)));
     if (sel.length === 0) return;
     try {
       const selSet = new Set(sel.map((v) => Number(v)).filter(Number.isFinite));
@@ -20872,6 +20916,7 @@ ${formatRanges(v.ranges, 200)}`;
     return !(maxX < x1 || minX > x2 || maxY < y1 || minY > y2);
   }
   function collectRenderedElementIdsInScreenRect(x1, y1, x2, y2) {
+    const hidden = getDisplayHidden();
     const out = /* @__PURE__ */ new Set();
     if (!canvas || !camera) return out;
     try {
@@ -21003,6 +21048,7 @@ ${formatRanges(v.ranges, 200)}`;
     return out;
   }
   function collectRenderedElementIdsInPolygon(polyPoints) {
+    const hidden = getDisplayHidden();
     const out = /* @__PURE__ */ new Set();
     if (!canvas || !camera || !Array.isArray(polyPoints) || polyPoints.length < 3) return out;
     try {
@@ -21303,6 +21349,7 @@ ${formatRanges(v.ranges, 200)}`;
     };
   }
   function countVisibleSolidElementsFromCoreSoa(core, includeEids = null) {
+    const hidden = getDisplayHidden();
     if (!core || !core.active || !(core.elemIds instanceof Int32Array) || !(core.elemTypeCode instanceof Int16Array)) return 0;
     const elemIds = core.elemIds;
     const elemTypeCode = core.elemTypeCode;
@@ -21320,6 +21367,7 @@ ${formatRanges(v.ranges, 200)}`;
     return count;
   }
   function buildVisibleSubsetBoundaryFacesFromCoreSoa(core, options = null) {
+    const hidden = getDisplayHidden();
     if (!core || !core.active) return null;
     const opts = options && typeof options === "object" ? options : {};
     const maxVisibleSolidsRaw = Number(opts.maxVisibleSolids);
@@ -21488,6 +21536,7 @@ ${formatRanges(v.ranges, 200)}`;
     return null;
   }
   function pickFrontVisibleNodeIndexAtClientPoint(clientX, clientY) {
+    const hidden = getDisplayHidden();
     if (!points || !model.indexToNid.length || !canvas || !camera) return -1;
     const rectCanvas = canvas.getBoundingClientRect();
     const cx = Number(clientX) - rectCanvas.left;
@@ -21503,6 +21552,7 @@ ${formatRanges(v.ranges, 200)}`;
     let bestDepth = Infinity;
     let indexHit = -1;
     for (let i = 0; i < model.indexToNid.length; i++) {
+      if (hidden.nodes.has(model.indexToNid[i])) continue;
       const pWorld = nodePosition(i);
       if (clipPickActive) {
         const dClip = cn.x * pWorld.x + cn.y * pWorld.y + cn.z * pWorld.z + cc;
@@ -22452,6 +22502,8 @@ ${formatRanges(v.ranges, 200)}`;
   initPanelLayoutControls();
   initSchemaFlyoutMenus();
   initInspectSettingTooltips();
+  var chkShowAnalysisExcluded = document.getElementById("chkShowAnalysisExcluded");
+  if (chkShowAnalysisExcluded) chkShowAnalysisExcluded.addEventListener("change", () => setShowAnalysisExcluded(chkShowAnalysisExcluded.checked));
   var chkShowDeformed = document.getElementById("chkShowDeformed");
   if (chkShowDeformed) {
     chkShowDeformed.addEventListener("change", () => {
@@ -27316,6 +27368,7 @@ ${formatRanges(v.ranges, 500)}`;
     return pairs;
   }
   function forEachVisibleShellPerimeterPairForFreeEdges(visitor) {
+    const hidden = getDisplayHidden();
     const visit = typeof visitor === "function" ? visitor : null;
     if (!visit) return;
     const core = model && model.coreSoa ? model.coreSoa : null;
@@ -28588,8 +28641,10 @@ ${formatRanges(v.ranges, 500)}`;
       const semantic = window.WebMeshOwnership.snapshot(model);
       // Protected manual inputs also retain authored precision/defaults. The
       // digest binds these snapshots to the saved deck just like owned cards.
-      for (const object of data.ownership.project.objects) for (const input of object.definition.inputs || []) window.WebMeshOwnership.put(semantic, input.card);
-      for (const entry of data.ownership.owners) window.WebMeshOwnership.put(semantic, entry.card);
+      window.WebMeshOwnership.putAll(semantic, [
+        ...data.ownership.project.objects.flatMap(object => (object.definition.inputs || []).map(input => input.card)),
+        ...data.ownership.owners.map(entry => entry.card)
+      ]);
       window.WebMeshOwnership.validate(data.ownership, semantic);
       for (const family of HISTORY_SEMANTIC_FAMILIES) if (family !== "projectOwnership") applyHistorySemanticFamilySnapshot(family, semantic[family]);
       model.projectOwnership = structuredClone(data.ownership);

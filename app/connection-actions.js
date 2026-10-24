@@ -26,6 +26,12 @@
     id(input.id);id(input.node);if(!Number.isFinite(input.mass)||input.mass<=0)throw Error('Mass must be positive in model mass units.');
     return {type:'CONM2',eid:input.id,g:input.node,cid:0,m:input.mass,x:vector(input.offset||[0,0,0],'Mass offset'),inertia:inertia(input.inertia||[0,0,0,0,0,0])};
   }
+  function rigidValue(input){
+    id(input.id);id(input.node);
+    if(!/^[1-6]+$/.test(input.components)||new Set(input.components).size!==input.components.length)throw Error('Enter distinct RBE2 dependent components 1–6.');
+    if(!Array.isArray(input.nodes)||!input.nodes.length||new Set([input.node,...input.nodes]).size!==input.nodes.length+1)throw Error('RBE2 needs distinct dependent nodes, excluding the reference point.');
+    input.nodes.forEach(id);return {type:'RBE2',eid:input.id,gn:input.node,cm:input.components,deps:input.nodes.slice()};
+  }
   function distributionValue(input){
     id(input.id);id(input.node);
     if(input.components&&input.components!=='123456')throw Error('This RBE3 action requires reference components 123456.');
@@ -59,6 +65,9 @@
       }else if(s.action==='mass'){
         const n=nodes.get(s.node);if(!n||n.cp)throw Error('Mass attachment GRID must exist in basic coordinates (CP=0).');
         card={family:'masses',id:s.id,value:massValue(s)};
+      }else if(s.action==='rbe2'){
+        const value=rigidValue(s);for(const n of [s.node,...s.nodes])if(!nodes.has(n))throw Error('Missing RBE2 GRID '+n+'.');
+        card={family:'elems',bucket:'rbe2',id:s.id,value};
       }else if(s.action==='rbe3'){
         const value=distributionValue(s);supportGeometry(value,nodes);card={family:'elems',bucket:'rbe3',id:s.id,value};
       }else throw Error('Unsupported connection action: '+s.action);
@@ -66,5 +75,5 @@
     }
     return {cards,actions:trace};
   }
-  return Object.freeze({execute,quantity,inertia,massValue,distributionValue,supportGeometry});
+  return Object.freeze({execute,quantity,inertia,massValue,rigidValue,distributionValue,supportGeometry});
 }));

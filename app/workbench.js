@@ -124,6 +124,7 @@
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
   const partWorkspace=window.WebMeshPartWorkspace.create({engine,cad:()=>cadWorkspace,run,dialog,review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
+  const assemblyWorkspace=window.WebMeshAssemblyWorkspace.create({engine,run,dialog,review:reviewProject});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
   const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
   const selectionWorkspace=window.WebMeshSelectionWorkspace.create({engine,run,dialog,review:reviewProject,close:closeDialog,dock:()=>{cadWorkspace.activate(false);$('wb-dialog').close();$('wb-dialog').classList.add('docked');$('wb-dialog').show();}});
@@ -187,7 +188,7 @@
       html+=section('Boundary conditions',`<div class="wb-tool-list">${tool('load','Loads','Forces, moments, pressure and load combinations','load')}${tool('constraint','Constraints','Single-point constraints and constrained DOFs','lock')}${tool('coordinate','Coordinate systems','Define local rectangular or cylindrical frames','cube')}</div>`);
       html+=section('Mesh authoring',`<button class="wb-tool-card" id="wb-mesh-actions"><span><strong>Mesh actions</strong><small>Create from nodes · faces · extrude shells or solids · analysis inclusion</small></span></button>`);
       html+=section('Selections & directions',`<button class="wb-tool-card" id="wb-selection-repair"><span><strong>Selections & repair</strong><small>Named mesh regions · pick proposed nodes/elements · repair</small></span></button><button class="wb-tool-card" id="wb-frame-tool"><span><strong>Reusable coordinate frames</strong><small>CORD2R · load/stiffness axes · GRID support directions</small></span></button>`);
-      html+=section('Connections',`<button class="wb-tool-card" id="wb-mass-tool"><span><strong>Masses & payloads</strong><small>COM · CONM2 · weighted RBE3 · direct connection actions</small></span></button><button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>RBE3 distributed tie or conforming embedded shells</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
+      html+=section('Connections',`<button class="wb-tool-card" id="wb-assembly-tool"><span><strong>Reusable assembly connections</strong><small>Recipes · region bindings · live placements · overrides</small></span></button><button class="wb-tool-card" id="wb-mass-tool"><span><strong>Masses & payloads</strong><small>COM · CONM2 · weighted RBE3 · direct connection actions</small></span></button><button class="wb-tool-card" id="wb-interface-tool"><span><strong>Shell–solid interfaces</strong><small>RBE3 distributed tie or conforming embedded shells</small></span></button><button class="wb-tool-card" id="wb-mounting-tool"><span><strong>Mounting regions & attachments</strong><small>Named CAD faces · editable RBE2/CBUSH · shared stiffness</small></span></button><button class="wb-tool-card" id="wb-bolt-tool"><span><strong>Simulated bolts</strong><small>RBE2 attachments with CBUSH or rod shanks; single or patterned</small></span></button>`);
       html+=section('Model editing',`<div class="wb-tool-list">${tool('cards','Create nodes','Individual GRID cards and coordinate references','node')}${tool('element','Create elements','Shells, solids, beams, rods and rigid elements','mesh')}${tool('modify','Modify entities','Edit existing cards with schema-driven forms','setup')}${tool('selection','Selection & inspection','Pick, select by ID, filter and edit node coordinates','select')}${tool('transform','Transform mesh','Move, rotate, reflect and merge nodes','rotate')}</div>`)+`<div id="wb-report"></div>`;
       foot=button('wb-check-mesh','Check mesh connectivity','check','primary');
     } else {
@@ -274,6 +275,7 @@
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    if(assemblyWorkspace.open(id))return;
     if(partWorkspace.open(id))return;
     if([window.WebMeshAnalysisProject.SET,window.WebMeshAnalysisProject.CASE].includes(object.definition.generator)){run(()=>analysisWorkspace.open(id));return;}
     if(window.WebMeshRegions.isRegion(object)){run(()=>selectionWorkspace.open(id));return;}
@@ -318,6 +320,7 @@
     if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(request,options);
     request=window.WebMeshRegions.rebuild(state,window.WebMeshSelections.project(state,semantic,request).semantic,request);
     request=window.WebMeshAttachmentProject.rebuild(state,request);
+    request=window.WebMeshAssembly.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshMassProject.rebuild(state,request);
     request=window.WebMeshActionProject.rebuild(state,request,window.WebMeshSelections.project(state,semantic,request).semantic);
     request=window.WebMeshAnalysisProject.rebuild(state,request);
@@ -380,6 +383,7 @@
     $('wb-interface-tool')?.addEventListener('click',()=>{if(!busy)interfaceWorkspace.list();});
     $('wb-analysis-tool')?.addEventListener('click',()=>{if(!busy)run(()=>analysisWorkspace.list());});
     $('wb-mass-tool')?.addEventListener('click',()=>{if(!busy)massWorkspace.list();});
+    $('wb-assembly-tool')?.addEventListener('click',()=>{if(!busy)assemblyWorkspace.list();});
     $('wb-mounting-tool')?.addEventListener('click',()=>{if(!busy)attachmentWorkspace.list();});
     $('wb-bolt-tool')?.addEventListener('click',()=>{if(!busy){patternKind='bolts';setTab('pattern');}});
     document.querySelectorAll('[data-primitive]').forEach(el=>el.onclick=()=>{if(busy)return;rememberForm();if(editingPlate){savedForms.delete('build:plate');editingPlate=null;}primitive=el.dataset.primitive;invalidatePreview();renderPanel();});

@@ -31,3 +31,18 @@ FOR ELEMENT TYPE QUAD4
  assert.equal(result.stresses[4].vonMises,8.5);assert.equal(result.stresses[4].normalX,4);
  assert.equal(result.stresses[4].shearXZ,.2);
 });
+
+test('CBUSH recovery components never masquerade as shell von Mises stress',()=>{
+ const result=parse(`OUTPUT FOR SUBCASE 1
+ELEMENT STRESSES IN LOCAL ELEMENT COORDINATE SYSTEM
+FOR ELEMENT TYPE BUSH
+  10 1.0 2.0 3.0 400.0 19892.02 600.0
+1 PAGE
+ELEMENT STRESSES IN LOCAL ELEMENT COORDINATE SYSTEM
+FOR ELEMENT TYPE QUAD4
+  4 CENTER -1.0 1.0 2.0 0.1 0.0 3.0 2.0 4.2016 0.2 0.3
+`);
+ assert.equal(result.stresses[10].c5,19892.02);
+ assert.equal(result.stresses[10].vonMises,undefined);
+ assert.equal(Math.max(...Object.values(result.stresses).map(v=>v.vonMises).filter(Number.isFinite)),4.2016);
+});

@@ -39,3 +39,13 @@ test('numerical indicators and independent applied/reaction resultant balance ar
  const coords=[[1,[0,0,0]],[2,[2,0,0]]],d=R.diagnostics(text,'0 FATAL ERRORS',coords);assert.equal(d.numericalStatus,'indicator-passed');assert.equal(d.equilibrium.status,'passed');
  assert.equal(R.diagnostics(text.replace('-20.0','-10.0'),'',coords).equilibrium.status,'failed');assert.equal(R.diagnostics(text,'',null).equilibrium.status,'not-checked');assert.equal(R.diagnostics(text,'relative residual = 0.01',coords).numericalStatus,'check-failed');
 });
+test('MYSTRAN projection fits small signed decimals and expands mixed SPC1 ranges without changing memberships',()=>{
+ const input=deck.replace('GRID,1,,0.,0.,0.','GRID,1,,-0.00001234567890123,1.234567890123e-25,0.\nSPC1,3,123,1,THRU,3,8,10\n+,THRU,12,20\nCBUSH,9,1,1,2,0.,1.,0.,4');const p=R.profile(input,'mystran',{autospc:true});
+ assert.deepEqual(p.deck.split('\n').filter(l=>l.startsWith('SPC1,')).map(l=>Number(l.split(',')[3])),[1,2,3,8,10,11,12,20]);const grid=p.deck.split('\n').find(l=>l.startsWith('GRID,')).split(',');assert.ok(grid.every(v=>v.length<=16));assert.ok(Math.abs(Number(grid[3])/(-0.00001234567890123)-1)<1e-10);assert.match(p.deck,/CBUSH,9,1,1,2,,,,4/);
+ assert.throws(()=>R.profile(input.replace('THRU,3','THRU,0'),'mystran'),/range/);
+});
+test('equilibrium scales cancelling components by contributing loads and retains a separate print bound',()=>{
+ const text='OUTPUT FOR SUBCASE 1\nAPPLIED FORCES\n1 0 0.0 0.0 -1.000000E+00 0.0 0.0 0.0\n2 0 0.0 0.0 -1.000000E+00 0.0 0.0 0.0\nSPC FORCES\n1 0 0.0 0.0 1.000001E+00 0.0 0.0 0.0\n2 0 0.0 0.0 9.999990E-01 0.0 0.0 0.0\n';
+ const coords=[[1,[-100,0,0]],[2,[100,0,0]]],r=R.equilibrium(text,coords);assert.equal(r.status,'passed');assert.equal(r.cases[0].strictResultantPassed,false);assert.equal(r.cases[0].scale[4],200);assert.ok(r.cases[0].printBound[4]>0);assert.ok(Math.abs(r.cases[0].normalizedResidual[4])<1e-5);
+ assert.equal(R.equilibrium(text.replace('9.999990E-01','9.900000E-01'),coords).status,'failed');
+});

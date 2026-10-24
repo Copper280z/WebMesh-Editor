@@ -1,8 +1,8 @@
 (function (root, factory) {
   'use strict';
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'), require('./mesh-region-project.js'), require('./part-project.js'));
-  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates, root.WebMeshRegions, root.WebMeshParts);
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates, Regions, Parts) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./project.js'), require('./connection-actions.js'), require('./analysis-actions.js'), require('./coordinate-project.js'), require('./mesh-region-project.js'), require('./part-project.js'), require('./assembly-project.js'));
+  else root.WebMeshOwnership = factory(root.WebMeshProject, root.WebMeshConnectionActions, root.WebMeshAnalysisActions, root.WebMeshCoordinates, root.WebMeshRegions, root.WebMeshParts, root.WebMeshAssembly);
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Project, Connections, Analysis, Coordinates, Regions, Parts, Assembly) {
   'use strict';
   // The adapter deliberately supports a closed set of generated semantic cards.
   // Unknown hand-card references fail closed, rather than guessing from integers.
@@ -45,6 +45,20 @@
     remove(semantic, key(row.family, row.id));
     if (row.family === 'elems') (semantic.elems[row.bucket] ||= []).push(copy(row.value));
     else { (semantic[row.family] ||= []).push([row.id, copy(row.value)]); semantic[row.family].sort((a, b) => a[0] - b[0]); }
+  }
+  // Restore large ownership snapshots in one pass. Later entries replace earlier
+  // entries, as repeated put calls do (owned cards supersede input snapshots).
+  function putAll(semantic, cards) {
+    const replacements=new Map();for(const c of cards)replacements.set(key(c.family,c.id),c);
+    const grouped=new Map();for(const c of replacements.values()){if(!grouped.has(c.family))grouped.set(c.family,[]);grouped.get(c.family).push(c);}
+    for(const [family,rows]of grouped){
+      if(sets(family)){for(const row of rows)Analysis.put(semantic,row);continue;}
+      const ids=new Set(rows.map(c=>c.id));
+      if(family==='elems'){
+        for(const bucket of Object.keys(semantic.elems||{}))semantic.elems[bucket]=semantic.elems[bucket].filter(v=>!ids.has(v.eid));
+        for(const row of rows)(semantic.elems[row.bucket]||=[]).push(copy(row.value));
+      }else semantic[family]=[...(semantic[family]||[]).filter(([id])=>!ids.has(id)),...rows.map(c=>[c.id,copy(c.value)])].sort((a,b)=>a[0]-b[0]);
+    }
   }
   function remove(semantic, k) {
     if (/^(load|constraint):/.test(k)) { Analysis.remove(semantic, k.startsWith('load:') ? 'loadSets' : 'constraintSets', Number(k.split(':')[1])); return; }
@@ -208,6 +222,7 @@
     for (const object of objects.values()) {
       if(Regions.isRegion(object))Regions.validate(object,objects,semantic);
       Parts.validate(object,objects);
+      Assembly.validate(object,objects);
       const frameRoles=new Set();
       for(const b of object.definition.nodeFrames||[]){const c=object.definition.cards?.find(c=>c.family==='nodes'&&c.role===b.role);if(frameRoles.has(b.role)||!c||(c.value.cd||0)!==Coordinates.frame(s,b.frame).cid||b.frame&&!object.dependsOn.includes(b.frame))fail(object.name+': invalid GRID displacement-frame assignment.');frameRoles.add(b.role);}
       if (object.definition.embeddedBy) {
@@ -351,5 +366,5 @@
     const ownershipChanges = [...new Set([...previousOwners.keys(), ...nextOwners.keys()])].filter(k => !equal(previousOwners.get(k), nextOwners.get(k))).map(k => ({ key: k, before: previousOwners.get(k) || null, after: nextOwners.get(k) || null }));
     return copy({ semantic: after, ownership: next, changes, ownershipChanges, project: corePreview });
   }
-  return Object.freeze({ analysisExclusions, analysisNodeExclusions, snapshot, rows, put, validate, preview, guard, references, empty, equal, canonical });
+  return Object.freeze({ analysisExclusions, analysisNodeExclusions, snapshot, rows, put, putAll, validate, preview, guard, references, empty, equal, canonical });
 }));

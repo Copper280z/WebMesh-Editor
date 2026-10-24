@@ -1,6 +1,6 @@
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./connection-actions.js'),require('./attachment-project.js'));else root.WebMeshMassProject=factory(root.WebMeshConnectionActions,root.WebMeshAttachmentProject);}(typeof globalThis!=='undefined'?globalThis:this,function(A,Mount){
   'use strict';
-  const POINT='analysis-point-v1',MASS='point-mass-v1',DISTRIBUTION='rbe3-distribution-v1',PAYLOAD='distributed-payload-v1';
+  const RIGID='rigid-connection-v1',POINT='analysis-point-v1',MASS='point-mass-v1',DISTRIBUTION='rbe3-distribution-v1',PAYLOAD='distributed-payload-v1';
   const copy=v=>JSON.parse(JSON.stringify(v)),catalog=state=>new Map((state?.project.objects||[]).map(o=>[o.id,o]));
   const next=(state,ids,ns)=>Math.max(ids[ns]||1,...(state?.project.reservations||[]).filter(r=>r.namespace===ns).map(r=>r.end+1));
   const units=state=>state?.project.units||{mass:'t',length:'mm',force:'N',time:'s'};
@@ -14,12 +14,13 @@
     return {...copy(object),dependsOn:[...new Set((d.sources||[]).map(s=>s.owner))],definition:{...copy(d),cards:result.cards,actions:result.actions}};
   }
   function direct(input,state,semantic,ids){
-    const generator={point:POINT,mass:MASS,rbe3:DISTRIBUTION}[input.action];if(!generator)throw Error('Choose a point, mass or RBE3 action.');
+    const generator={point:POINT,mass:MASS,rbe3:DISTRIBUTION,rbe2:RIGID}[input.action];if(!generator)throw Error('Choose a point, mass, RBE2 or RBE3 action.');
     const old=oldObject(input,state,generator),p=parseValues(input,state),action={action:input.action,id:old?.definition.action.id||next(state,ids,input.action==='point'?'node':'element')};
     if(input.action==='point')action.position=p.position;
     if(input.action==='mass')Object.assign(action,{node:input.node,mass:p.mass,offset:p.offset||[0,0,0],inertia:p.inertia});
+    if(input.action==='rbe2')Object.assign(action,{node:input.node,components:input.components,nodes:copy(input.nodes)});
     if(input.action==='rbe3')Object.assign(action,{node:input.node,components:'123456',groups:copy(input.groups)});
-    const index=gridIndex(catalog(state)),plain=new Map(semantic.nodes),selected=[...new Set(input.action==='point'?[]:[input.node,...(input.groups||[]).flatMap(g=>g.gids)])],sources=[],inputs=[];
+    const index=gridIndex(catalog(state)),plain=new Map(semantic.nodes),selected=[...new Set(input.action==='point'?[]:[input.node,...(input.nodes||[]),...(input.groups||[]).flatMap(g=>g.gids)])],sources=[],inputs=[];
     for(const id of selected){const owned=index.get(id);if(owned)sources.push({id,owner:owned.owner,role:owned.role});else{const n=plain.get(id);if(!n)throw Error('Missing GRID '+id+'.');inputs.push({key:'node:'+id,card:{family:'nodes',id,value:copy(n)}});}}
     const object={id:input.id,name:input.name.trim(),kind:input.action==='point'?'point':'connection',definition:{generator,action,sources,inputs,cards:[]}};
     return {label:(old?'Update ':'Create ')+object.name,objects:[resolveDirect(object,catalog(state))]};
@@ -62,13 +63,13 @@
       if(done.has(o.id)||!affected.has(o.id))return;done.add(o.id);
       for(const id of o.dependsOn||[])if(map.has(id))evaluate(map.get(id));
       if(o.definition.generator===PAYLOAD)for(const r of payloadResolution(o,map)){map.set(r.id,r);changed.set(r.id,r);}
-      if([POINT,MASS,DISTRIBUTION].includes(o.definition.generator)){const r=resolveDirect(o,map);map.set(r.id,r);changed.set(r.id,r);}
+      if([POINT,MASS,DISTRIBUTION,RIGID].includes(o.definition.generator)){const r=resolveDirect(o,map);map.set(r.id,r);changed.set(r.id,r);}
     }
     for(const o of map.values())evaluate(o);
     return {...copy(request),objects:[...changed.values()]};
   }
   function rootFor(state,id){const map=catalog(state),o=map.get(id);return o?.definition.payload?map.get(o.definition.payload):o;}
-  function removal(state,id){const o=rootFor(state,id);if(!o||![POINT,MASS,DISTRIBUTION,PAYLOAD].includes(o.definition.generator))throw Error('Unknown mass/connection object.');const ids=o.definition.generator===PAYLOAD?[o.id,o.definition.point]:[o.id];const users=[...catalog(state).values()].filter(c=>!ids.includes(c.id)&&(c.dependsOn||[]).some(d=>ids.includes(d)));if(users.length)throw Error('Resolve dependent objects first: '+users.map(o=>o.name).join(', '));return{label:'Remove '+o.name,removeObjects:ids};}
+  function removal(state,id){const o=rootFor(state,id);if(!o||![POINT,MASS,DISTRIBUTION,RIGID,PAYLOAD].includes(o.definition.generator))throw Error('Unknown mass/connection object.');const ids=o.definition.generator===PAYLOAD?[o.id,o.definition.point]:[o.id];const users=[...catalog(state).values()].filter(c=>!ids.includes(c.id)&&(c.dependsOn||[]).some(d=>ids.includes(d)));if(users.length)throw Error('Resolve dependent objects first: '+users.map(o=>o.name).join(', '));return{label:'Remove '+o.name,removeObjects:ids};}
   function describe(state,request){const u=units(state);return(request.objects||[]).filter(o=>o.definition.generator===PAYLOAD).map(o=>{const d=o.definition;return o.name+': '+d.parameters.mass+' '+u.mass+' at COM ('+d.resolved.com.join(', ')+') '+u.length+'; '+d.resolved.nodes.length+' support nodes. Region influence is divided equally among its nodes. Reference DOFs 123456; independent DOFs 123. Mesh material mass is retained.';}).join(' ');}
-  return Object.freeze({POINT,MASS,DISTRIBUTION,PAYLOAD,units,direct,payload,rebuild,rootFor,removal,describe});
+  return Object.freeze({POINT,MASS,DISTRIBUTION,RIGID,PAYLOAD,units,direct,payload,rebuild,rootFor,removal,describe});
 }));

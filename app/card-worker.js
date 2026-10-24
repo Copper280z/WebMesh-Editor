@@ -4746,7 +4746,7 @@ function hydrateIndexes(cardStream, strictMode, errors, warnings, directSoa = nu
 
   // Pass 1: coordinates
   for (const rec of cardStream) {
-    if (!rec || rec.kind !== 'card') continue;
+    if (!rec || rec.kind !== 'card' || rec.caseControl) continue;
     const name = toUpper(rec.name);
 
     // Optional schema-driven hydration (must be enabled by caller).
@@ -4808,7 +4808,7 @@ function hydrateIndexes(cardStream, strictMode, errors, warnings, directSoa = nu
   }
 
   for (const rec of cardStream) {
-    if (!rec || rec.kind !== 'card') continue;
+    if (!rec || rec.kind !== 'card' || rec.caseControl) continue;
     const name = toUpper(rec.name);
     if (name === 'GRID' && hasDirectRecord(rec, 'grid')) {
       const node = hydrateDirectGrid(rec);
@@ -7397,7 +7397,8 @@ async function parseDeckToCardStream(entryText, entryFileKey, files, options) {
       }
 
       const sourceRef = { file: fileKey, line: startLineNo };
-      const directParsed = tryParseDirectSoaCard(name, fmt, sourceBytes, rawLineInfos, sourceRef);
+      const caseControl = !inBulk && /^[A-Z][A-Z0-9_ ()]*\s*=/i.test(decodeLineByInfo(sourceBytes, rawLineInfos[0]).trim());
+      const directParsed = caseControl ? null : tryParseDirectSoaCard(name, fmt, sourceBytes, rawLineInfos, sourceRef);
       if (directParsed) {
         if (solidFaceSet && Number.isFinite(Number(directParsed.boundaryCornerCount))) {
           const elemIdx = Number(directParsed.directSoaIndex) | 0;
@@ -7515,6 +7516,7 @@ async function parseDeckToCardStream(entryText, entryFileKey, files, options) {
       const includeFirstLine = (!needsLineStorage) && name === 'GRID' && (fmt === 'small' || fmt === 'large');
       const cardRecord = {
         kind: 'card',
+        ...(caseControl ? { caseControl: true } : {}),
         name,
         fmt,
         tokens: tokenized.tokens,
@@ -7552,7 +7554,7 @@ async function parseDeckToCardStream(entryText, entryFileKey, files, options) {
   if (schema) {
     const enableSchemaHydration = !!(options && options.hydrateBySchema);
     for (const rec of cardStream) {
-      if (!rec || rec.kind !== 'card') continue;
+      if (!rec || rec.kind !== 'card' || rec.caseControl) continue;
       const def = getCardDefFromSchema(schema, rec.name);
       if (def && Array.isArray(def.fields) && def.fields.length > 0) {
         rec.schemaDef = def;
@@ -10317,6 +10319,7 @@ function handleWriteRequest(msg) {
         continue;
       }
       const kind = String(rec.kind || '');
+      if (rec.caseControl) { outLines.push(...(getRecordRawLinesForWrite(rec) || [rec.tokens.join('')])); continue; }
       if (kind === 'card' && semanticFamilyForCardName(rec.name) === 'elements' && excludedElements.has(parseNastranInt(getHydrationTokens(rec)[1]))) continue;
       if (kind === 'card' && String(rec.name).replace(/\*$/, '').toUpperCase() === 'GRID' && excludedNodes.has(parseNastranInt(getHydrationTokens(rec)[1]))) continue;
 
@@ -10772,6 +10775,9 @@ function parseF06Results(f06Text) {
     const prev = targetMap[eid] && typeof targetMap[eid] === 'object' ? targetMap[eid] : { type };
     const out = { ...prev, type };
     mergeByMaxAbs(out, values);
+    // PBUSH recovery components are not a stress tensor. Preserve them for
+    // inspection without inventing an equivalent stress from their maximum.
+    if (type === 'BUSH') { delete out.vonMises; targetMap[eid] = out; return; }
 
     if (!Number.isFinite(out.vonMises)) {
       const fallback = [
@@ -11469,6 +11475,9 @@ function parseF06ResultsV2(f06Text) {
     const prev = targetMap[eid] && typeof targetMap[eid] === 'object' ? targetMap[eid] : { type };
     const out = { ...prev, type };
     mergeByMaxAbs(out, values);
+    // PBUSH recovery components are not a stress tensor. Preserve them for
+    // inspection without inventing an equivalent stress from their maximum.
+    if (type === 'BUSH') { delete out.vonMises; targetMap[eid] = out; return; }
     if (!Number.isFinite(out.vonMises)) {
       const fallback = [
         out.principalMajor, out.principalMinor, out.normalX, out.normalY, out.shearXY,

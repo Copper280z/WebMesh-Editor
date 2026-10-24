@@ -79,6 +79,14 @@ Use **Parts → Add CAD part** to retain multiple CAD sources in one project. **
 
 The original source placement stays at modeling coordinates. **Use source as reference only** excludes its elements and unused GRIDs from analysis exports while retaining them in saved projects. **Make independent mesh** freezes a placement as an editable mesh snapshot; it no longer follows the source CAD recipe. See the [milestone and limits](docs/design/implementation-12-parts-instances.md) and the [saved rover/wheel assembly](docs/design/validation/parts-instances/README.md).
 
+### Reusable assembly connections
+
+Use **Model setup → Reusable assembly connections → New connection recipe** to define local mount/shaft positions, dependent translations, six CBUSH stiffnesses, and an optional motor mass/offset. **Create connection** binds that recipe to a mounting region, optional driven region, and a live part placement or reusable rectangular frame. The resulting points, RBE2s, CBUSH and CONM2 are composed from the public authoring actions and reviewed before Apply.
+
+Edit the recipe to update its repeats together. Check a parameter's **Override** to keep a local value, or uncheck it to inherit again. **Repeat for another region** keeps the recipe; **Make independent recipe** copies its effective parameters into a separate editable recipe. Compatible remeshing re-resolves named regions and retains connector/point IDs. Direct RBE2 authoring is also available in **Masses & payloads**.
+
+The [full rover validation](docs/design/validation/assembly-connections/README.md) includes two independent CAD parts, four connected wheel instances, battery/payload masses, two MYSTRAN cases and saved results. In **Post-process → Contours & deformation**, **Show analysis-excluded mesh** controls whether reference parts and excluded elements are drawn; it does not change solver participation or the analyst's other visibility choices. This session-level option defaults off for results and is retained when switching output sets.
+
 ### Patterns and joining
 
 Linear instance counts include the original. Use counts such as `[5,1,1]`, `[5,3,1]`, or `[5,3,2]` for one-, two-, or three-direction arrays, with a spacing vector for each active direction. Circular patterns use a center, axis, instance count and sweep angle. A full 360-degree sweep omits the duplicate final instance; partial sweeps include both endpoints.
@@ -269,7 +277,7 @@ The primary connection is **RBE2 + CBUSH** with a new PBUSH containing six user-
 
 **Save project** downloads a `.webmesh` JSON snapshot containing the current deck, original source CAD, the prepared BREP geometry, generated-mesh association and recent operation descriptions. The project file does not include imported F06 results, the full undo stack, or every viewport setting; reopen results files after restoring a project. Projects are downloaded files, not an automatic cloud save.
 
-**Export deck** downloads a Nastran `.bdf` file for an external solver. The underlying writer supports free, small and large field formats. WebMesh prepares and reviews models; it does not execute a structural solver or generate a complete analysis setup automatically.
+**Export deck** downloads a Nastran `.bdf` file for an external solver. The underlying writer supports free, small and large field formats. Configured local MYSTRAN/Vibestran runs are available through **Analysis cases & runs**; the analyst defines the analysis and reviews the solver input before launching it.
 
 ## Viewport and selection
 

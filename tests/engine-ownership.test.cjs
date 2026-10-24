@@ -1156,3 +1156,25 @@ test('analysis export omits unused reference-source GRIDs but retains assembly r
  const c=fixture();for(const [k,v]of Object.entries(a.semantic))c.model[k]=['nodes','properties','materials','coords','masses'].includes(k)?new Map(copy(v)):copy(v);c.model.projectOwnership=copy(a.ownership);c.syncWorkerFromEditorModel();const saved=await exportParsed(c,'free');assert.equal(saved.indexes.nodes.size,a.semantic.nodes.length);
  for(const format of ['source','free','small','large']){const r=await exportParsed(c,format,saved.deck,{excludeElements,excludeNodes});assert.equal(r.indexes.nodes.size,a.semantic.nodes.length-excludeNodes.length);assert.ok(r.indexes.nodes.has(keep));assert.ok(r.cards.some(c=>c.name==='CONM2'));assert.equal(r.cards.filter(c=>c.name==='CHEXA').length,a.semantic.elems.hex.length-excludeElements.length);}
 });
+
+const Assembly=require('../app/assembly-project.js');
+function apply13(a,r){return O.preview(a.semantic,a.ownership,Assembly.rebuild(a.ownership,rebuild12(a,r),nextPlateIds));}
+test('assembly recipe survives native remesh, real engine history and writer round trip',async()=>{
+ let a=await cadPreview();a=apply13(a,Mount.region({id:'motor-region',name:'Mount face',mesh:'cad',faces:[1]},a.ownership));
+ a=apply13(a,Assembly.template({id:'motor-recipe',name:'Reusable motor',parameters:{mass:'350 g'}},a.ownership,nextPlateIds));
+ a=apply13(a,Assembly.connection({id:'motor-repeat',name:'Motor',template:'motor-recipe',region:'motor-region'},a.ownership,nextPlateIds));
+ const get=s=>s.project.objects.find(o=>o.id==='motor-repeat'),old=get(a.ownership),oldNodes=old.definition.cards.find(c=>c.role==='mount').value.deps;
+ const remesh=await Cad.build(cadInput({size:2}),a.ownership,nextPlateIds),b=apply13(a,remesh.request),next=get(b.ownership);
+ assert.deepEqual(next.definition.cards.map(c=>c.id),old.definition.cards.map(c=>c.id));assert.notDeepEqual(next.definition.cards.find(c=>c.role==='mount').value.deps,oldNodes);
+ const c=fixture();for(const [k,v]of Object.entries(a.semantic))c.model[k]=['nodes','properties','materials','coords','masses'].includes(k)?new Map(copy(v)):copy(v);c.model.projectOwnership=copy(a.ownership);c.syncWorkerFromEditorModel();const before=O.snapshot(c.model),state=copy(c.model.projectOwnership);
+ const tx=await c.previewProjectChange({objects:b.ownership.project.objects.filter(o=>!O.equal(a.ownership.project.objects.find(p=>p.id===o.id)?.definition,o.definition)),reservations:remesh.request.reservations,removeObjects:remesh.request.removeObjects});tx.commit();
+ const after=O.snapshot(c.model);c.historyManager.undo();assert.deepEqual(O.snapshot(c.model),before);assert.deepEqual(copy(c.model.projectOwnership),state);c.historyManager.redo();assert.deepEqual(O.snapshot(c.model),after);
+ c.writeCardEngine=async()=>(await exportParsed(c)).deck;c.loadFromText=async()=>{};const saved=await c.saveProjectModel();await c.loadProjectModel(saved,'assembly.webmesh');assert.doesNotThrow(()=>O.validate(copy(c.model.projectOwnership),O.snapshot(c.model)));const written=await exportParsed(c);assert.match(written.deck,/RBE2,/);assert.match(written.deck,/CBUSH,/);assert.match(written.deck,/CONM2,/);
+});
+test('case-control FORCE output is opaque while bulk FORCE remains a validated load',async()=>{
+ const messages=[],worker=vm.createContext({Map,Set,self:{postMessage:m=>messages.push(m)},console,TextEncoder,TextDecoder,performance,setTimeout,clearTimeout});vm.runInContext(require('./helpers/worker-source.cjs'),worker);
+ const deck='SOL 101\nCEND\nSUBCASE 1\n  FORCE = ALL\n  SPC = 1\n  LOAD = 2\nBEGIN BULK\nGRID,1,,0.,0.,0.\nFORCE,2,1,0,1.,0.,4.9,0.\nSPC1,1,123,1\nENDDATA\n';
+ const parsed=await worker.parseDeckToCardStream(deck,'case-force.bdf',{}, {strictMode:true,retainParseSession:true,retainSourceSession:true});assert.deepEqual(copy(parsed.errors),[]);assert.equal(worker.getParseSession(parsed.model.parseSessionId).indexes.loads.get(2).length,1);
+ worker.handleWriteRequest({model:parsed.model,options:{writeFormat:'free'}});const written=messages.find(m=>m.type==='WRITE_COMPLETE').text;assert.match(written,/FORCE = ALL/);assert.match(written,/FORCE,2,1/);
+ const bad=await worker.parseDeckToCardStream(deck.replace('FORCE,2,1,0,1.,0.,4.9,0.','FORCE,2,1,0,1.'),'bad-force.bdf',{}, {strictMode:true});assert.ok(bad.errors.some(e=>e.message.includes('FORCE')));
+});

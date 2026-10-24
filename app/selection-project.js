@@ -44,7 +44,7 @@
     else if(d.generator===M.REGION)built=M.region({id:o.id,name:o.name,mesh:input.mesh||d.selector.mesh,kind:input.kind||d.selector.kind,faces:input.faces||d.selector.faces},s);
     else if([Tie.GENERATOR,Embedded.GENERATOR].includes(d.generator))built=(d.generator===Tie.GENERATOR?Tie:Embedded).build({...d,id:o.id,name:o.name,edges:input.edges||d.edges,faces:input.faces||d.faces},s,ids);
     else if(d.generator===Analysis.SET){const a=d.action;built=Analysis.set({...a,id:o.id,name:o.name,region:d.region,frame:d.frame,nodes:input.selectedNodes||a.nodes?.map(n),node:a.node?n(a.node):undefined},s,m);}
-    else if([Mass.MASS,Mass.DISTRIBUTION].includes(d.generator)){const a=d.action;built=Mass.direct({...a,id:o.id,name:o.name,node:n(a.node),groups:a.groups?.map(g=>({...g,gids:g.gids.map(n)}))},s,m,ids);}
+    else if([Mass.MASS,Mass.DISTRIBUTION,Mass.RIGID].includes(d.generator)){const a=d.action;built=Mass.direct({...a,id:o.id,name:o.name,node:n(a.node),nodes:a.nodes?.map(n),groups:a.groups?.map(g=>({...g,gids:g.gids.map(n)}))},s,m,ids);}
     else if(d.generator==='analysis-participation-v1')built=Mesh.participation({id:o.id,name:o.name,region:d.region,elements:input.selectedElements||d.analysisExcluded.map(x=>e(x.id))},s,m);
     else if(d.generator===Mesh.GENERATOR){
       if(d.modifiedOwners?.length)throw Error('Restore/remove this node-sharing action before replacing its connectivity inputs.');
