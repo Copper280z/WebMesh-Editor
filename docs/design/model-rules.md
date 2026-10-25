@@ -288,6 +288,8 @@ Each scenario is a test on the rover project:
   - the mount regenerates with its overrides intact;
   - the diff shows only RR's cards.
 
+Implementation note (milestone 18): S3's identity/repair workflow is exercised using a real revision of the prepared chassis sheets. Eleven unchanged faces remain committed; two changed faces form a pending patch, so the intermediate checks name the patch, RR region and RR connection. After patch meshing, repairing the named RR pattern restores only its four connection cards. The reference solid, shaft opening and explicit wheel/motor points remain fixed in this fixture. General CAD preparation replay and one-click arbitrary feature recognition remain open. The MYSTRAN run completes but retains a small strict moment-balance warning; this is not an all-green numerical acceptance claim.
+
 **S4. Edit a generated card.** Run the worked example of section 2, steps 1–8, saving and reopening between steps 4 and 5.
 - *Expect:*
   - nothing is silently lost at any step;

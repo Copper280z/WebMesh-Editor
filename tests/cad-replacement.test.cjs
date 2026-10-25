@@ -7,7 +7,7 @@ const ids=s=>Object.fromEntries(['node','element','property','material','coordin
 function input(size=3){const a=H.analyze(topo),intervals=H.solveIntervals(a,{size});return {id:'mesh',name:'Block mesh',part:'part',topology:topo,snapshot,volumes:[1],settings:{version:2,mesh:{method:'mapped'},sizing:{size,edges:[]}},mesh:H.generateMesh(a,intervals,H.createGeometry(topo,fixture.preview),{order:1})};}
 function apply(a,request){const active=R.active(a?.ownership,request),s=active.state;let r=active.request;r=P.rebuild(s,r,ids(a?.ownership));r=P.scopedRegions(s,r);r=Regions.rebuild(s,Selections.project(s,a?.semantic||empty(),r).semantic,r);r=Mount.rebuild(s,r);r=Analysis.rebuild(s,r);return O.preview(a?.semantic||empty(),a?.ownership,active.merge(r));}
 async function model(){const src={id:'source',kind:'source',name:'Box CAD',definition:{generator:'cad-source-v1',geometryKey:await C.geometryFingerprint(topo),topology:topo,snapshot,cards:[]}},part=P.part({id:'part',name:'Box',source:'source'},{project:{objects:[src]}}).objects[0];let a=apply(null,{objects:[src,part]});a=apply(a,(await C.build(input(),a.ownership,ids(a.ownership))).request);a=apply(a,Mount.region({id:'mount',name:'End mounting face',mesh:'mesh',faces:[1]},a.ownership));a=apply(a,Mount.attachment({id:'motor',name:'Motor',region:'mount',mount:[-1,1,1],shaft:[-5,1,1],components:'123',newTemplate:{id:'stiffness',name:'Motor stiffness',stiffness:[1e5,1e5,1e5,1e4,1e4,1e4]}},a.ownership,ids(a.ownership)));a=apply(a,P.instance({id:'instance',name:'Copy',part:'part',transform:{translation:[10,0,0]}},a.ownership,ids(a.ownership)));return a;}
-async function replace(a,changes={}){return R.build(a.ownership,{part:'part',topology:topo,before:topo,snapshot,geometryKey:await C.geometryFingerprint(topo),revisionId:'revision-2',...changes});}
+async function replace(a,changes={}){return R.build(a.ownership,{part:'part',topology:topo,before:topo,snapshot,geometryKey:await C.geometryFingerprint(topo),revisionId:'revision-2',selective:false,...changes});}
 test('topology correspondence ignores IDs, requires unique geometry and adjacency, and never guesses moved entities',()=>{
  const b=copy(topo);for(const e of b.edges){e.id+=100;e.faces=e.faces.map(n=>n+100);}for(const f of b.faces){f.id+=100;f.edges=f.edges.map(n=>n+100);f.volumes=f.volumes.map(n=>n+100);}for(const v of b.volumes){v.id+=100;v.faces=v.faces.map(n=>n+100);}
  const matched=R.match(topo,b);assert.ok(matched.length>10);assert.ok(matched.every(r=>r.status==='exact'&&r.target===r.id+100));
@@ -34,7 +34,7 @@ test('independent remesh and explicit reactivation recover regions, motor and li
  O.validate(JSON.parse(JSON.stringify(b.ownership)),b.semantic);
 });
 test('missing selection stays suspended until explicit rebind; duplicates and stale replacement choices reject',async()=>{
- const a=await model(),next=copy(topo);next.faces[0].center[0]+=30;const request=await replace(a,{topology:next,geometryKey:'changed'}),region=request.objects.find(o=>o.id==='mount');assert.match(region.facts.suspendedReason,/ambiguous/);assert.notEqual(region.definition.selector.geometryKey,'changed');
+ const a=await model(),next=copy(topo);next.faces[0].center[0]+=30;const request=await replace(a,{topology:next,geometryKey:'changed'}),region=request.objects.find(o=>o.id==='mount');assert.match(region.facts.suspendedReason,/explicit repair/);assert.notEqual(region.definition.selector.geometryKey,'changed');
  await assert.rejects(replace(a,{choices:{'faces:1':999}}),/existing replacement/);
  const confirmed=await replace(a,{topology:next,geometryKey:'changed',choices:{'faces:1':1}});assert.equal(confirmed.objects.find(o=>o.id==='mount').definition.selector.geometryKey,'changed');
 });
@@ -42,3 +42,7 @@ test('suspended support sets and cases survive save validation but produce no ru
  let a=await model();a=apply(a,Mount.region({id:'support-face',name:'Support face',mesh:'mesh',faces:[2]},a.ownership));a=apply(a,Analysis.set({id:'support',name:'Mount support',action:'support',region:'support-face',components:'456'},a.ownership,a.semantic));a=apply(a,Analysis.set({id:'gravity',name:'Gravity',action:'acceleration',vector:[0,0,-9810]},a.ownership,a.semantic));a=apply(a,Analysis.caseObject({id:'case',name:'Gravity case',load:1,support:1,outputs:['DISPLACEMENT']},a.ownership,a.semantic));
  const b=apply(a,await replace(a));assert.equal(b.semantic.spc1.length,0);assert.equal(Analysis.caseControl(b.ownership),'');assert.ok(!Analysis.projectDeck('SOL 101\nCEND\nSUBCASE 1\n  SPC = 1\nBEGIN BULK\nENDDATA\n',b.ownership).includes('SPC ='));O.validate(b.ownership,b.semantic);
 });
+
+ test('selective replacement retains exact solid meshes, instances and attachment card identities',async()=>{
+ const a=await model(),b=apply(a,await replace(a,{selective:true}));assert.deepEqual([...O.rows(b.semantic)].sort(),[...O.rows(a.semantic)].sort());assert.ok(Core.restore(b.ownership.project).readiness().allowed);assert.ok(!b.ownership.project.objects.some(o=>o.facts.suspendedReason));
+ });

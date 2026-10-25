@@ -1,8 +1,8 @@
 (function(root,factory){
   'use strict';
-  if(typeof module==='object'&&module.exports)module.exports=factory(require('./engine-ownership.js'),require('./modeling.js'));
-  else root.WebMeshCadProject=factory(root.WebMeshOwnership,root.WebMeshModeling);
-}(typeof globalThis!=='undefined'?globalThis:this,function(O,Modeling){
+  if(typeof module==='object'&&module.exports)module.exports=factory(require('./engine-ownership.js'),require('./modeling.js'),require('./cad-selective-mesh.js'));
+  else root.WebMeshCadProject=factory(root.WebMeshOwnership,root.WebMeshModeling,root.WebMeshCadSelective);
+}(typeof globalThis!=='undefined'?globalThis:this,function(O,Modeling,Selective){
   'use strict';
   const GENERATOR='cad-mapped-v1', SHELL='cad-shell-v1',copy=v=>JSON.parse(JSON.stringify(v));
   async function digest(value){const data=new TextEncoder().encode(O.canonical(value));return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),v=>v.toString(16).padStart(2,'0')).join('');}
@@ -25,6 +25,7 @@
     const old=rootFor(state,input.id),find=id=>state?.project.objects.find(o=>o.id===id);
     if(!input.id||!input.name||!input.snapshot?.prepared?.content||!input.snapshot.content)throw Error('CAD mesh ownership requires the original and prepared source snapshots.');
     if(find(input.id)&&!old)throw Error('The requested CAD mesh identity belongs to another object.');
+    if(old?.definition.pendingReplacement){if(await geometryFingerprint(input.topology)!==find(old.definition.source).definition.geometryKey)throw Error('The patch must use the current committed CAD source.');const result=Selective.patch(input,state,nextIds),validation=Modeling.validateMesh(result.mesh);if(!validation.valid)throw Error(validation.errors.join('\n'));return result;}
     const shell=input.kind==='shell',mesh=input.mesh;
     if(!mesh?.nodes?.length||!mesh.elements?.length)throw Error('Generate a nonempty CAD mesh.');
     const target=[...new Set(shell?input.faces:input.volumes)].sort((a,b)=>a-b);
@@ -61,7 +62,7 @@
     const faces=Object.entries(mesh.faceNodes||{}).map(([id,localNodes])=>{
       const face=topo.faces.find(f=>f.id===Number(id));
       if(!face||!localNodes.length||localNodes.some(n=>!nodeMap.has(n)))throw Error('Invalid mapped CAD face membership.');
-      return {id:face.id,type:face.type,center:face.center,normal:face.normal||face.surface?.normal||null,nodes:[...new Set(localNodes.map(n=>nodeMap.get(n)))].sort((a,b)=>a-b)};
+      return {elements:mesh.elements.flatMap((e,i)=>e.face===face.id?[layout.element+i]:[]),id:face.id,type:face.type,center:face.center,normal:face.normal||face.surface?.normal||null,nodes:[...new Set(localNodes.map(n=>nodeMap.get(n)))].sort((a,b)=>a-b)};
     });
     const elements=mesh.elements.map((e,i)=>{
       const type=({CHEXA8:'CHEXA',CHEXA20:'CHEXA'})[e.type]||e.type;
@@ -95,9 +96,10 @@
     const source=state.project.objects.find(o=>o.id===root.definition.source);
     const meshes=state.project.objects.filter(o=>[GENERATOR,SHELL].includes(o.definition.generator)&&o.definition.source===source.id).map((o,i)=>({id:i+1,kind:o.definition.generator===SHELL?'shell':'hex',label:o.name,projectOwner:o.id,volumes:o.definition.generator===SHELL?[]:o.definition.targets,faces:o.definition.generator===SHELL?o.definition.targets:[],elements:state.owners.filter(e=>e.owner===o.id&&e.card.family==='elems').map(e=>e.card.id),properties:o.definition.sections.map(s=>s.pid),stale:false}));
     let settings=copy(root.definition.settings);
-    if(root.facts?.suspendedReason&&source.definition.replacement){
+    if((root.facts?.suspendedReason||root.definition.pendingReplacement)&&source.definition.replacement){
       const targets=root.definition.replacementTargets||[],shell=root.definition.generator===SHELL;
-      settings={version:2,step:'mesh',sizing:{size:settings.sizing?.size,minCount:settings.sizing?.minCount||1,edges:[]},mesh:{...settings.mesh,method:shell?'shell':'mapped',scope:'selected',selectedVolumes:shell?[]:targets},shell:{element:settings.shell?.element||'quad',mesher:settings.shell?.mesher||'recombined',thickness:settings.shell?.thickness||1,placement:settings.shell?.placement||'surface',offset:settings.shell?.offset||0,size:settings.shell?.size||null,scope:'selected',selectedFaces:shell?targets:[]}};
+      settings={version:2,step:'mesh',sizing:{size:settings.sizing?.size,minCount:settings.sizing?.minCount||1,edges:[]},mesh:{...settings.mesh,method:shell?'shell':'mapped',scope:'selected',selectedVolumes:shell?[]:targets},shell:{...settings.shell,element:settings.shell?.element||'quad',mesher:settings.shell?.mesher||'recombined',thickness:settings.shell?.thickness||1,placement:settings.shell?.placement||'surface',offset:settings.shell?.offset||0,size:settings.shell?.size||null,scope:'selected',selectedFaces:shell?targets:[]}};
+      if(root.definition.pendingReplacement){settings.sizing.edges=root.definition.pendingReplacement.boundaryEdges.map(e=>({id:e.id,count:e.nodes.length-(source.definition.topology.edges.find(t=>t.id===e.id)?.type==='Circle'?0:1)}));const pid=root.definition.pendingReplacement.faces[0]?.pid;settings.shell.thickness=state.project.objects.flatMap(o=>o.definition.cards||[]).find(c=>c.family==='properties'&&c.id===pid)?.value.t||settings.shell.thickness;}
       for(const m of meshes){const o=state.project.objects.find(o=>o.id===m.projectOwner);if(o.facts?.suspendedReason){m.volumes=o.definition.generator===GENERATOR?o.definition.replacementTargets||[]:[];m.faces=o.definition.generator===SHELL?o.definition.replacementTargets||[]:[];m.stale=true;}}
     }
     return {...copy(source.definition.snapshot),settings,editingOwner:root.id,regionName:root.name,meshes};

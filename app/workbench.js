@@ -269,8 +269,8 @@
     const state=engine().getProjectOwnership(),old=window.WebMeshCadProject.rootFor(state,input.id);
     const built=await window.WebMeshCadProject.build(input,state,engine().getNextIds());
     const oldSource=old&&state.project.objects.find(o=>o.id===old.definition.source);
-    const source=built.request.objects.find(o=>o.kind==='source');
-    const note=(old?'Replace this mesh region. ':'Create a separate mesh region. ')+
+    const source=built.request.objects.find(o=>o.kind==='source')||oldSource;
+    const note=(old?.definition.pendingReplacement?'Remesh only the changed faces. Unchanged element and boundary-node identities stay committed. ':old?'Replace this mesh region. ':'Create a separate mesh region. ')+
       'Source: '+input.snapshot.filename+'. '+(oldSource?(oldSource.definition.geometryKey===source.definition.geometryKey?'Source geometry is unchanged. ':'Source geometry changed. '):'Original and prepared CAD snapshots are saved. ')+
       (input.kind==='shell'?'Shell faces: '+input.faces.join(', ')+'. Thickness and offsets are retained in the shell sections. ':'Solids: '+input.volumes.join(', ')+'. ')+
       'Dependent interfaces are resolved in this review. Embedded interfaces may also change neighboring shell boundary connectivity; review every affected owner.';
@@ -280,6 +280,7 @@
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
     if(deletionWorkspace.open(id))return;
+    if(object.facts?.suspendedReason&&object.definition.generator===window.WebMeshAttachmentProject.REGION){attachmentWorkspace.open(id);return;}
     if(object.definition.independent&&window.WebMeshRegions.isRegion(object)){run(()=>selectionWorkspace.open(id));return;}
     if(object.facts?.suspendedReason&&object.definition.generator===window.WebMeshAnalysisProject.CASE){run(()=>analysisWorkspace.open(id));return;}
     if(object.facts?.suspendedReason&&!['cad-mapped-v1','cad-shell-v1'].includes(object.definition.generator)){dialog(object.name,`<p role="alert">${esc(object.facts.suspendedReason)}</p>${button('wb-resume-object','Review repair / reactivation','check','primary')}`);$('wb-resume-object').onclick=()=>run(()=>partWorkspace.repairObject(id));return;}

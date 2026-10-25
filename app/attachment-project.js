@@ -1,8 +1,8 @@
 (function(root,factory){
   'use strict';
-  if(typeof module==='object'&&module.exports)module.exports=factory(require('./coordinate-project.js'),require('./mesh-region-project.js'));
-  else root.WebMeshAttachmentProject=factory(root.WebMeshCoordinates,root.WebMeshRegions);
-}(typeof globalThis!=='undefined'?globalThis:this,function(F,R){
+  if(typeof module==='object'&&module.exports)module.exports=factory(require('./coordinate-project.js'),require('./mesh-region-project.js'),require('./cad-patterns.js'));
+  else root.WebMeshAttachmentProject=factory(root.WebMeshCoordinates,root.WebMeshRegions,root.WebMeshCadPatterns);
+}(typeof globalThis!=='undefined'?globalThis:this,function(F,R,Patterns){
   'use strict';
   const REGION='cad-mount-region-v1', ATTACHMENT='rbe2-cbush-v1', TEMPLATE='pbush-basic-v1';
   const copy=v=>JSON.parse(JSON.stringify(v));
@@ -37,6 +37,7 @@
     if(!mesh||!['cad-mapped-v1','cad-shell-v1'].includes(mesh.definition.generator))throw Error('Select a committed CAD shell or solid mesh.');
     const geometryKey=map.get(mesh.definition.source).definition.geometryKey;
     const object=resolveRegion({id:input.id,kind:'region',name:named(input.name),definition:{generator:REGION,selector:{mesh:mesh.id,geometryKey,...(input.kind?{kind:input.kind}:{}),faces:[...new Set(input.faces)].sort((a,b)=>a-b)}}},map);
+    if(input.pattern??!!old?.definition.pattern){const topology=map.get(mesh.definition.source).definition.topology||input.topology;if(!topology)throw Error('Restore this part’s CAD preparation before defining a pattern.');const pattern=Patterns.define(topology,input.faces);for(const h of pattern.holes){const edge=mesh.definition.edges.find(e=>e.id===h.id);if(!edge||Math.hypot(...edge.center.map((x,i)=>x-h.center[i]))>1e-5)throw Error('Pattern anchors do not match the committed mesh. Restore this part’s CAD preparation.');}object.definition.pattern=pattern;}
     return {label:(old?'Update ':'Create ')+object.name,objects:[object]};
   }
   function template(input,state,ids){

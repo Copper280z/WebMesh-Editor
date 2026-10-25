@@ -4,7 +4,7 @@
 
 Replace a part's CAD file without creating a second part or discarding its modeling intent. Preserve independent shell/solid mesh owners, live placements, regions, connection recipes and overrides. Make geometry correspondence reviewable, and keep incomplete revisions saveable while blocking analysis.
 
-This is the first executable source-replacement milestone. It does not claim complete acceptance of model-rules S3: replacement currently suspends all meshes of the replaced source, even where individual geometry anchors match. Pattern-level recognition, confidence-ranked automatic acceptance, split/merge correspondence and selective preservation of unaffected meshes remain future work.
+Historical scope: this was the first executable source-replacement milestone. [Milestone 18](implementation-18-selective-replacement.md) now adds selective shell/solid retention and named circular-hole groups. It does not claim complete acceptance of model-rules S3: replacement currently suspends all meshes of the replaced source, even where individual geometry anchors match. Pattern-level recognition, confidence-ranked automatic acceptance, split/merge correspondence and selective preservation of unaffected meshes remain future work.
 
 ## Implemented actions
 

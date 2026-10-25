@@ -43,7 +43,7 @@ test('delete assembly recipe keeps parameterized connections with private recipe
  const b=apply(a,deletion(a,{id:'recipe'}).request);assert.equal(object(b,'recipe'),undefined);assert.equal(object(b,'motor').definition.generator,Assembly.CONNECTION);assert.equal(object(b,'motor').definition.template,'motor/recipe');assert.ok(object(b,'motor/recipe'));assert.deepEqual(b.semantic.elems.rbe2,a.semantic.elems.rbe2);assert.equal(b.semantic.elems.bush[0].eid,a.semantic.elems.bush[0].eid);
 });
 test('previously suspended replacement drafts can be deleted with kept definitions still suspended',async()=>{
- const a=await model(),src=object(a,'source'),request=Replacement.build(a.ownership,{part:'part',topology:topo,before:topo,snapshot:src.definition.snapshot,geometryKey:src.definition.geometryKey,revisionId:'replacement'}),s=apply(a,request);
+ const a=await model(),src=object(a,'source'),request=Replacement.build(a.ownership,{part:'part',topology:topo,before:topo,snapshot:src.definition.snapshot,geometryKey:src.definition.geometryKey,revisionId:'replacement',selective:false}),s=apply(a,request);
  const b=apply(s,deletion(s,{id:'part'}).request);assert.equal(object(b,'source'),undefined);assert.equal(b.semantic.elems.hex.length,0);assert.ok(object(b,'mount').facts.suspendedReason);O.validate(copy(b.ownership),b.semantic);
 });
 test('kept analysis case remains named, suspended and excluded from case control until repaired',async()=>{

@@ -1201,7 +1201,7 @@ function applyReplacement(a,r){const active=Replacement.active(a.ownership,r),pe
 test('source replacement preserves mixed shell/solid owners and remeshes both sides independently before repairing the interface',async()=>{
  let a=await mixedModel();const p=Parts.part({id:'mixed-part',name:'Mixed CAD part',source:'cad/source'},a.ownership).objects[0],roots=a.ownership.project.objects.filter(o=>['cad','skin'].includes(o.id)).map(o=>({...copy(o),dependsOn:[...o.dependsOn,p.id],definition:{...copy(o.definition),part:p.id}}));
  a=apply12(a,{objects:[p,...roots]});const before=copy(a),input=mixedInput(),src=a.ownership.project.objects.find(o=>o.id==='cad/source');
- a=applyReplacement(a,Replacement.build(a.ownership,{part:p.id,before:input.topology,topology:input.topology,snapshot:src.definition.snapshot,geometryKey:src.definition.geometryKey,revisionId:'mixed-replacement'}));
+ a=applyReplacement(a,Replacement.build(a.ownership,{part:p.id,before:input.topology,topology:input.topology,snapshot:src.definition.snapshot,geometryKey:src.definition.geometryKey,revisionId:'mixed-replacement',selective:false}));
  assert.equal(a.semantic.elems.hex.length,0);assert.equal(a.semantic.elems.quad.length,0);assert.equal(a.semantic.elems.rbe3.length,0);
  a=applyReplacement(a,(await Cad.build(mixedInput('shell',3),a.ownership,nextPlateIds)).request);assert.equal(a.semantic.elems.quad.length,9);assert.equal(a.semantic.elems.hex.length,0);assert.equal(a.semantic.elems.rbe3.length,0);
  const skin=copy(a.ownership.project.objects.find(o=>o.id==='skin'));

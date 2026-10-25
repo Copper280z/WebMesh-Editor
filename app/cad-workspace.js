@@ -1268,7 +1268,8 @@
         html += `<div class="cad-row"><span class="cad-row-label">Faces</span>${seg('shell-scope', [['all', `All ${all}`], ...(sheetFaces ? [['sheets', `Sheets ${sheetFaces}`]] : []), ['selected', `Picked ${picked.length}`]], shell.scope, 'compact')}</div>`;
         if (sheetFaces) html += `<p class="cad-note">Sheets use their own thickness and offset (ZOFFS); T below is for other faces and sheets without one.</p>`;
         if (shell.placement === 'offset') html += `<div class="cad-size-row">${numberField('shell-offset', 'Offset (+ out)', shell.offset)}${btn('shell-half', '−T/2', { cls: 'ghost mini', title: 'Offset inward by half the thickness: from an outer face to the midsurface' })}</div>`;
-        html += numberField('shell-thickness', 'Thickness T', shell.thickness, 'min="0"');
+        const patchOwner=engine().getProjectOwnership?.()?.project.objects.find(o=>o.id===editingOwner&&o.definition.pendingReplacement);
+        html += patchOwner?'<p class="cad-note">Changed-face patch: existing sections and thicknesses are retained. Matched boundary divisions are pinned to the retained mesh.</p>':numberField('shell-thickness', 'Thickness T', shell.thickness, 'min="0"');
       }
       html += `<div class="cad-size-row">${numberField('shell-size', 'Element size', round(Number(shell.size) || Number(sizing.size) || defaultSize()), 'min="0"')}${quad ? numberField('shell-circle', 'Per circle', shell.perCircle, 'min="4" max="128" step="1"') : ''}</div>
         <div class="cad-row"><span class="cad-row-label">Property</span>${seg('shell-pid', [['one', 'One PSHELL'], ['face', 'Per face']], shell.pidPerFace ? 'face' : 'one', 'compact')}</div>`;
