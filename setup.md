@@ -41,7 +41,7 @@ If pip cannot find a compatible binary wheel, use a supported Python/platform co
 
 Activate the virtual environment in every terminal used to start the service or run Python tests. CAD workers use the service's Python interpreter, so installing packages in a different interpreter will not enable them. `npm start` invokes `python3`, which also follows the active environment's `PATH`.
 
-On Windows, virtual environment activation is `.venv\Scripts\Activate.ps1` in PowerShell. The examples below otherwise use POSIX shell syntax. This milestone's build and end-to-end verification were performed on macOS; Windows/Linux are not newly certified by this document.
+On Windows, virtual environment activation is `.venv\Scripts\Activate.ps1` in PowerShell. The examples below otherwise use POSIX shell syntax. These setup and build commands were verified on macOS; Windows and Linux have not been verified to the same extent.
 
 ## 2. Build both native face meshers
 
@@ -87,7 +87,7 @@ If the executable is not on `PATH`, pass its absolute path using `--gmsh`. The p
 
 WebMesh isolates Gmsh operations in their own processes. Do not combine direct Gmsh imports and the OCP kernel in one ad hoc test process: their bundled native OpenCASCADE builds can conflict. `WEBMESH_BLOCK_GMSH=1` deliberately disables the plugin and is useful for checking the core-only configuration.
 
-The local validation server reported Gmsh **4.15.2-git** from an existing local installation. Gmsh was not installed as a pip distribution in that interpreter; absence from `pip list` alone does not establish plugin availability.
+Gmsh **4.15.2-git** was used for validation. Check the executable and Python API with the commands above to verify your installation.
 
 ## 4. Start the local service
 
@@ -113,12 +113,6 @@ The response separately reports `cad`, `plugins.gmsh`, `quadmesh.libraries`, mes
 
 Opening `WebMeshEditor.html` directly can be useful for standalone FE editing, but local CAD and solver calls need the HTTP service. For development and complete workspace workflows, use the served URL.
 
-### Development server lifecycle
-
-Keep one user-facing server on **8765**. Restart it from the current checkout after updates and check `/api/health`, including CAD, meshers and configured solvers. The user has authorized these restarts and confirmed that no work is in progress during updates; retaining older servers to protect drafts or undo history is unnecessary in this workflow.
-
-Use a separate temporary server for testing, on an available port. Always stop that server and its CAD workers afterward, even if testing fails. At handoff, only the server on 8765 should remain. Preserve the MYSTRAN/Vibestran configuration when restarting it. See `AGENTS.md` for the agent workflow rule.
-
 ## 5. Configure MYSTRAN or Vibestran
 
 Solvers are not downloaded or built by WebMesh. Build the desired solver in its own repository using that project's toolchain and build instructions, then supply a runnable executable. WebMesh does not require a Fortran compiler or CMake unless you also choose to build a solver yourself.
@@ -131,17 +125,9 @@ python3 server.py --port 8765 \
 
 You can instead set `WEBMESH_MYSTRAN` and/or `WEBMESH_VIBESTRAN`. Discovery order is the explicit `--solver` configuration, the corresponding environment variable, then a same-named executable on `PATH`.
 
-For the local solver checkout used during this project's development, an example is:
+Replace the example paths with your installed solver executables. Each executable must have execute permission, match the host architecture and find any of its own runtime libraries. Verify `available: true` in `/api/health`, then use the workspace's named SOL 101 case and Run controls. Solver jobs run in temporary working directories; save the project to retain the deck, run record and imported results.
 
-```sh
-python3 server.py --port 8765 \
-  --solver mystran="$HOME/Documents/vibe-tran/MYSTRAN/Binaries/mystran" \
-  --solver vibestran="$HOME/Documents/vibe-tran/build/vibestran"
-```
-
-Those paths are examples, not dependencies of the repository. The executable must have execute permission, match the host architecture and find any of its own runtime libraries. Verify `available: true` in `/api/health`, then use the workspace's named SOL 101 case and Run controls. Solver jobs run in temporary working directories; save the project to retain the deck, run record and imported results.
-
-## 6. Tests and development checks
+## 6. Verify the build (optional)
 
 Use Node 24 for the tested JavaScript environment. There is no browser automation package to install for the repository test suite.
 
@@ -163,12 +149,6 @@ JavaScript CAD integration tests start their own loopback servers and use the in
 
 `zig build test` runs the C++ mesher's GoogleTest/Python binding suites and the paved mesher's unit, Python and WebAssembly binding suites. It needs Python and Node in addition to Zig. The first C++ test build downloads **GoogleTest v1.17.0** using the URL and hash in `meshers/quadmesh/build.zig.zon`; an ordinary `zig build` does not fetch it. Allow access to that dependency or populate the Zig cache before testing offline. Zig needs writable local/global cache directories.
 
-For targeted source-replacement regressions:
-
-```sh
-node --test tests/cad-replacement.test.cjs tests/part-workspace.test.cjs
-```
-
 ## Persistence, rebuilding and troubleshooting
 
 - **Save before stopping a service with active work.** Runtime CAD sessions belong to that service process. Project saves include portable CAD checkpoints, drafts and executable CAD undo/redo. A browser refresh alone is not a substitute for saving.
@@ -179,6 +159,6 @@ node --test tests/cad-replacement.test.cjs tests/part-workspace.test.cjs
 - **Zig cache permission denied:** use a writable compiler cache. In a restricted development environment, grant the build access to its cache or set `ZIG_GLOBAL_CACHE_DIR` to a writable directory. This is separate from a source compilation failure.
 - **Port already in use:** retain the existing server if it has active drafts, or choose a free `--port`. Do not start a second server on the same port.
 - **Restore fails:** keep the saved project and inspect the error. Failed candidates are aborted transactionally; the current project/draft should remain available. An older running server may need an upgrade before it understands portable checkpoints.
-- **Solver unavailable or fails:** check its configured executable and native runtime dependencies, then inspect the saved run log. External solver defect investigations belong in the ignored `solver-bug-reports/` directory and must remain untracked.
+- **Solver unavailable or fails:** check its configured executable and native runtime dependencies, then inspect the saved run log.
 
 Generated `.venv/`, `node_modules/`, `.zig-cache/`, `zig-out/`, Python caches and `test-results/` are local build/runtime artifacts. `WEBMESH_CAD_CACHE=0` disables the geometry cache for diagnosis. It does not turn off saved project history or server-session ownership.
