@@ -1,6 +1,6 @@
 # Selective CAD replacement: rear-right motor moved 30 mm
 
-Milestone 18 was exercised in the browser against the local WebMesh server, then solved with the installed MYSTRAN binary. The workflow, identity, connectivity and postprocessing checks pass. The solver completes both cases, but its strict moment-balance diagnostic remains flagged; this numerical acceptance is qualified, not all green.
+Milestone 18 was exercised in the browser against the local WebMesh server, then solved with the installed MYSTRAN binary. The corrected workflow, identity, seam-connectivity and postprocessing checks pass. The first acceptance missed open seams; the user identified that error. The repaired model passes the existing force/moment balance criteria and a 12-mode comparison. See the [correction and numerical proof](../seam-connectivity/README.md).
 
 ## Geometry and assumptions
 
@@ -16,7 +16,7 @@ The existing PLA model, four wheels, estimated motor masses, 500 g battery and 1
 2. Inspect the named patterns. FL, FR and RL match exactly. RR offers the four-hole group translated 30 mm; leave it unresolved. Explicitly match changed faces 177 and 179 to their revised counterparts.
 3. Review/apply replacement: 1,216 changed-face cards and four RR connection cards are removed. Eleven unchanged faces, their cards, all three other motors and reusable definitions remain. Pending coverage and RR dependencies block Solve.
 4. Save the pending checkpoint. Undo restores the original revision; redo restores the pending revision. Reload the application and reopen the checkpoint: the same repairs remain.
-5. From the chassis inspector, choose **Remesh**. The two changed faces and 12 retained edge-count constraints are restored. Generate a paved quad mesh at size 5, 12 divisions per circle. Review/apply adds 595 new GRIDs and 637 quads; 153 boundary GRIDs are shared with retained coverage. Minimum scaled Jacobian is 0.566461. Existing sections/thicknesses are retained.
+5. From the chassis inspector, choose **Remesh**. The two changed faces and 17 retained edge-count constraints are restored. Generate a paved quad mesh at size 5, 12 divisions per circle. Review/apply adds 539 new GRIDs and 637 quads; 209 boundary GRIDs are shared with retained coverage. Minimum scaled Jacobian is 0.566461. Existing sections/thicknesses are retained.
 6. Edit **Motor right rear holes**, select the complete **Moved 30 model units** candidate, and review. Exactly four RR motor cards return; its stiffness override remains. The three other motors have byte-identical card definitions. Checks pass.
 7. Prepare and run MYSTRAN through the browser. Inspect both cases, displacement contours and von Mises stress. Save, reload and reopen the final project; the saved run still matches and its fields remain available.
 
@@ -24,16 +24,16 @@ The saved checkpoints are actual browser downloads. `patch-mesh.json.gz` is the 
 
 ## Numerical evidence
 
-- 9,449 active GRIDs; 8,459 CQUAD4; 8 RBE2; 2 RBE3; 4 CBUSH; 6 CONM2.
-- One connected active assembly, checked independently through structural and connection connectivity.
+- 9,393 active GRIDs; 8,459 CQUAD4; 8 RBE2; 2 RBE3; 4 CBUSH; 6 CONM2.
+- All 24 inter-face seam segment counts match the original chassis. The repaired wall–floor seam shares all 29 nodes and 28 segments. The active assembly also has one connected component; that check alone is insufficient.
 - Six added masses sum to 2.9 kg; independent shell-mass integration agrees with gravity load.
 - Both MYSTRAN cases complete with exit 0, no fatal errors, zero translational AUTOSPC DOFs and zero reported AUTOSPC forces.
-- Epsilon: −1.144882e−12 and −9.939524e−14.
-- Force balance passes. Moment Y residuals are −0.111565 and −0.096986 N·mm, versus tolerances 0.093280 and 0.080753 N·mm. Other moment components pass. The application correctly retains the failed balance status; no tolerance was changed.
-- Gravity: peak displacement 0.290992 mm, peak shell von Mises 12.0017 MPa. Gravity plus lateral: 0.184432 mm and 8.01914 MPa. These illustrate workflow output, not a validated physical design conclusion.
+- Epsilon: −7.468071e−13 and −6.130632e−13.
+- Force and moment balance pass the existing component-wise criteria. Moment Y residuals are −0.055596 and −0.059242 N·mm, within tolerances 0.076421 and 0.078002 N·mm. No tolerance was changed.
+- Gravity: peak displacement 0.087216 mm, peak shell von Mises 4.05153 MPa. Gravity plus lateral: 0.158331 mm and 4.50795 MPa. These illustrate workflow output, not a validated physical design conclusion.
 - Every active GRID has displacement output and every shell has finite stress output. CBUSH force output remains distinct from shell von Mises.
 
-A direct control run with the RR stiffness override removed reproduces essentially the same moment discrepancy. Further solver/formulation isolation is recorded separately, untracked, in `solver-bug-reports/mystran-rr-moment-balance-2026-10-25/`. It is not yet a confirmed solver defect.
+The former solver suspicion is corrected in the untracked investigation: the acceptance mesh had open seams, and repairing them resolves the failed balance status. The [modal comparison](../seam-connectivity/README.md) retains defective and repaired SOL 103 decks, output and numerical seam-jump checks. First frequency changes from 22.62124 to 25.61400 Hz, with zero repaired seam discontinuity in all 12 modes.
 
 ## Reproduce
 
@@ -46,7 +46,7 @@ node docs/design/validation/selective-replacement/verify.cjs
 npm test
 ```
 
-`verify.cjs` rebuilds the baseline in a temporary directory, validates ownership and retained identities, checks connectivity/mass, verifies saved run hashes and parses both cases. It explicitly reports the known moment-balance failure separately from its passing structural/workflow checks.
+`verify.cjs` rebuilds the baseline in a temporary directory, validates ownership and retained identities, checks connectivity/mass, verifies saved run hashes and parses both cases. It checks actual shared seam segments independently of the mesher metadata and requires passing force/moment balance.
 
 To open the completed browser project:
 
@@ -54,7 +54,7 @@ To open the completed browser project:
 gzip -dc docs/design/validation/selective-replacement/rover-analysis.webmesh.gz > /tmp/rover-selective.webmesh
 ```
 
-Open `/tmp/rover-selective.webmesh` in WebMesh. The exact solver input is `rover.bdf`; `rover.F06.gz`, `solver.log.gz` and `verification.json` retain output and checks. `pending.webmesh.gz` is the intermediate repair checkpoint. The screenshots show pattern comparison, the RR-only repair diff, lateral displacement and gravity stress.
+Open `/tmp/rover-selective.webmesh` in WebMesh. The exact solver input is `rover.bdf`; `rover.F06.gz`, `solver.log.gz` and `verification.json` retain output and checks. `pending.webmesh.gz` is the intermediate repair checkpoint. The pattern and RR-only repair screenshots remain valid. The older displacement/stress screenshots are retained as `../seam-connectivity/broken-rover-*.png` and superseded by `../seam-connectivity/repaired-gravity.png`; they were produced from the cracked mesh and are not current acceptance evidence.
 
 ## Scope limits
 

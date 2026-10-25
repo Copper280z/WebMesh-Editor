@@ -73,6 +73,7 @@ class ShellMeshTests(unittest.TestCase):
         result = shell(ROOT / "examples/block.step", size=10)
         quality = result["quality"]
         self.assertEqual(quality["freeEdges"], 0, "faces share every edge's nodes")
+        self.assertEqual(len(result["mesh"]["edgeNodes"]), 12, "closed-shell internal CAD edges retain provenance")
         self.assertEqual(quality["nonManifoldEdges"], 0)
         self.assertTrue(all(e["type"] == "CQUAD4" for e in result["mesh"]["elements"]))
         self.assertGreater(quality["minScaledJacobian"], 0.6)

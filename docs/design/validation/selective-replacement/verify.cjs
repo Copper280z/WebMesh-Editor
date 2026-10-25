@@ -15,7 +15,7 @@ const activeNodes=new Map(s.nodes.filter(([id])=>!excludedNodes.has(id))),active
 assert.equal(objects.filter(P.isPart).length,2);assert.equal(objects.filter(P.isInstance).length,4);
 assert.equal(objects.filter(A.isTemplate).length,1);assert.equal(p.cadParts.entries.length,2);
 assert.equal(excluded.size,680);assert.equal(excludedNodes.size,770);
-assert.equal(activeNodes.size,9449);assert.equal(activeQuads.length,8459);
+assert.equal(activeNodes.size,9393);assert.equal(activeQuads.length,8459);
 assert.equal(s.elems.rbe2.length,8);assert.equal(s.elems.bush.length,4);assert.equal(s.elems.rbe3.length,2);assert.equal(s.masses.length,6);
 assert.equal(new Set(s.elems.bush.map(e=>e.pid)).size,2);
 for(const o of objects.filter(o=>o.definition.generator===A.CONNECTION)){
@@ -36,6 +36,13 @@ const old=before.ownership.project.objects.find(o=>o.name==='Chassis shells'),re
 fs.rmSync(temporary,{recursive:true});assert.equal(retained.definition.targets.length,11);assert.equal(final.definition.targets.length,13);
 const finalCards=new Map(final.definition.cards.map(c=>[c.family+':'+c.id,c]));
 for(const c of retained.definition.cards)assert.deepEqual(finalCards.get(c.family+':'+c.id),c);
+// Whole-assembly reachability cannot detect seams attached only at corners.
+// Compare actual per-face element-edge sharing against the original chassis.
+function seams(d){
+ const faces=d.faces.map(f=>{const members=new Set(f.nodes),uses=new Map();for(const c of d.cards)if(c.family==='elems'&&c.value.n.every(n=>members.has(n))){const nn=c.value.n;nn.forEach((n,i)=>{const k=[n,nn[(i+1)%nn.length]].sort((a,b)=>a-b).join(':');uses.set(k,(uses.get(k)||0)+1);});}return{id:f.id,rim:new Set([...uses].filter(([,n])=>n===1).map(([k])=>k))};});
+ const rows=[];for(let i=0;i<faces.length;i++)for(let j=i+1;j<faces.length;j++){const a=faces[i],b=faces[j],count=[...a.rim].filter(k=>b.rim.has(k)).length;if(count)rows.push({faces:[a.id,b.id].sort((a,b)=>a-b),sharedSegments:count});}return rows.sort((a,b)=>a.faces[0]-b.faces[0]||a.faces[1]-b.faces[1]);
+}
+const sharedSeams=seams(final.definition);assert.deepEqual(sharedSeams,seams(old.definition),'A CAD shell seam lost shared element edges');
 for(const id of ['motor-left-front','motor-right-front','motor-left-rear'])assert.deepEqual(map.get(id).definition.cards,oldMap.get(id).definition.cards);
 assert.deepEqual(map.get('motor-right-rear').definition.overrides,oldMap.get('motor-right-rear').definition.overrides);
 const center=map.get('mount-right-rear').definition.pattern.center,oldCenter=oldMap.get('mount-right-rear').definition.pattern.center;
@@ -63,8 +70,8 @@ async function verify(){
  assert.equal(await R.digest(p.deck+'\0'+R.canonical(state)),run.modelDigest);assert.equal(p.snapshotDigest,run.modelDigest);
  assert.equal(read('rover.bdf').toString(),run.deck);assert.equal(unzip('rover.F06.gz'),run.result.f06);assert.equal(unzip('solver.log.gz'),run.result.log);
  const counts=Object.fromEntries(['GRID','CQUAD4','RBE2','RBE3','CBUSH','CONM2','PBUSH','CORD2R','SPC1'].map(k=>[k,(run.deck.match(new RegExp('^'+k+',','gm'))||[]).length]));
- assert.deepEqual(counts,{GRID:9449,CQUAD4:8459,RBE2:8,RBE3:2,CBUSH:4,CONM2:6,PBUSH:2,CORD2R:4,SPC1:80});assert.match(run.deck,/^LOAD,3,1\.,1\.,1,1\.,2$/m);
- const d=R.diagnostics(run.result.f06,run.result.log,run.coordinates);assert.deepEqual(d,run.result.diagnostics);assert.equal(d.numericalStatus,'indicator-passed');assert.equal(d.equilibrium.status,'failed');for(const c of d.equilibrium.cases){assert.ok(c.residual.slice(0,3).every((v,i)=>Math.abs(v)<=c.tolerance[i]),'Force balance');assert.ok(Math.abs(c.residual[4])<.12,'Documented small moment residual changed');}assert.equal(d.equilibrium.cases.length,2);
+ assert.deepEqual(counts,{GRID:9393,CQUAD4:8459,RBE2:8,RBE3:2,CBUSH:4,CONM2:6,PBUSH:2,CORD2R:4,SPC1:80});assert.match(run.deck,/^LOAD,3,1\.,1\.,1,1\.,2$/m);
+ const d=R.diagnostics(run.result.f06,run.result.log,run.coordinates);assert.deepEqual(d,run.result.diagnostics);assert.equal(d.numericalStatus,'indicator-passed');assert.equal(d.equilibrium.status,'passed');for(const c of d.equilibrium.cases)assert.ok(c.residual.every((v,i)=>Math.abs(v)<=c.tolerance[i]),'Force/moment balance');assert.equal(d.equilibrium.cases.length,2);
  const autospc=[...run.result.f06.matchAll(/Number of DOF's identified for AUTOSPC in component\s+(\d)\s+=\s+(\d+)/g)].map(m=>[+m[1],+m[2]]);assert.deepEqual(autospc.slice(0,3),[[1,0],[2,0],[3,0]]);
  for(const line of run.result.f06.split('\n').filter(l=>l.includes('ABS AUTOSPC FORCES'))){assert.ok(line.split(':')[1].trim().split(/\s+/).every(v=>Number(v)===0));}
  const weight=-d.equilibrium.cases[0].applied[2];assert.ok(Math.abs(totalMass*9806.65/weight-1)<.001,'Integrated mass disagrees with OLOAD');
@@ -79,8 +86,8 @@ async function verify(){
   assert.ok(disp.every(Number.isFinite));cases.push({subcase:set.subcaseId,maxDisplacement:{grid:disp[0],mm:disp[1]},maxShellVonMises:{element:stress[0],MPa:stress[1]}});
  }
 
- const report={deckSHA256:run.deckDigest,solver:run.solver,counts,connectedComponents:1,structuralMassKg:structuralMass*1000,addedMassKg:addedMass*1000,totalMassKg:totalMass*1000,weightN:weight,autospc,diagnostics:d,cases};
+ const report={deckSHA256:run.deckDigest,solver:run.solver,counts,connectedComponents:1,sharedSeams,structuralMassKg:structuralMass*1000,addedMassKg:addedMass*1000,totalMassKg:totalMass*1000,weightN:weight,autospc,diagnostics:d,cases};
  fs.writeFileSync(path.join(__dirname,'verification.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2));
- console.log('PASS: selective identities, named RR repair, overrides, connected assembly, run integrity, mass, force balance and result coverage. NOTE: strict moment balance remains flagged; see verification.json.');
+ console.log('PASS: selective identities, named RR repair, overrides, connected assembly, run integrity, mass, force balance and result coverage. Shared seams and existing force/moment balance criteria pass.');
 }
 verify().catch(e=>{console.error(e);process.exitCode=1;});

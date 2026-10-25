@@ -176,7 +176,8 @@ A region keeps its meaning only if it knows which geometry it meant and can find
 **R23.** Node and element counts are reported ("48 → 80, mesh refined") but never decide an outcome.
 
 **R24.** A region is resolved through the mesh, not through coordinates.
-- Every mesh node records the CAD entity it lies on (vertex, edge or face) in the geometry revision it was meshed from.
+- Every mesh node records the CAD entity it lies on (vertex, edge or face) in the geometry revision it was meshed from. Internal shared CAD edges must retain membership, including on a closed shell with no free mesh edges.
+- A selective patch must reuse the complete retained CAD-edge discretization and prove that its actual element connectivity shares every retained seam segment. Whole-assembly reachability, coincident coordinates, or claimed edge membership alone cannot establish seam conformity. Missing provenance requires a proven recovery from the retained mesh or explicit whole-region remeshing.
 - The shell mesher already meshes edges first and shares each edge's nodes between faces, and the hex mapper knows every block face and edge. Returning this classification with each mesh is therefore the small part of the work.
 - R21 and R22 are the large part, and get their own corpus of test cases (piece 4 in section 8).
 

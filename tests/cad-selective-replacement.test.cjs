@@ -25,14 +25,33 @@ test('real rover selective replacement, patch remesh and RR repair preserve unto
  assert.ok(find(b,'mount-right-rear').facts.suspendedReason);assert.equal(Core.restore(b.ownership.project).readiness().allowed,false);
  const retained=new Map(mesh.definition.cards.map(c=>[c.family+':'+c.id,c]));for(const c of old.definition.cards)if(retained.has(c.family+':'+c.id))assert.deepEqual(retained.get(c.family+':'+c.id),c);
  const input={id:mesh.id,name:mesh.name,kind:'shell',faces:[177,179],mesh:read('patch-mesh.json.gz').mesh,topology:after,snapshot:find(b,mesh.definition.source).definition.snapshot};
+ // The previous fixture used only globally free edges and opened the wall/floor
+ // seam despite leaving the assembly connected through its corners.
+ const cracked=copy(input);cracked.mesh=JSON.parse(z.gunzipSync(fs.readFileSync(require.resolve('../docs/design/validation/seam-connectivity/broken-patch.json.gz')))).mesh;
+ await assert.rejects(C.build(cracked,b.ownership,ids(b.ownership)),/boundary nodes/);
+ const seams=Selective.pendingBoundaries(mesh.definition,after).filter(e=>e.seam);
+ assert.deepEqual(seams.map(e=>e.id).sort((a,b)=>a-b),[500,518,520,526,533]);
+ assert.deepEqual(seams.map(e=>[e.id,e.nodes.length]).sort((a,b)=>a[0]-b[0]),[[500,11],[518,11],[520,11],[526,11],[533,19]]);
+ const lying=copy(input),edge=seams[0],localId=lying.mesh.edgeNodes[edge.id][1],clone=copy(lying.mesh.nodes.find(n=>n.id===localId));clone.id=Math.max(...lying.mesh.nodes.map(n=>n.id))+1;lying.mesh.nodes.push(clone);
+ lying.mesh.elements.filter(e=>edge.seam.faces.includes(e.face)).forEach(e=>e.nodes=e.nodes.map(n=>n===localId?clone.id:n));
+ await assert.rejects(C.build(lying,b.ownership,ids(b.ownership)),/do not share the retained seam/);
  const incomplete=copy(input);incomplete.mesh.elements=incomplete.mesh.elements.filter(e=>e.face!==177);await assert.rejects(C.build(incomplete,b.ownership,ids(b.ownership)),/Every changed face/);
  const bad=copy(input);bad.mesh.edgeNodes[mesh.definition.pendingReplacement.boundaryEdges[0].id].pop();await assert.rejects(C.build(bad,b.ownership,ids(b.ownership)),/boundary nodes/);
  const duplicate=copy(input);duplicate.mesh.nodes.push(copy(duplicate.mesh.nodes[0]));await assert.rejects(C.build(duplicate,b.ownership,ids(b.ownership)),/unique positive IDs/);
  const changed=copy(input);changed.topology.faces[0].area+=1;await assert.rejects(C.build(changed,b.ownership,ids(b.ownership)),/current committed CAD/);
  const c=apply(b,(await C.build(input,b.ownership,ids(b.ownership))).request);assert.equal(find(c,mesh.id+'/replacement-patch'),undefined);assert.equal(chassis(c).definition.targets.length,13);assert.ok(find(c,'mount-right-rear').facts.suspendedReason);
+ const cards=new Map(chassis(c).definition.cards.filter(c=>c.family==='elems').map(c=>[c.id,c.value.n]));
+ for(const edge of seams)for(const face of edge.seam.faces){const actual=new Set(Selective.classified(chassis(c).definition).find(f=>f.id===face).elements.flatMap(id=>{const nn=cards.get(id);return nn.map((n,i)=>[n,nn[(i+1)%nn.length]].sort((a,b)=>a-b).join(':'));}));for(const pair of edge.seam.segments)assert.ok(actual.has([...pair].sort((a,b)=>a-b).join(':')),'Missing shared segment on CAD edge '+edge.id);}
  const region=find(c,'mount-right-rear'),chosen=Patterns.match(region.definition.pattern,after).candidates[0].ids;const repair=Mount.region({id:region.id,name:region.name,mesh:mesh.id,kind:'edge',faces:chosen,pattern:true},c.ownership),d=apply(c,R.reactivate(c.ownership,repair));
  assert.equal(Core.restore(d.ownership.project).readiness().allowed,true);assert.deepEqual([...new Set(d.changes.map(c=>c.owner))],['motor-right-rear']);assert.deepEqual(find(d,'motor-right-rear').definition.overrides,find(a,'motor-right-rear').definition.overrides);
  for(const id of regionIds.slice(0,3))assert.deepEqual(find(d,id.replace('mount-','motor-')).definition.cards,find(a,id.replace('mount-','motor-')).definition.cards);
  assert.deepEqual(d.semantic.loads,a.semantic.loads);O.validate(copy(d.ownership),copy(d.semantic));
  const hand=copy(a);const removed=b.changes.find(c=>c.action==='remove'&&c.key.startsWith('node:'));hand.semantic.loads.force.push({sid:99,nid:Number(removed.key.split(':')[1]),mag:1,cid:0,dir:[1,0,0]});assert.throws(()=>apply(hand,request),/Dangling reference/);
+});
+test('legacy pending checkpoints recover complete seams for sizing and reject unprovable provenance',()=>{
+ const p=read('pending.webmesh.gz'),d=p.ownership.project.objects.find(o=>o.name==='Chassis shells'),recovered=Selective.pendingBoundaries(d.definition,after),settings=C.restoreData(p.ownership,d.id).settings;
+ assert.equal(d.definition.pendingReplacement.boundaryEdges.length,12);assert.equal(recovered.length,17);
+ assert.deepEqual(settings.sizing.edges.filter(e=>[500,518,520,526,533].includes(e.id)).sort((a,b)=>a.id-b.id),[{id:500,count:10},{id:518,count:10},{id:520,count:10},{id:526,count:10},{id:533,count:18}]);
+ const unsupported=copy(after);unsupported.edges.find(e=>e.id===518).type='BSpline';assert.throws(()=>Selective.pendingBoundaries(d.definition,unsupported),/lacks shared-edge provenance/);
+ const gap=copy(d.definition),face=Selective.classified(gap).find(f=>f.id===184),seam=recovered.find(e=>e.id===518).seam.segments[3];gap.cards=gap.cards.filter(c=>c.family!=='elems'||!face.elements.includes(c.id)||!seam.every(n=>c.value.n.includes(n)));assert.throws(()=>Selective.pendingBoundaries(gap,after),/no unique complete retained seam/);
 });

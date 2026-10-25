@@ -865,10 +865,11 @@ def _result(elements, coordinates, reports, edges, faces, mesher, placed=None, p
                "failedFaces": [r["face"] for r in reports if not r["quads"]], "placement": placed or {"placement": "surface"},
                "pads": pads or []}
     _, by_property, _ = _properties(faces, request) if request is not None else ({}, {}, {})
-    boundary = {n for pair, count in uses.items() if count == 1 for n in pair}
+    # CAD provenance includes internal shared edges, not only the free rim.
+    # A later face patch needs these identities to reconnect to retained faces.
     members = edges.ids if edges else (edge_members or {})
     edge_nodes = {str(edge): sorted({renumber[n] for n in ids if n in renumber}) for edge, ids in members.items()
-                  if len(set(ids) & boundary) >= 2 and set(ids).issubset(boundary)}
+                  if len(set(ids) & renumber.keys()) >= 2}
     face_nodes = {str(face): sorted({renumber[n] for e in elements if e["face"] == face for n in e["nodes"]}) for face in faces}
     return {"mesh": {"nodes": nodes, "elements": out, "faceNodes": face_nodes, "edgeNodes": edge_nodes}, "quality": quality,
             "thicknessByProperty": {str(pid): t for pid, t in by_property.items()},

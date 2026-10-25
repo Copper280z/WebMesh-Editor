@@ -1,0 +1,202 @@
+{
+  "broken": {
+    "deckSHA256": "7069181240e54db2e32049cda0b976b9f39a5d6333c25701e9cf9199461b5c03",
+    "grids": 9449,
+    "quads": 8459,
+    "bottomSeamPoints": 29,
+    "sharedBottomSeamNodes": 0,
+    "sharedBottomSeamSegments": 0,
+    "modes": [
+      {
+        "mode": 1,
+        "Hz": 22.62124,
+        "maxBottomSeamJumpOverPeakTranslation": 0.7921804812544534,
+        "gridPair": [
+          11819,
+          21973
+        ]
+      },
+      {
+        "mode": 2,
+        "Hz": 25.02954,
+        "maxBottomSeamJumpOverPeakTranslation": 0.09411045004120952,
+        "gridPair": [
+          12260,
+          22033
+        ]
+      },
+      {
+        "mode": 3,
+        "Hz": 38.82053,
+        "maxBottomSeamJumpOverPeakTranslation": 1.3218909032559096,
+        "gridPair": [
+          11819,
+          21973
+        ]
+      },
+      {
+        "mode": 4,
+        "Hz": 48.53143,
+        "maxBottomSeamJumpOverPeakTranslation": 0.7846215317129195,
+        "gridPair": [
+          12259,
+          22032
+        ]
+      },
+      {
+        "mode": 5,
+        "Hz": 63.33687,
+        "maxBottomSeamJumpOverPeakTranslation": 0.7963815966711734,
+        "gridPair": [
+          12057,
+          21974
+        ]
+      },
+      {
+        "mode": 6,
+        "Hz": 71.53691,
+        "maxBottomSeamJumpOverPeakTranslation": 0.9797498549840791,
+        "gridPair": [
+          12261,
+          22034
+        ]
+      },
+      {
+        "mode": 7,
+        "Hz": 100.7792,
+        "maxBottomSeamJumpOverPeakTranslation": 0.3936287684969217,
+        "gridPair": [
+          12261,
+          22034
+        ]
+      },
+      {
+        "mode": 8,
+        "Hz": 127.343,
+        "maxBottomSeamJumpOverPeakTranslation": 0.5757414897264201,
+        "gridPair": [
+          12180,
+          22026
+        ]
+      },
+      {
+        "mode": 9,
+        "Hz": 148.4561,
+        "maxBottomSeamJumpOverPeakTranslation": 0.5862033431784729,
+        "gridPair": [
+          12061,
+          21978
+        ]
+      },
+      {
+        "mode": 10,
+        "Hz": 188.1606,
+        "maxBottomSeamJumpOverPeakTranslation": 0.20193739614768103,
+        "gridPair": [
+          12062,
+          21979
+        ]
+      },
+      {
+        "mode": 11,
+        "Hz": 198.34,
+        "maxBottomSeamJumpOverPeakTranslation": 0.21873995415653769,
+        "gridPair": [
+          11819,
+          21973
+        ]
+      },
+      {
+        "mode": 12,
+        "Hz": 222.8237,
+        "maxBottomSeamJumpOverPeakTranslation": 1.1683153184407327,
+        "gridPair": [
+          12261,
+          22034
+        ]
+      }
+    ]
+  },
+  "fixed": {
+    "deckSHA256": "fca51dd4d6b1555c28cd284576454df08199e5815b68e2caebdec5fd06a631c5",
+    "grids": 9393,
+    "quads": 8459,
+    "bottomSeamPoints": 29,
+    "sharedBottomSeamNodes": 29,
+    "sharedBottomSeamSegments": 28,
+    "modes": [
+      {
+        "mode": 1,
+        "Hz": 25.614,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 2,
+        "Hz": 27.49557,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 3,
+        "Hz": 45.19662,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 4,
+        "Hz": 63.12115,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 5,
+        "Hz": 96.19789,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 6,
+        "Hz": 113.7756,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 7,
+        "Hz": 154.7076,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 8,
+        "Hz": 186.582,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 9,
+        "Hz": 193.9708,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 10,
+        "Hz": 204.8392,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 11,
+        "Hz": 229.2608,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      },
+      {
+        "mode": 12,
+        "Hz": 311.682,
+        "maxBottomSeamJumpOverPeakTranslation": 0,
+        "gridPair": null
+      }
+    ]
+  }
+}
