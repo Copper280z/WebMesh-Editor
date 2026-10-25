@@ -140,7 +140,7 @@
         return {active:data.active,entries,history,transaction};
       }catch(error){await cad().abortRestore(transaction);throw error;}
     }
-    async function retain(){stash();for(const draft of new Set([...drafts.values(),...versions.values()]))await cad().serializeDraft(draft,{checkpoint:false});}
+    async function retain(){stash();const unavailable=[];for(const draft of new Set([...drafts.values(),...versions.values()]))if(!await cad().retainDraft(draft))unavailable.push(draft.file.name);return unavailable;}
     async function finishRestore(data,commit){if(data?.transaction)return commit?cad().finishRestore(data.transaction,true):cad().abortRestore(data.transaction);}
 
     function commitRestore(data){drafts.clear();versions.clear();bindings.clear();active=null;referenceEntries=[];cad().clear();h.engine().setActiveCadSource?.(null);h.engine().setProjectCadReferences?.([]);if(!data)return;for(const[id,d]of data.entries){drafts.set(id,d);bindings.set(id,version(id));}for(const [key,d]of data.history||[])versions.set(key,d);active=data.active||data.entries[0]?.[0]||null;if(active){h.engine().setActiveCadSource?.(part(active)?.definition.source);cad().restoreDraft(drafts.get(active));}refreshVisibility();}

@@ -141,7 +141,7 @@
           // Full storage is resolved by closing sessions: show them.
           if (/under Sessions/.test(data.error || '') && path !== 'sessions') { sessionsOpen = true; refreshSessions().then(() => hooks.render()); }
           const unsupportedRestore=['restore','restore_finish'].includes(path)&&data.error==='Unknown API endpoint.';
-          const error=Error(unsupportedRestore?'This server predates reliable project restore. Start the updated server on another port; keep this server running to preserve its CAD undo history.':data.error || 'CAD operation failed.');error.status=response.status;error.unsupportedRestore=unsupportedRestore;throw error;
+          const error=Error(unsupportedRestore?'This server predates reliable project restore. Start the updated server on another port; keep this server running to preserve its CAD undo history.':data.error || 'CAD operation failed.');error.status=response.status;error.unsupportedRestore=unsupportedRestore;error.missingSession=response.status===404&&/^CAD session expired or was not found\./.test(data.error||'');throw error;
         }
         return data;
       } catch (error) {
@@ -2271,6 +2271,13 @@
         return {runtime:true,file:source,imported:session,data:{filename:source.name,settings:savedSettings(),report,editingOwner,regionName,meshes:meshes.map(m=>({...m})),prepared:{history:auditHistory}},partId,selection:structuredClone(selection),pick,display:{...display,hidden:new Set(display.hidden),hiddenSheets:new Set(display.hiddenSheets)},expanded:{...expanded}};
       },
       restoreDraft(draft) { this.commitRestore(draft);if(!draft)return;partId=draft.partId||null;if(draft.runtime)auditHistory=structuredClone(draft.data.prepared?.history||[]);if(draft.selection){selection=structuredClone(draft.selection);pick=draft.pick||pick;display=draft.display||display;expanded=draft.expanded||expanded;engine().selectCad({faces:selection.kind==='face'?selection.ids:[],edges:selection.kind==='edge'?selection.ids:[],vertices:selection.kind==='vertex'?selection.ids:[],volumes:selection.kind==='solid'?selection.ids:[]});updateDisplay();} },
+      // Retaining outgoing drafts must not prevent opening a saved project after
+      // its old server has stopped. Saving/exporting still requires a live session.
+      async retainDraft(draft) {
+        if(!draft)return true;
+        try { await this.serializeDraft(draft,{checkpoint:false});return true; }
+        catch(error) { if(error.missingSession)return false;throw error; }
+      },
       async serializeDraft(draft,{checkpoint=true}={}) {
         if(!draft)return null;
         const data={...structuredClone(draft.data),filename:draft.file.name,content:base64(await draft.file.arrayBuffer())};

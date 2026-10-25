@@ -23,3 +23,17 @@ test('CAD cleanup still runs when a UI rollback throws',async()=>{
 test('invalid run metadata is rejected before retaining or staging CAD',async()=>{
  const f=fixture('validate');await assert.rejects(f.restore(),/validate failed/);assert.deepEqual(f.calls,['validate']);assert.deepEqual(f.state,f.old);
 });
+
+test('ended outgoing CAD sessions allow project opening without bypassing rollback on a later failure',async()=>{
+ for(const failure of [null,'adopt']){const f=fixture(failure);f.c.partWorkspace.retain=async()=>['ended.step'];
+  if(failure){await assert.rejects(f.restore(),/adopt failed/);assert.deepEqual(f.state,f.old);assert.ok(f.calls.includes('abort'));}
+  else {assert.deepEqual(Array.from((await f.restore()).unavailableDrafts),['ended.step']);assert.equal(f.state.model,'new');assert.ok(f.calls.includes('commit'));}
+ }
+ const f=fixture('retain');await assert.rejects(f.restore(),/retain failed/);assert.deepEqual(f.state,f.old);assert.ok(!f.calls.includes('stage'));
+});
+
+test('a legacy CAD draft with an ended session does not prevent restoring a saved project',async()=>{
+ const f=fixture(),draft={name:'legacy.step'};f.c.partWorkspace.active=()=>false;
+ Object.assign(f.c.cadWorkspace,{hasGeometry:()=>true,captureDraft:()=>draft,getFile:()=>draft,retainDraft:async d=>{assert.equal(d,draft);return false;}});
+ assert.deepEqual(Array.from((await f.restore()).unavailableDrafts),['legacy.step']);assert.equal(f.state.model,'new');
+});

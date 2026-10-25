@@ -545,7 +545,8 @@
     await analysisSession.validate(data.analysisRuns);
     // Retain outgoing CAD drafts on the server before replacing the workspace.
     // A failed restore never changes these drafts or the editable model/history.
-    await partWorkspace.retain();if(!partWorkspace.active()&&cadWorkspace.hasGeometry())await cadWorkspace.serialize();
+    const unavailableDrafts=await partWorkspace.retain()||[];
+    if(!partWorkspace.active()&&cadWorkspace.hasGeometry()&&!await cadWorkspace.retainDraft(cadWorkspace.captureDraft()))unavailableDrafts.push(cadWorkspace.getFile().name);
     const previousParts=partWorkspace.captureState(),restoreRuns=analysisSession.checkpoint();let partRestore=null,cadRestore=null,guard=null;
     restoringAnalysisProject=true;
     try{
@@ -568,15 +569,16 @@
       if(failures.length)error.message+=' Recovery: '+failures.join('; ');
       throw error;
     }finally{restoringAnalysisProject=false;}
+    return {unavailableDrafts};
   }
   $('wb-project-file').onchange=event=>run(async()=>{
     const file=event.target.files[0];event.target.value='';if(!file)return;
     const data=JSON.parse(await file.text());if(data.format!=='webmesh-project'||![1,2].includes(data.version)||typeof data.deck!=='string'||(data.name!=null&&typeof data.name!=='string'))throw Error('This is not a supported WebMesh project.');
     if(data.version===2&&!data.ownership)throw Error('Version 2 projects require ownership metadata.');
-    await restoreProject(data,file.name);
+    const restored=await restoreProject(data,file.name);
     nameProject(data.name||file.name);historyItems=Array.isArray(data.history)?data.history.filter(item=>item&&typeof item.text==='string'&&typeof item.time==='string').slice(0,5):[];
     workspaceShell?.restore(data.workspace);workspaceShell?.units(data.ownership?.project.units||{length:'mm',force:'N',mass:'t',time:'s'});
-    activeTab='parts';$('wb-view-type').textContent='Assembly';operationRevision++;message('Project restored.');logOperation('Opened project');renderPanel();event.target.value='';
+    activeTab='parts';$('wb-view-type').textContent='Assembly';operationRevision++;message('Project restored.'+(restored.unavailableDrafts.length?' Previous CAD sessions had ended; the saved project was loaded.':''));logOperation('Opened project');renderPanel();event.target.value='';
   });
   $('wb-part-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file&&!busy)run(()=>partWorkspace.addFile(file));};
   $('wb-cad-file').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file&&!busy)run(()=>cadWorkspace.importFile(file));};

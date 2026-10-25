@@ -3,6 +3,7 @@ const P=require('../app/part-project.js'),clone=x=>JSON.parse(JSON.stringify(x))
 function fixture(){
  let ownership={project:{objects:[]}},current=null,uuid=0,fail=false;let busy=false;const reviews=[],imports=[],finishes=[],controls=[],opened=[];
  const cad={beginRestore:()=>({client:'workspace',transaction:String(++uuid)}),finishRestore:async(tx,commit)=>finishes.push({tx,commit}),abortRestore:async tx=>finishes.push({tx,commit:false}),captureDraft:()=>current,serializeDraft:async d=>clone(d.data||{filename:d.file.name,content:'CAD',meshes:[]}),restoreDraft:d=>{current=d;},clear:()=>{current=null;},stageRestore:async data=>{imports.push(data);if(fail)throw Error('Import failed');return {file:{name:data.filename},imported:{topology:{}},data:clone(data)};}};
+ cad.retainDraft=async d=>{await cad.serializeDraft(d);return true;};
  const h={engine:()=>({getProjectOwnership:()=>ownership}),cad:()=>cad,parts(){},mesh(){},run:async fn=>{busy=true;try{return await fn();}finally{busy=false;}},owner:id=>{if(!busy)opened.push(id);},review:async(request,options)=>reviews.push({request,options})};
  const ctx={window:{WebMeshParts:P,WebMeshCadReplacement:require('../app/cad-replacement.js'),WebMeshCadProject:{geometryFingerprint:async()=> 'fingerprint',restoreData:require('../app/cad-project.js').restoreData}},document:{querySelectorAll:()=>controls},crypto:{randomUUID:()=>String(++uuid)},structuredClone:clone};vm.createContext(ctx);vm.runInContext(fs.readFileSync(require.resolve('../app/part-workspace.js'),'utf8'),ctx);const workspace=ctx.window.WebMeshPartWorkspace.create(h);
  const staged=name=>({file:{name},imported:{topology:{}},data:{filename:name,content:name,meshes:[]}});
@@ -14,6 +15,12 @@ test('adding and switching parts preserves independent CAD drafts; discard and f
  await w.addImported(f.staged('wheel.step'));await f.apply();const wheel=w.active();f.current.data.settings={sizing:{size:2}};await w.edit(chassis);assert.equal(f.current.data.settings.sizing.size,5);await w.edit(wheel);assert.equal(f.current.data.settings.sizing.size,2);
  const saved=await w.serialize();assert.equal(saved.entries.length,2);f.fail=true;await assert.rejects(w.stageRestore(saved,f.state),/Import failed/);assert.equal(w.active(),wheel);assert.equal(f.current.data.settings.sizing.size,2);f.fail=false;const restore=await w.stageRestore(saved,f.state);w.commitRestore(restore);assert.equal(w.active(),wheel);await w.edit(chassis);assert.equal(f.current.data.settings.sizing.size,5);
 });
+test('retaining parts reports ended sessions without replacing any current or inactive draft',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('ended.step'));await f.apply();const first=f.current;await w.addImported(f.staged('live.step'));await f.apply();const second=f.current,active=w.active(),seen=[];
+ f.cad.retainDraft=async d=>{seen.push(d);return d!==first;};assert.deepEqual(Array.from(await w.retain()),['ended.step']);assert.deepEqual(seen,[first,second]);assert.equal(f.current,second);assert.equal(w.active(),active);
+ f.cad.retainDraft=async()=>{throw Error('server unavailable');};await assert.rejects(w.retain(),/server unavailable/);assert.equal(f.current,second);
+});
+
 test('saved part drafts validate ownership and old empty envelopes preserve legacy fallback',async()=>{
  const f=fixture(),w=f.workspace;assert.equal(await w.stageRestore({version:1,active:null,entries:[]},f.state),null);await w.addImported(f.staged('first.step'));await f.apply();const saved=clone(await w.serialize());saved.entries[0].data.editingOwner='missing';await assert.rejects(w.stageRestore(saved,f.state),/different part/);delete saved.entries[0].data.editingOwner;saved.entries.push(clone(saved.entries[0]));await assert.rejects(w.stageRestore(saved,f.state),/unique part/);
 });

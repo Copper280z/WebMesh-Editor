@@ -47,7 +47,7 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectR
       if (url === '/api/health') return { ok: true, json: async () => ({ cad: { available: true }, plugins: { gmsh: { available: gmsh } } }) };
       const data = JSON.parse(request.body), action = url.split('/').pop();
       calls.requests.push({ action, data });
-      if (failNext[action]) { const error = failNext[action]; delete failNext[action]; return { ok: false, json: async () => ({ error }) }; }
+      if (failNext[action]) { const failure = failNext[action]; delete failNext[action]; return { ok: false, status: failure.status || 500, json: async () => ({ error: typeof failure==='string'?failure:failure.error }) }; }
       let result;
       if (action === 'import' || action === 'restore') result = payload(imported, revision);
       else if(action==='restore_finish')result={status:data.commit?'committed':'aborted'};
@@ -846,6 +846,16 @@ test('per-part draft switching retains CAD revision, sizing, selection and mesh 
  w.restoreDraft(a);assert.equal(w.getState().filename,'first.step');assert.equal(w.getState().revision,before.revision);assert.deepEqual(plain(w.getState().selection),before.selection);assert.equal(w.getState().intervals.counts[1],7);assert.equal(w.getState().step,'size');
  w.restoreDraft(b);assert.equal(w.getState().filename,'second.step');assert.equal(w.getState().selection.kind,'solid');assert.equal(h.calls.requests.filter(r=>r.action==='import').length,imports);
  const saved=await w.serializeDraft(a);assert.equal(saved.filename,'first.step');assert.equal(atob(saved.content),'first');assert.equal(saved.settings.sizing.size,2);assert.equal(saved.settings.sizing.edges[0].count,7);assert.ok(saved.prepared.content);w.clear();assert.equal(w.hasGeometry(),false);
+});
+
+test('retaining an outgoing draft tolerates only an expired session; saving never drops missing CAD',async()=>{
+ const f=setup(),w=f.workspace;await w.importFile(new File(['CAD'],'part.step'));w.api.setSize(2);w.api.setCount([1],7);const draft=w.captureDraft();
+ const missing={status:404,error:'CAD session expired or was not found. Import the geometry again, or resume it under Sessions.'};
+ f.failNext.export=missing;assert.equal(await w.retainDraft(draft),false);assert.equal(w.captureDraft().imported,draft.imported);assert.equal(w.getState().intervals.counts[1],7);
+ f.failNext.export=missing;await assert.rejects(w.serializeDraft(draft),/CAD session expired/);
+ f.failNext.export=missing;await assert.rejects(w.serialize(),/CAD session expired/);
+ for(const failure of [{status:503,error:missing.error},{status:404,error:'Unknown API endpoint.'},{status:409,error:'CAD revision changed.'}]){f.failNext.export=failure;await assert.rejects(w.retainDraft(draft),new RegExp(failure.error.replaceAll('.','\\.')));}
+ assert.equal(await w.retainDraft(draft),true);assert.equal(f.calls.requests.at(-1).data.checkpoint,false);
 });
 
 test('portable CAD history is saved once, staged without duplicate BREP payload and adopted or aborted explicitly',async()=>{

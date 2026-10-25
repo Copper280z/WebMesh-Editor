@@ -1,6 +1,6 @@
 # Design: a project workspace built around the analysis model
 
-*Design revised after both reviews, 22 October 2026. Milestones 1–17 now implement the project core, owned authoring, assembly/analysis workflow, tree/visibility/docked inspectors, reviewed CAD replacement and object deletion. Remaining work is listed in the implementation notes below.*
+*Design revised after both reviews, 22 October 2026; implementation status reviewed 25 October 2026. Milestones 1–20 deliver the core workspace and the rover workflow, plus selective replacement, conforming local remeshing and per-solid O-grid methods. The original design is not yet complete; current gaps and the next recommendation are listed below.*
 
 This document describes what the analyst sees. How the model behaves when it changes is defined in [model-rules.md](model-rules.md): ownership, change propagation, overrides, region matching, runs and recovery. Rule numbers such as R8 refer to that document. Where the two disagree, the rules win.
 
@@ -33,7 +33,7 @@ This document proposes making those objects the backbone of the interface, witho
 - Multi-user editing.
 - CAD sketching or feature modelling.
 
-## Where we are
+## Baseline before the redesign
 
 - **Layout:** a top bar, a row of tool tabs, a tool panel on the left, the viewport, and a "Model" browser on the right. The browser lists card types with counts. Most setup and results tools open modal dialogs over the viewport.
 - **CAD:** a page has one active CAD source. Its server session keeps every revision, with undo and redo. Sheets (free faces standing for thin walls) are recorded with their thickness and offset.
@@ -452,6 +452,27 @@ The first version of this document delivered the layout first and the statuses l
 3. **Narrow screens.** How much matters below 1000 px: overlays as proposed, or desktop only for now?
 
 ## Implementation progress
+
+### Current assessment — 25 October 2026
+
+The original complete rover workflow is delivered: independent parts and live instances, mixed meshes, named regions, connections and payloads, reviewed remeshing and repair, MYSTRAN analysis, retained runs, project reopening, and the tree/visibility/docked-inspector layout. The flexure case additionally verifies local sizing and method changes against actual shared faces, including three thickness layers on all eight blades while retaining coarse bulk and endcaps.
+
+The remaining original-design work is:
+
+| Area | What remains |
+| --- | --- |
+| History and recovery | One chronological CAD/FE undo/redo history across parts and stages. Portable CAD history and atomic FE transactions exist, but viewport Undo still chooses a different history while preparing CAD. |
+| Units, materials and sections | Unit choice/correction at creation/import, dimension-aware inputs such as “0.35 kg”, consistent material/section assignment, and a mass/centre-of-gravity summary. Units are recorded with runs, but this is not the complete unit-assistance workflow. |
+| Loads and supports | Owned load combinations, moments, region-distributed forces and face pressures, with dependency repair and graphical authoring. Owned gravity, nodal forces and supports already exist; broader loads still use cards. |
+| Results | A separate read-only historical-run view that preserves the editable model, richer field/family selection, reaction contours, probes/tables and clearer no-data coverage. Current stale-run inspection replaces the editable model with its captured snapshot. |
+| Geometry and assembly generality | Preparation replay, arbitrary-plane/split-loop mounting patterns, rule-preserving split/merge matching, partial solid remeshing across topology changes, cross-owner sizing/method changes, and graphical placement. Existing conservative matching and explicit repair remain valid. |
+| Consistent editing | Field-level inheritance and orphaned-override decisions across recipes, shared selection/ID handling, contextual checks and further migration of legacy generators/editors to the public action/review model. Several expert paths remain card-based. |
+
+**Recommended next milestone: unified CAD/FE history.** Make Undo/Redo independent of the selected stage and active part. A first acceptance sequence should prepare CAD, apply a local remesh with dependent region/connection changes, edit a connection, then undo and redo those steps in chronological order from different stages. Verify CAD revisions, mesh/card identities, visibility, drafts and result matching at every step; failed or cancelled actions add no history entry. Save/reopen must preserve the documented history scope. This is a recommendation, not a claim that this milestone is implemented.
+
+After that, complete units/material/section authoring and owned load combinations, then the separate historical-run viewer and results tools. Additional meshing methods can follow the same public actions, dependency review and connectivity checks already used by the flexure case.
+
+### Delivered milestones
 
 The [project core milestone](implementation-01-project-core.md) is implemented. [Engine ownership integration](implementation-02-engine-ownership.md) connects explicit generated cards to guarded transactions, undo/redo, project persistence and the export gate. [Editable plates and their inspector](implementation-03-owned-primitive.md) now provide the first analyst-facing ownership workflow, including exact change review, conversion and project checks. [Mapped CAD ownership](implementation-04-cad-ownership.md) now retains committed source snapshots, explicit solid sections and native HEX8/HEX20 meshes through the same review and inspector. CAD preparation remains a draft until Apply. Shell ownership and mixed idealization are now implemented; legacy Gmsh volume tools still create plain cards. [Named mounting regions and RBE2/CBUSH attachments](implementation-05-mounting-attachments.md) now provide CAD face selection, shared PBUSH templates, stable mount/shaft points and automatic support-node resolution through native remeshing. Changed CAD topology blocks affected regions explicitly. [Mixed shell/solid regions from one CAD source](implementation-06-mixed-mesh.md) is implemented with independent mesh regions, explicit RBE3 shell–solid interfaces and independent remeshing, including portions partitioned from one continuous solid. Embedded conforming shell strips with shared GRIDs are implemented in the mesh-action milestone below.
 
