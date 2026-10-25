@@ -9,8 +9,15 @@
   const faceIds=(analysis,id)=>Object.values(analysis.volumes.get(id)?.block?.sides||{}).flatMap(s=>s.faces);
   const edgesOf=(analysis,id)=>sorted(faceIds(analysis,id).flatMap(f=>analysis.faces.get(f).chains.flat().map(e=>e.edge)));
   function solve(analysis,settings){const s=settings.sizing||{};return H.solveIntervals(analysis,{size:s.size,minCount:s.minCount,controls:new Map((s.edges||[]).map(e=>[e.id,e])),solidSizes:new Map((s.solids||[]).map(v=>[v.id,v.size]))});}
+  function validateMethods(topology,settings,targets){
+    if(!settings?.mesh?.solidMethods?.length)return;
+    const a=H.analyze(topology),methods=H.planMethods(a,settings.mesh.solidMethods);
+    for(const id of targets)if(methods.get(id)?.method==='ogrid'&&H.coreStack(a,id).some(v=>!targets.includes(v)))throw Error('O-grid cap layers must belong to the same mesh region. Include the complete circular core stack.');
+  }
   function impact(analysis,before,after,targets,solved){
     const previous=solve(analysis,before),next=solved||solve(analysis,after);
+    const oldMethods=H.planMethods(analysis,before.mesh?.solidMethods||[]),newMethods=H.planMethods(analysis,after.mesh?.solidMethods||[]);
+    const methodRecords=new Map((after.mesh?.solidMethods||[]).map(r=>[r.id,r]));
     const changedEdges=sorted([...next.counts].filter(([id,n])=>previous.counts.get(id)!==n).map(([id])=>id));
     const changed=new Set(changedEdges),oldControls=new Map((before.sizing?.edges||[]).map(e=>[e.id,e])),newControls=new Map((after.sizing?.edges||[]).map(e=>[e.id,e]));
     const editedEdges=new Set([...oldControls.keys(),...newControls.keys()].filter(id=>JSON.stringify(oldControls.get(id))!==JSON.stringify(newControls.get(id))));
@@ -19,9 +26,13 @@
     const all=Number(before.mesh?.order||1)!==Number(after.mesh?.order||1)||!!before.mesh?.pidPerSolid!==!!after.mesh?.pidPerSolid;
     const global=before.sizing?.size!==after.sizing?.size||before.sizing?.minCount!==after.sizing?.minCount||all;
     const affected=[],direct=[],propagated=[],reasons={};
-    for(const id of targets){const edges=edgesOf(analysis,id),changedHere=edges.filter(e=>changed.has(e));if(!all&&!changedHere.length)continue;
-      affected.push(id);(global||editedSolids.has(id)||edges.some(e=>editedEdges.has(e))?direct:propagated).push(id);
-      reasons[id]=all?'Element order or section grouping changed':'Changed edge counts: '+changedHere.map(e=>'E'+e+' '+previous.counts.get(e)+'→'+next.counts.get(e)).join(', ');
+    for(const id of targets){const edges=edgesOf(analysis,id),changedHere=edges.filter(e=>changed.has(e));
+      const methodChanged=JSON.stringify(oldMethods.get(id)||{method:'mapped'})!==JSON.stringify(newMethods.get(id)||{method:'mapped'});
+      if(!all&&!changedHere.length&&!methodChanged)continue;
+      affected.push(id);(global||editedSolids.has(id)||edges.some(e=>editedEdges.has(e))||(methodChanged&&methodRecords.get(id)?.direct!==false)?direct:propagated).push(id);
+      reasons[id]=all?'Element order or section grouping changed':[
+        ...(methodChanged?[(methodRecords.get(id)?.direct===false?'Shared circular cap requires matching method: ':'Solid method changed: ')+(oldMethods.get(id)?.method||'mapped')+' → '+(newMethods.get(id)?.method||'mapped')+(newMethods.get(id)?.method==='ogrid'?' · core '+newMethods.get(id).coreRatio+' · '+newMethods.get(id).radialLayers+' radial layers':'')]:[]),
+        ...(changedHere.length?['Changed edge counts: '+changedHere.map(e=>'E'+e+' '+previous.counts.get(e)+'→'+next.counts.get(e)).join(', ')]:[])].join('; ');
     }
     return {affected,direct,propagated,changedEdges,reasons,conflicts:next.conflicts,unchanged:targets.filter(id=>!affected.includes(id)),all};
   }
@@ -57,6 +68,7 @@
     if(d.generator!=='cad-mapped-v1'||d.pendingReplacement||targets.some(v=>!d.targets.includes(v)))throw Error('Local remeshing requires solids in the current mapped mesh region.');
     if(Number(d.settings.mesh?.order||1)!==Number(input.settings.mesh?.order||1)||!!d.settings.mesh?.pidPerSolid!==!!input.perSolid)throw Error('Changing element order or section grouping requires remeshing the complete region.');
     const analysis=H.analyze(input.topology),change=impact(analysis,d.settings,input.settings,d.targets);
+    validateMethods(input.topology,input.settings,d.targets);
     if(change.conflicts.length)throw Error('Resolve sizing conflicts before remeshing.');
     if(change.affected.some(id=>!targets.includes(id)))throw Error('Include every dependent solid in the local remesh: '+change.affected.filter(id=>!targets.includes(id)).join(', ')+'.');
     const membership=provenance(d,input.baselineMesh),remove=new Set(membership.filter(v=>targets.includes(v.id)).flatMap(v=>v.elements));
@@ -97,5 +109,5 @@
     const reservations=[...(added.length?[{owner:old.id,namespace:'node',role:nr,start,count:added.length}]:[]),{owner:old.id,namespace:'element',role:er,start:eid,count:elements.length}];
     return {owner:old.id,newMeshIdentity:false,localRemesh:{solids:targets,retainedElements:retained.length,retainedNodes:used.size},mesh:{name:old.name,nodes:out.definition.cards.filter(c=>c.family==='nodes').map(c=>({id:c.id,...c.value})),elements:asMesh(out.definition.cards.filter(c=>c.family==='elems'))},request:{label:'Remesh '+targets.length+' solid'+(targets.length===1?'':'s')+' · '+old.name,objects:[out],reservations}};
   }
-  return Object.freeze({solve,impact,edgesOf,provenance,faceSignatures,patch});
+  return Object.freeze({solve,impact,edgesOf,provenance,faceSignatures,patch,validateMethods});
 }));

@@ -8,3 +8,7 @@ These fixtures come from the current state (revision 27, cursor 25 of 26 retaine
 The original classifier reports 99/121 mappable solids. The corrected classifier reports 111/121, with 12 curved-tangency warnings. Solids 49, 50, 64 and 65 still have five-sided end faces. Solids 4, 6, 87 and 88 contain the two interrupted blind bores; solids 7 and 86 contain their end caps. The bottom bore faces from the report are 35 and 453.
 
 Regressions exercise the unchanged saved topology, the actual preparation kernel, face-picked corner splitting, material-volume preservation, HEX8/HEX20 mesh generation and Undo. See `tests/flexure-hex.test.cjs` and the prepared-flexure case in `tests/cad-hex-workflow.test.cjs`.
+
+## Complete preparation
+
+`complete.json.gz` records the 169-solid prepared flexure used by the O-grid regression. It includes exact topology and display samples for all projected circular caps and surrounding blocks. The tests compare every shared CAD face for both linear and quadratic meshes and exercise reversible method switching through the ownership transaction.

@@ -36,6 +36,7 @@
     if(!target.length||target.some(id=>!Number.isSafeInteger(id)||id<1))throw Error('Select explicit CAD mesh regions.');
     const topo=input.topology;
     if(target.some(id=>!(shell?topo.faces:topo.volumes).some(v=>v.id===id)))throw Error('A target entity does not exist in this CAD snapshot.');
+    if(!shell)Local.validateMethods(topo,input.settings,target);
     const geometryKey=await geometryFingerprint(topo);
     const partId=old?.definition.part||input.part||null,part=partId?find(partId):null;
     if(partId&&part?.definition.generator!=='part-v1')throw Error('Select the owning part.');
@@ -102,7 +103,7 @@
     let settings=copy(root.definition.settings);
     if((root.facts?.suspendedReason||root.definition.pendingReplacement)&&source.definition.replacement){
       const targets=root.definition.replacementTargets||[],shell=root.definition.generator===SHELL;
-      settings={version:2,step:'mesh',sizing:{size:settings.sizing?.size,minCount:settings.sizing?.minCount||1,edges:[]},mesh:{...settings.mesh,method:shell?'shell':'mapped',scope:'selected',selectedVolumes:shell?[]:targets},shell:{...settings.shell,element:settings.shell?.element||'quad',mesher:settings.shell?.mesher||'recombined',thickness:settings.shell?.thickness||1,placement:settings.shell?.placement||'surface',offset:settings.shell?.offset||0,size:settings.shell?.size||null,scope:'selected',selectedFaces:shell?targets:[]}};
+      settings={version:2,step:'mesh',sizing:{size:settings.sizing?.size,minCount:settings.sizing?.minCount||1,edges:[]},mesh:{...settings.mesh,solidMethods:[],method:shell?'shell':'mapped',scope:'selected',selectedVolumes:shell?[]:targets},shell:{...settings.shell,element:settings.shell?.element||'quad',mesher:settings.shell?.mesher||'recombined',thickness:settings.shell?.thickness||1,placement:settings.shell?.placement||'surface',offset:settings.shell?.offset||0,size:settings.shell?.size||null,scope:'selected',selectedFaces:shell?targets:[]}};
       if(root.definition.pendingReplacement){settings.sizing.edges=Selective.pendingBoundaries(root.definition,source.definition.topology).map(e=>({id:e.id,count:e.nodes.length-(source.definition.topology.edges.find(t=>t.id===e.id)?.type==='Circle'?0:1)}));const pid=root.definition.pendingReplacement.faces[0]?.pid;settings.shell.thickness=state.project.objects.flatMap(o=>o.definition.cards||[]).find(c=>c.family==='properties'&&c.id===pid)?.value.t||settings.shell.thickness;}
       for(const m of meshes){const o=state.project.objects.find(o=>o.id===m.projectOwner);if(o.facts?.suspendedReason){m.volumes=o.definition.generator===GENERATOR?o.definition.replacementTargets||[]:[];m.faces=o.definition.generator===SHELL?o.definition.replacementTargets||[]:[];m.stale=true;}}
     }

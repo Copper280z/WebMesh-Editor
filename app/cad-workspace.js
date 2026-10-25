@@ -90,7 +90,7 @@
     let sliceDraft = null, cutDraft = null, passages = [], featureFilter = 'all', checkedFeatures = new Set();
     let sizing = { size: null, minCount: 1, edges: new Map(), faces: new Map(), solids: new Map() };
     let display = { color: 'status', xray: false, seeds: true, labels: true, groups: true, hidden: new Set(), hiddenSheets: new Set(), showResult: true };
-    let meshSettings = { method: 'mapped', order: 1, scope: 'all', live: true, pidPerSolid: false };
+    let meshSettings = { method: 'mapped', order: 1, scope: 'all', live: true, pidPerSolid: false, solidMethods: [] };
     let legacy = { method: 'tet', size: null, layers: 4, sourceFace: '', targetFace: '', sweepAxis: 'z', layerCounts: {} };
     // Shell meshing of CAD faces: on the faces, at the midsurface of two sides, or offset.
     // pads: one ring of quads around each listed hole, inside a square (size and perSide null: the mesher's guess).
@@ -184,7 +184,7 @@
       intervals = H().solveIntervals(analysis, { size, minCount: sizing.minCount, controls: controlMap(), solidSizes: new Map([...sizing.solids].map(([id,c])=>[id,c.size])) });
     }
     function localPlan() {
-      const L=window.WebMeshCadLocal,key=meshSettings.order+':'+meshSettings.pidPerSolid;
+      const L=window.WebMeshCadLocal,key=meshSettings.order+':'+meshSettings.pidPerSolid+':'+JSON.stringify(meshSettings.solidMethods);
       if(!L||!analysis||!intervals||!editingOwner)return null;
       if(localCache?.ownerId===editingOwner&&localCache.analysis===analysis&&localCache.intervals===intervals&&localCache.key===key)return localCache.value;
       const state=engine().getProjectOwnership?.(),owner=state?.project.objects.find(o=>o.id===editingOwner);
@@ -427,6 +427,14 @@
     /* ------------------------------------------------------------ accept -- */
     function accept(data, { fit = true, keepStep = false } = {}) {
       const previous = session?.topology;
+      let lostMethods=0;
+      if(previous&&session?.cadId===data.cadId&&meshSettings.solidMethods?.length){
+        const a=visibilityGeometry(previous).solids,b=visibilityGeometry(data.topology).solids,kept=[];
+        for(const r of meshSettings.solidMethods){const hits=[...b].filter(([,key])=>key===a.get(r.id));if(hits.length===1)kept.push({...r,id:hits[0][0]});}
+        lostMethods=meshSettings.solidMethods.length-kept.length;
+        try{H().planMethods(H().analyze(data.topology),kept);meshSettings.solidMethods=kept;}
+        catch{lostMethods+=kept.length;meshSettings.solidMethods=[];}
+      }else meshSettings.solidMethods=[];
       // Solid IDs may be renumbered by CAD preparation; retain controls only on
       // verified unchanged volumes, using the same geometry keys as visibility.
       if(previous&&session?.cadId===data.cadId&&sizing.solids.size){
@@ -450,6 +458,7 @@
       if (vp && data.topology?.edges) vp.setEdgeFaces(new Map(data.topology.edges.map(e => [e.id, e.faces || []])));
       engine().setCadSelectionMode(active ? pick : 'none');
       if (lost) hooks.message(`${lost} edge count control${lost === 1 ? ' was' : 's were'} removed: those edges changed with the geometry.`, true);
+      if(lostMethods)hooks.message(`${lostMethods} solid method assignments need review after the CAD topology changed. The committed mesh is retained.`,true);
       updateDisplay();
       hooks.refresh();
     }
@@ -765,6 +774,7 @@
       if (step === 'size') { renderPart('cad-edge-editor', edgeEditor); updateSizingOverlays(); }
       // The shell card counts and uses the picked faces.
       if (step === 'mesh' && meshSettings.method === 'shell') renderPart('cad-shell', shellBody);
+      if (step === 'mesh' && meshSettings.method === 'mapped') renderPart('cad-solid-method', solidMethodCard);
       if (step === 'prepare') { updateIssueOverlay(); if (tool === 'features') renderPart('cad-tool', toolCard); }
       document.querySelectorAll('[data-solid-row]').forEach(el => el.classList.toggle('selected', selection.kind === 'solid' && selection.ids.includes(Number(el.dataset.solidRow))));
       if (step === 'mesh' && meshSettings.scope === 'selected') { invalidateMesh(); scheduleMesh(); }
@@ -787,7 +797,7 @@
       clearTimeout(meshTimer);clearTimeout(previewTimer);
       step='prepare';pick='face';tool=null;sliceDraft=cutDraft=null;passages=[];checkedFeatures=new Set();
       surfaceDraft={mode:'two',place:'mid',thickness:null,offset:0,picked:[],busy:false};extendDraft={edges:[],busy:false};sheetEdit=removingSheet=null;
-      meshSettings={method:'mapped',order:1,scope:'all',live:true,pidPerSolid:false};
+      meshSettings={method:'mapped',order:1,scope:'all',live:true,pidPerSolid:false,solidMethods:[]};
       shell={element:'quad',mesher:'recombined',placement:'surface',scope:'all',faces:[],facesB:[],size:null,perCircle:12,offset:0,thickness:1,pidPerFace:false,pads:[],padSize:null,padSide:null};
       legacy={method:'tet',size:null,layers:4,sourceFace:'',targetFace:'',sweepAxis:'z',layerCounts:{}};
       display={color:'status',xray:false,seeds:true,labels:true,groups:true,hidden:new Set(),hiddenSheets:new Set(),showResult:true};
@@ -875,9 +885,10 @@
         const v = analysis.volumes.get(selection.ids[0]);
         if (v && !v.mappable) html += `<ul class="cad-reasons">${v.reasons.slice(0, 3).map(r => `<li>${icon('warn')}<span>${esc(r.message)}</span></li>`).join('')}${v.reasons.length > 3 ? `<li class="more">+${v.reasons.length - 3} more · yellow marks show them in the view</li>` : ''}</ul>`;
         else if (v?.mappable) {
-          const dims = blockDims(v);
-          html += `<div class="cad-ok-line">${icon('check')} Mapped block${dims ? ` · ${dims.join(' × ')} elements` : ''}</div>`;
-          if (v.warnings?.length) html += `<ul class="cad-reasons warn">${v.warnings.map(w => `<li>${icon('warn')}<span>${esc(w.message)}</span></li>`).join('')}</ul>`;
+          const dims = blockDims(v),ogrid=meshSettings.solidMethods?.some(m=>m.id===v.id&&m.method==='ogrid');
+          html += `<div class="cad-ok-line">${icon('check')} ${ogrid?'O-grid · 5 blocks':`Mapped block${dims ? ` · ${dims.join(' × ')} elements` : ''}`}</div>`;
+          const warnings=(v.warnings||[]).filter(w=>!ogrid||w.code!=='curved-tangency');
+          if (warnings.length) html += `<ul class="cad-reasons warn">${warnings.map(w => `<li>${icon('warn')}<span>${esc(w.message)}</span></li>`).join('')}</ul>`;
         }
         html += `<div class="cad-inline">${btn('isolate', 'Isolate', { cls: 'ghost small', iconName: 'eye', title: 'Hide all other solids (H)' })}${btn('hide-selected', 'Hide', { cls: 'ghost small', iconName: 'hide' })}${display.hidden.size ? btn('show-all', 'Show all', { cls: 'ghost small' }) : ''}</div>`;
       }
@@ -935,7 +946,7 @@
         if (!v.mappable) return ['bad', shortReason(v)];
         if (intervals?.conflicts.some(c => (c.volumes || []).includes(id))) return ['warn', 'count conflict'];
         const dims = blockDims(v);
-        return [impact?.affected.includes(id)?'warn':v.warnings?.length?'taper':'ok', (dims?dims.join(' × '):'mapped block')+(impact?.affected.includes(id)?(impact.propagated.includes(id)?' · dependent remesh':' · remesh'):'')];
+        return [impact?.affected.includes(id)?'warn':v.warnings?.length?'taper':'ok', (dims?dims.join(' × '):'mapped block')+(meshSettings.solidMethods?.some(m=>m.id===id&&m.method==='ogrid')?' · O-grid':'')+(impact?.affected.includes(id)?(impact.propagated.includes(id)?' · dependent remesh':' · remesh'):'')];
       };
       const list = treeFilter === 'blocked' ? vols.filter(v => !analysis?.volumes.get(v.id)?.mappable) : vols;
       const rows = list.map(v => {
@@ -1202,14 +1213,34 @@
         const a=analysis.index.vertices.get(e.corners[0]),b=analysis.index.vertices.get(e.corners[1]),delta=b.map((x,i)=>Math.abs(x-a[i])),axis=delta.indexOf(Math.max(...delta)),aligned=delta.every((x,i)=>i===axis||x<1e-6);
         return `<button type="button" class="cad-link" data-act="select-edges" data-edges="${e.edges.join(',')}">${aligned?'XYZ'[axis]+' · ':''}${fmt(e.length||e.edges.reduce((s,id)=>s+analysis.index.edges.get(id).length,0))} mm · ${e.edges.reduce((s,id)=>s+intervals.counts.get(id),0)} element${e.edges.reduce((s,id)=>s+intervals.counts.get(id),0)===1?'':'s'}${e.edges.length>1?' ('+e.edges.length+' segments)':''}</button>`;
       }).join('');
-      return `<div class="cad-card"><div class="cad-card-title">${ids.length===1?'Solid '+ids[0]:ids.length+' solids'} · local sizing</div><div class="cad-size-row"><label class="cad-field"><span>Solid element size</span><input data-field="solid-size" type="number" min="0" step="any" value="${sizes.every(s=>s===sizes[0])?sizes[0]:''}" placeholder="global"></label>${btn('solid-reset','Reset',{cls:'ghost small'})}</div><p class="cad-note">Edge controls override this size. Matching edges propagate to neighboring blocks.</p>${directional?'<div class="cad-sub-title">Directional edge controls</div><div class="cad-direction-controls">'+directional+'</div>':''}${btn('pick','Pick thickness edges',{cls:'ghost small',data:{value:'edge'}})}</div>`;
+      return `<div class="cad-card"><div class="cad-card-title">${ids.length===1?'Solid '+ids[0]:ids.length+' solids'} · local sizing</div><div class="cad-size-row"><label class="cad-field"><span>Solid element size</span><input data-field="solid-size" type="number" min="0" step="any" value="${sizes.every(s=>s===sizes[0])?sizes[0]:''}" placeholder="global"></label>${btn('solid-reset','Reset',{cls:'ghost small'})}</div><p class="cad-note">Edge controls override this size. Matching edges propagate to neighboring blocks.</p>${directional?'<div class="cad-sub-title">Directional edge controls</div><div class="cad-direction-controls">'+directional+'</div>':''}${btn('pick','Pick thickness edges',{cls:'ghost small',data:{value:'edge'}})}</div>${solidMethodCard()}`;
+    }
+    function solidMethodCard() {
+      const ids=selectedSolids().filter(id=>analysis?.volumes.get(id)?.mappable);
+      if(!ids.length)return `<div class="cad-card subtle"><div class="cad-card-title">Per-solid method</div>${btn('pick','Pick solids to set method',{cls:'ghost small',data:{value:'solid'}})}</div>`;
+      const records=meshSettings.solidMethods||[],values=ids.map(id=>H().solidMethod(records.find(m=>m.id===id)));
+      const current=values.every(v=>v.method===values[0].method)?values[0].method:'mixed';
+      let stack=[],reason='';
+      try{stack=[...new Set(ids.flatMap(id=>H().coreStack(analysis,id)))];
+        const owner=localPlan()?.owner;if(owner&&stack.some(id=>!owner.definition.targets.includes(id)))reason='The connected circular cap layers must belong to this mesh region.';
+      }catch(e){reason=e.message;}
+      return `<div class="cad-card"><div class="cad-card-title">${ids.length===1?'Solid '+ids[0]:ids.length+' solids'} · method</div>
+        ${seg('solid-method',[['mapped','Mapped block'],['ogrid','O-grid',null,reason||'Central quad and four annular blocks',!!reason]],current,'compact')}
+        ${current==='ogrid'?`<div class="cad-size-row">${numberField('ogrid-ratio','Core radius ratio',values[0].coreRatio,'min="0.1" max="0.85" step="0.05"')}${numberField('ogrid-layers','Radial layers',values[0].radialLayers,'min="1" max="100" step="1"')}</div><p class="cad-note">5 blocks per core. Outer face mesh is retained.</p>`:''}
+        <p class="cad-note">${reason?esc(reason):stack.length>ids.length?`${stack.length-ids.length} connected cap layer${stack.length-ids.length===1?'':'s'} will use the same method: ${stack.filter(id=>!ids.includes(id)).join(', ')}.`:'O-grid keeps the circular boundary and adds an internal core.'}</p></div>`;
+    }
+    function setSelectedSolidMethod(value) {
+      const records=H().setSolidMethod(analysis,meshSettings.solidMethods||[],selectedSolids(),value);
+      const owner=localPlan()?.owner;
+      if(owner)window.WebMeshCadLocal.validateMethods(topology(),{mesh:{solidMethods:records}},owner.definition.targets);
+      meshSettings.solidMethods=records;resolve({rerender:false});hooks.render();
     }
     function impactCard() {
       const plan=localPlan();if(!plan)return '';
       const ids=new Set([plan.owner.id]),objects=plan.objects;
       let changed=true;while(changed){changed=false;for(const o of objects)if(!ids.has(o.id)&&o.dependsOn?.some(id=>ids.has(id))){ids.add(o.id);changed=true;}}
       const downstream=objects.filter(o=>o.id!==plan.owner.id&&ids.has(o.id));
-      return `<div class="cad-card"><div class="cad-card-title">Remesh impact <small>${plan.affected.length} / ${plan.owner.definition.targets.length} solids</small></div>${plan.affected.length?`<div class="cad-impact-legend"><span style="color:#e58a55">● ${plan.direct.length} directly changed</span><span style="color:#e8b04c">● ${plan.propagated.length} dependent</span><span style="color:#92a9bd">● ${plan.unchanged.length} unchanged</span></div>${plan.all?'<p class="cad-note">Order or section changes require the complete region.</p>':btn('remesh-affected','Preview affected solids',{cls:'ghost small',disabled:!!plan.conflicts.length})}<details class="cad-impact-list"><summary>Why these solids?</summary>${plan.affected.map(id=>`<button type="button" class="cad-link" data-act="impact-solid" data-id="${id}">Solid ${id} · ${plan.propagated.includes(id)?'dependent':'direct'}</button><p class="cad-note">${esc(plan.reasons[id])}</p>`).join('')}</details>${downstream.length?`<details><summary>${downstream.length} downstream objects to recheck on Apply</summary><p class="cad-note">${downstream.map(o=>esc(o.name)).join(' · ')}</p></details>`:''}`:'<p class="cad-note">No solved counts changed. Pick a solid to remesh it, or edit an edge or solid size.</p>'}</div>`;
+      return `<div class="cad-card"><div class="cad-card-title">Remesh impact <small>${plan.affected.length} / ${plan.owner.definition.targets.length} solids</small></div>${plan.affected.length?`<div class="cad-impact-legend"><span style="color:#e58a55">● ${plan.direct.length} directly changed</span><span style="color:#e8b04c">● ${plan.propagated.length} dependent</span><span style="color:#92a9bd">● ${plan.unchanged.length} unchanged</span></div>${plan.all?'<p class="cad-note">Order or section changes require the complete region.</p>':btn('remesh-affected','Preview affected solids',{cls:'ghost small',disabled:!!plan.conflicts.length})}<details class="cad-impact-list"><summary>Why these solids?</summary>${plan.affected.map(id=>`<button type="button" class="cad-link" data-act="impact-solid" data-id="${id}">Solid ${id} · ${plan.propagated.includes(id)?'dependent':'direct'}</button><p class="cad-note">${esc(plan.reasons[id])}</p>`).join('')}</details>${downstream.length?`<details><summary>${downstream.length} downstream objects to recheck on Apply</summary><p class="cad-note">${downstream.map(o=>esc(o.name)).join(' · ')}</p></details>`:''}`:'<p class="cad-note">No mesh changes pending. Pick a solid to change its size or method, or remesh it.</p>'}</div>`;
     }
     function edgeEditor() {
       if(selection.kind==='solid'&&selection.ids.length)return solidEditor();
@@ -1260,7 +1291,8 @@
 
     /* --------------------------------------------------------------- mesh -- */
     function meshBody() {
-      let html = `<div id="cad-meshes">${meshesCard()}</div>`;
+      let html = meshSettings.method==='mapped'&&!discrete()?`<section id="cad-solid-method">${solidMethodCard()}</section><section id="cad-impact">${impactCard()}</section>`:'';
+      html += `<div id="cad-meshes">${meshesCard()}</div>`;
       if (!discrete()) html += `<section class="cad-card"><div class="cad-card-title">Method</div>${seg('mesh-method', [['mapped', 'Mapped hex', 'mesh', 'Native transfinite hex meshing — no Gmsh'], ['shell', 'Shell', 'shell', 'Quad or tri shell elements on faces, at a midsurface or offset'], ['gmsh', 'Other (Gmsh)', 'spark', gmshReady() ? 'Tet, tri, quad and sweep methods through Gmsh' : GMSH_MISSING, !gmshReady()]], meshSettings.method)}${gmshReady() ? '' : `<p class="cad-note">${icon('warn')} Gmsh methods (tets, triangle shells, sweeps) are off: ${esc(GMSH_MISSING)}</p>`}</section>`;
       if (meshSettings.method === 'shell' && !discrete()) html += `<div id="cad-shell">${shellBody()}</div>`;
       else if (meshSettings.method === 'mapped' && !discrete()) {
@@ -1272,7 +1304,7 @@
           <label class="cad-check"><input type="checkbox" data-field="mesh-live" ${meshSettings.live ? 'checked' : ''}> Live preview while editing</label>
           ${s.blocked ? `<p class="cad-note warn">${icon('warn')} ${s.blocked} solid${s.blocked === 1 ? '' : 's'} will be skipped (not mappable).</p>` : ''}
           ${intervals?.conflicts.length ? `<p class="cad-note bad">${icon('warn')} Resolve ${intervals.conflicts.length} edge-count conflict${intervals.conflicts.length === 1 ? '' : 's'} in Size first.</p>` : ''}</section>`;
-        html += `<section id="cad-impact">${impactCard()}</section><section id="cad-mesh-report">${meshReportCard()}</section>`;
+        html += `<section id="cad-mesh-report">${meshReportCard()}</section>`;
       } else html += legacyBody();
       if (report) html += `<div class="cad-card ${report.error ? 'bad' : 'good'}"><pre class="cad-report">${esc(report.text)}</pre></div>`;
       if (meshes.some(m => m.stale && m.inModel !== false)) html += `<p class="cad-note warn">${icon('warn')} ${meshes.some(m => m.projectOwner && m.stale && m.inModel !== false) ? 'The CAD draft or mesh history changed. Review a new mesh to reconcile it; export retains the committed model.' : 'Geometry, sizing or the model changed since a mesh was added. Mesh those bodies again to update it.'}</p>`;
@@ -1622,7 +1654,8 @@
       if(meshSettings.scope==='affected')return plan?.affected||[];
       if(meshSettings.scope==='selected'){
         const chosen=selection.kind==='solid'?selection.ids.filter(id=>analysis.volumes.get(id)?.mappable):[];
-        return [...new Set([...chosen,...(plan?.affected||[])])].sort((a,b)=>a-b);
+        const closure=!plan?chosen.flatMap(id=>meshSettings.solidMethods?.some(m=>m.id===id&&m.method==='ogrid')?H().coreStack(analysis,id):[id]):chosen;
+        return [...new Set([...closure,...(plan?.affected||[])])].sort((a,b)=>a-b);
       }
       return null;
     }
@@ -1634,7 +1667,7 @@
         const volumes = meshVolumes();
         if (volumes && !volumes.length) throw Error('Pick one or more mappable solids, or mesh all mappable solids.');
         engine().setCadVisible(true);
-        const result = H().generateMesh(analysis, intervals, geometry, { order: meshSettings.order, volumes, pidPerSolid: meshSettings.pidPerSolid });
+        const result = H().generateMesh(analysis, intervals, geometry, { order: meshSettings.order, volumes, pidPerSolid: meshSettings.pidPerSolid, solidMethods: meshSettings.solidMethods });
         meshPreview = { result, display: meshDisplay(result), ms: Math.round(performance.now() - started) };
       } catch (error) { meshPreview = null; meshError = error.message; }
       updateSizingOverlays();
@@ -1708,7 +1741,7 @@
         let baselineMesh;
         if(localRemesh&&!plan.owner.definition.volumeElements){
           const d=plan.owner.definition;
-          baselineMesh=H().generateMesh(analysis,window.WebMeshCadLocal.solve(analysis,d.settings),geometry,{order:d.settings.mesh?.order||1,volumes:d.targets,pidPerSolid:!!d.settings.mesh?.pidPerSolid});
+          baselineMesh=H().generateMesh(analysis,window.WebMeshCadLocal.solve(analysis,d.settings),geometry,{order:d.settings.mesh?.order||1,volumes:d.targets,pidPerSolid:!!d.settings.mesh?.pidPerSolid,solidMethods:d.settings.mesh?.solidMethods});
         }
         await reviewOwnedMesh('hex', {nodes:result.nodes,elements:result.elements,faceNodes:result.faceNodes,edgeNodes:result.edgeNodes}, volumes, {localRemesh,baselineMesh}, ()=>finishMappedMesh(result,localRemesh));
         return;
@@ -1861,6 +1894,7 @@
           case 'select-group': { const g = intervals?.groups[Number(el.dataset.index)]; if (g) { setPick('edge'); setSelection('edge', g.edges); } break; }
           case 'select-edges': setPick('edge'); setSelection('edge', el.dataset.edges.split(',').map(Number)); break;
           case 'show-conflict': { const c = intervals?.conflicts[Number(el.dataset.index)]; if (c) { setPick('edge'); setSelection('edge', c.edges || []); } break; }
+          case 'solid-method': if(!selectedSolids().every(id=>(meshSettings.solidMethods?.find(m=>m.id===id)?.method||'mapped')===value))setSelectedSolidMethod({method:value});break;
           case 'solid-reset': for(const id of selectedSolids())sizing.solids.delete(id);resolve();break;
           case 'impact-solid': setSelection('solid',[Number(el.dataset.id)]);break;
           case 'remesh-affected': meshSettings.scope='affected';changeStep('mesh');break;
@@ -2016,6 +2050,7 @@
         if(field==='solid-size'&&kind==='change'){
           const size=Number(value);for(const id of selectedSolids()){if(size>0&&Number.isFinite(size))sizing.solids.set(id,{size});else sizing.solids.delete(id);}resolve();return;
         }
+        if(['ogrid-ratio','ogrid-layers'].includes(field)&&kind==='change'){const current=meshSettings.solidMethods.find(m=>m.id===selectedSolids()[0])||{method:'ogrid'};setSelectedSolidMethod({...current,[field==='ogrid-ratio'?'coreRatio':'radialLayers']:Number(value)});return;}
         if (field === 'auto-blends') { autoState.blends = !!value; return; }
         if (field === 'auto-holes') { autoState.holes = !!value; return; }
         if (field === 'mesh-live') { meshSettings.live = !!value; if (value) scheduleMesh(); return; }
@@ -2314,6 +2349,7 @@
           const entry = {}; if (control.count != null) entry.count = control.count; if (control.size != null) entry.size = control.size;
           if (Object.keys(entry).length) sizing.edges.set(control.id, entry);
         }
+        if(s.mesh?.solidMethods){H().planMethods(analysis,s.mesh.solidMethods);meshSettings.solidMethods=structuredClone(s.mesh.solidMethods);}
         for(const c of s.sizing?.solids||[]){if(Number.isSafeInteger(c.id)&&analysis.volumes.has(c.id)&&Number.isFinite(c.size)&&c.size>0)sizing.solids.set(c.id,{size:c.size});else invalid=true;}
         if(s.mesh?.method==='shell'&&s.shell?.scope==='selected'){
           selection={kind:'face',ids:(s.shell.selectedFaces||[]).filter(id=>session.topology.faces.some(f=>f.id===id))};

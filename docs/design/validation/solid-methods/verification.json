@@ -1,0 +1,60 @@
+{
+  "solids": [
+    145,
+    150,
+    155,
+    161
+  ],
+  "retainedSolids": 165,
+  "retainedElements": 13806,
+  "retainedNodes": 18056,
+  "elements": 15508,
+  "nodes": 19592,
+  "sharedFaces": 297,
+  "methods": [
+    {
+      "id": 145,
+      "method": "ogrid",
+      "coreRatio": 0.5,
+      "radialLayers": 2,
+      "direct": true
+    },
+    {
+      "id": 150,
+      "method": "ogrid",
+      "coreRatio": 0.5,
+      "radialLayers": 2,
+      "direct": false
+    },
+    {
+      "id": 155,
+      "method": "ogrid",
+      "coreRatio": 0.5,
+      "radialLayers": 2,
+      "direct": false
+    },
+    {
+      "id": 161,
+      "method": "ogrid",
+      "coreRatio": 0.5,
+      "radialLayers": 2,
+      "direct": false
+    }
+  ],
+  "quality": {
+    "HEX8": {
+      "beforeMinSJ": 0.2718376660594145,
+      "afterMinSJ": 0.5044996206966909,
+      "beforeElements": 690,
+      "afterElements": 1702,
+      "inverted": 0
+    },
+    "HEX20": {
+      "beforeMinSJ": 0.0015453631331387996,
+      "afterMinSJ": 0.5044996206966802,
+      "beforeElements": 690,
+      "afterElements": 1702,
+      "inverted": 0
+    }
+  }
+}

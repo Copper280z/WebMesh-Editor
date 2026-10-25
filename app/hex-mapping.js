@@ -405,6 +405,68 @@
     return { volumes: chosen, faces: [...faces].sort((a, b) => a - b), edges: [...edges].sort((a, b) => a - b) };
   }
 
+  // A circular core is already prepared CAD: two complete circular caps and
+  // a coaxial cylindrical wall. O-grid changes its interior mesh topology,
+  // not its CAD or the wall quadrilaterals shared with neighboring solids.
+  function circularCores(analysis) {
+    if (analysis.circularCores) return analysis.circularCores;
+    const cores = new Map(), { faces, edges } = analysis.index;
+    for (const [id, v] of analysis.volumes) {
+      if (!v.mappable) continue;
+      for (let axis = 0; axis < 3; axis++) {
+        const names = ['i','j','k'], ends = [0,1].map(k => v.block.sides[names[axis]+k].faces);
+        if (ends.some(fs => fs.length !== 1)) continue;
+        const caps = ends.map(fs => faces.get(fs[0])), circles = caps.map(f => edges.get(f.edges[0])?.curve);
+        if (caps.some((f,k) => f.surface?.kind !== 'plane' || circles[k]?.kind !== 'circle'
+          || Math.abs(f.area-Math.PI*circles[k].radius**2) > circles[k].radius**2*1e-5
+          || f.edges.some(e => {const c=edges.get(e)?.curve;return c?.kind!=='circle'||Math.abs(c.radius-circles[k].radius)>circles[k].radius*1e-7||norm(sub(c.center,circles[k].center))>circles[k].radius*1e-7;}))) continue;
+        const origin=circles[0].center, direction=unit(sub(circles[1].center,origin)), radius=circles[0].radius;
+        if (!norm(direction) || Math.abs(circles[1].radius-radius)>radius*1e-7 || caps.some(f=>Math.abs(dot(unit(f.surface.normal),direction))<1-1e-7)) continue;
+        const wall=Object.entries(v.block.sides).filter(([name])=>name[0]!==names[axis]).flatMap(([,s])=>s.faces);
+        if(wall.some(id=>{const s=faces.get(id).surface;return s?.kind!=='cylinder'||Math.abs(s.radius-radius)>radius*1e-7||Math.abs(dot(unit(s.axis),direction))<1-1e-7||norm(cross(sub(s.origin,origin),direction))>radius*1e-7;}))continue;
+        cores.set(id,{id,axis,caps:ends.flat(),origin,direction,radius});break;
+      }
+    }
+    analysis.circularCores=cores;return cores;
+  }
+  function coreStack(analysis,id) {
+    const cores=circularCores(analysis),seen=new Set(),queue=[id];
+    while(queue.length){const v=queue.pop();if(seen.has(v))continue;
+      const c=cores.get(v);if(!c)throw Error(`Solid ${v}: O-grid requires a prepared circular core with two complete circular caps and a cylindrical wall.`);
+      seen.add(v);for(const f of c.caps)for(const other of analysis.index.faces.get(f).volumes||[])if(other!==v)queue.push(other);
+    }
+    return [...seen].sort((a,b)=>a-b);
+  }
+  function solidMethod(value={}) {
+    const method=value.method||'mapped';
+    if(!['mapped','ogrid'].includes(method))throw Error('Unknown solid meshing method: '+method);
+    if(method==='mapped')return {method};
+    const coreRatio=Number(value.coreRatio??0.5),radialLayers=Number(value.radialLayers??2);
+    if(!Number.isFinite(coreRatio)||coreRatio<0.1||coreRatio>0.85)throw Error('O-grid core radius ratio must be between 0.1 and 0.85.');
+    if(!Number.isInteger(radialLayers)||radialLayers<1||radialLayers>100)throw Error('O-grid radial layers must be an integer from 1 to 100.');
+    return {method,coreRatio,radialLayers};
+  }
+  function planMethods(analysis,records=[]) {
+    if(!Array.isArray(records)||records.length>analysis.volumes.size)throw Error('Invalid per-solid meshing methods.');
+    const methods=new Map();
+    for(const r of records){if(!analysis.volumes.get(r.id)?.mappable||methods.has(r.id))throw Error('Invalid or duplicate solid method target: '+r.id);methods.set(r.id,solidMethod(r));}
+    for(const [id,m] of methods)if(m.method==='ogrid')for(const other of coreStack(analysis,id)){
+      if(JSON.stringify(methods.get(other))!==JSON.stringify(m))throw Error(`Solid ${id}: include circular cap neighbor ${other} with the same O-grid settings.`);
+    }
+    return methods;
+  }
+  // Public analyst action, also used by the guided inspector. Switching back
+  // updates the same cap closure; never silently mix incompatible end meshes.
+  function setSolidMethod(analysis,records,ids,value) {
+    const m=solidMethod(value),selected=new Set(ids),targets=new Set();
+    if(!ids.length)throw Error('Select a solid to set its meshing method.');
+    for(const id of ids){if(!analysis.volumes.get(id)?.mappable)throw Error('Select a mappable solid.');
+      for(const v of circularCores(analysis).has(id)?coreStack(analysis,id):m.method==='ogrid'?coreStack(analysis,id):[id])targets.add(v);
+    }
+    const out=records.filter(r=>!targets.has(r.id)).concat([...targets].map(id=>({id,...m,direct:selected.has(id)}))).sort((a,b)=>a.id-b.id);
+    planMethods(analysis,out);return out;
+  }
+
   function equationsOf(analysis, region) {
     const equations = [];
     for (const f of region.faces) {
@@ -891,6 +953,7 @@
     if (!intervals.solvable) throw Error('Resolve the edge-count conflicts before generating the mapped mesh.');
     const { counts } = intervals;
     const { edges } = analysis.index;
+    const methods = planMethods(analysis, options.solidMethods || []), methodFaceNodes = new Map();
     const table = new NodeTable();
     const edgeNodes = new Map(), faceGrids = new Map();
     const vertexNode = v => table.id('v' + v, analysis.index.vertices.get(Number(v)).slice());
@@ -996,6 +1059,57 @@
     }
     const elements = [], quality = { minScaledJacobian: Infinity, maxAspect: 0, histogram: new Array(10).fill(0), inverted: 0, perVolume: [] };
     const elementQuality = [];
+    function emit(volume,nodes) {
+      if(elements.length>=MAX_ELEMENTS)throw Error(`The mapped mesh exceeds ${MAX_ELEMENTS.toLocaleString()} elements. Increase the element size.`);
+      const q=hexQuality(nodes.map(id=>table.point(id)));
+      quality.minScaledJacobian=Math.min(quality.minScaledJacobian,q.scaledJacobian);quality.maxAspect=Math.max(quality.maxAspect,q.aspect);
+      if(q.scaledJacobian<=0)quality.inverted++;
+      quality.histogram[Math.max(0,Math.min(9,Math.floor(Math.max(0,q.scaledJacobian)*10)))]++;
+      elementQuality.push(q.scaledJacobian);elements.push({volume,nodes});return q.scaledJacobian;
+    }
+    function oGrid(volume, dims, X, method) {
+      const core=circularCores(analysis).get(volume), a=core.axis, u=(a+1)%3, v=(a+2)%3;
+      const U=dims[u],V=dims[v],A=dims[a],R=method.radialLayers*order;
+      const predicted=(U/order*V/order+2*(U+V)/order*method.radialLayers)*A/order;
+      if(elements.length+predicted>MAX_ELEMENTS)throw Error(`The O-grid exceeds ${MAX_ELEMENTS.toLocaleString()} elements. Reduce radial layers or edge counts.`);
+      const outerId=(i,j,k)=>{const q=[];q[u]=i;q[v]=j;q[a]=k;return X[q[0]][q[1]][q[2]];};
+      const node=(i,j,k)=>table.point(outerId(i,j,k));
+      const layers=[];
+      for(let k=0;k<=A;k++){
+        const ci=[[0,0],[U,0],[U,V],[0,V]],corners=ci.map(([i,j])=>outerId(i,j,k));
+        const center=add(core.origin,scale(core.direction,dot(sub(node(0,0,k),core.origin),core.direction)));
+        const inner=corners.map(id=>lerp(center,table.point(id),method.coreRatio));
+        const central=Array.from({length:U+1},(_,i)=>Array.from({length:V+1},(_,j)=>{
+          const x=i/U,y=j/V,w=[(1-x)*(1-y),x*(1-y),x*y,(1-x)*y];
+          // Corner-ID weights are invariant under rotations/reflections of a
+          // shared cap's block coordinates. No coordinate-only node welding.
+          const key='ogc:'+corners.map((id,n)=>[id,Math.round(w[n]*1e12)]).filter(([,w])=>w).sort((a,b)=>a[0]-b[0]).map(x=>x.join(':')).join('|');
+          return table.id(key,[0,1,2].map(d=>inner.reduce((s,p,n)=>s+w[n]*p[d],0)));
+        }));
+        const at=(side,t)=>side===0?[t,0]:side===1?[U,t]:side===2?[U-t,V]:[0,V-t];
+        const patches=[central];
+        for(let side=0;side<4;side++)patches.push(Array.from({length:(side%2?V:U)+1},(_,t)=>{
+          const [i,j]=at(side,t),inside=central[i][j],outside=outerId(i,j,k);
+          return Array.from({length:R+1},(_,r)=>r===0?inside:r===R?outside:table.id(`ogr:${outside}:${r}:${R}`,lerp(table.point(inside),table.point(outside),r/R)));
+        }));
+        layers.push(patches);
+        if(k===0||k===A){const f=core.caps[k===0?0:1],set=methodFaceNodes.get(f)||new Set();for(const p of patches)for(const row of p)for(const n of row)set.add(n);methodFaceNodes.set(f,set);}
+      }
+      let min=Infinity,count=0;
+      for(let patch=0;patch<5;patch++){
+        const I=layers[0][patch].length-1,J=layers[0][patch][0].length-1;
+        const n=(i,j,k)=>layers[k][patch][i][j];
+        const normal=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+        const flip=hexQuality(normal.map(([i,j,k])=>table.point(n(i*order,j*order,k*order)))).scaledJacobian<0;
+        const local=flip?normal.map(([i,j,k])=>[j,i,k]):normal;
+        for(let i=0;i<I;i+=order)for(let j=0;j<J;j+=order)for(let k=0;k<A;k+=order){
+          const corners=local.map(([x,y,z])=>[i+x*order,j+y*order,k+z*order]),ids=corners.map(p=>n(...p));
+          if(order===2)for(const [a,b] of HEX20_EDGES)ids.push(n(...corners[a].map((x,d)=>(x+corners[b][d])/2)));
+          min=Math.min(min,emit(volume,ids));count++;
+        }
+      }
+      quality.perVolume.push({volume,elements:count,dims:dims.map(n=>n/order),method:'ogrid',blocks:5,minScaledJacobian:min});
+    }
     for (const volumeId of volumeIds) {
       const block = analysis.volumes.get(volumeId).block, c = block.corners, V = key => vertexNode(c[key]);
       const sides = block.sides;
@@ -1018,6 +1132,9 @@
       for (let i = 0; i <= I; i++) for (let k = 0; k <= K; k++) { put(i, 0, k, j0[i][k]); put(i, J, k, j1[i][k]); }
       for (let j = 0; j <= J; j++) for (let k = 0; k <= K; k++) { put(0, j, k, i0[j][k]); put(I, j, k, i1[j][k]); }
       const P = (i, j, k) => table.point(X[i][j][k]);
+      if(methods.get(volumeId)?.method==='ogrid'){
+        oGrid(volumeId,[I,J,K],X,methods.get(volumeId));continue;
+      }
       const lineParams = pts => arcParameters(pts);
       const su = [[0, 0], [J, 0], [0, K], [J, K]].map(([j, k]) => lineParams(Array.from({ length: I + 1 }, (_, i) => P(i, j, k))));
       const sv = [[0, 0], [I, 0], [0, K], [I, K]].map(([i, k]) => lineParams(Array.from({ length: J + 1 }, (_, j) => P(i, j, k))));
@@ -1082,7 +1199,7 @@
       // nodes actually referenced by elements. Preserve shared edge/midside IDs.
       edgeNodes: Object.fromEntries([...edgeNodes].map(([id,list])=>[id,list.map(n=>used[n]).filter(n=>n>0)])),
       faceNodes: Object.fromEntries([...faceGrids].sort(([a], [b]) => a - b).map(([id, grid]) =>
-        [id, [...new Set(grid.ids.flat().map(n => used[n]).filter(n => n > 0))].sort((a, b) => a - b)])),
+        [id, [...new Set([...(methodFaceNodes.get(id)||grid.ids.flat())].map(n => used[n]).filter(n => n > 0))].sort((a, b) => a - b)])),
       elements: elements.map((e, i) => ({ id: i + 1, type: 'CHEXA', pid: Number(options.pidPerSolid ? e.volume : 1), volume: e.volume, nodes: e.nodes.map(id => used[id]) })),
       quality: { ...quality, elements: elements.length, nodes: nodes.length, order, elementQuality }
     };
@@ -1092,6 +1209,7 @@
 
   return {
     analyze, solveIntervals, createGeometry, generateMesh, hexQuality, classifyFace,
+    circularCores, coreStack, solidMethod, planMethods, setSolidMethod,
     constants: { CUSP_MAX, CORNER_MAX, AMBIGUOUS_MIN, AMBIGUOUS_MAX, TAPER_MIN, FLAT_MIN, FLAT_MAX, MAX_ELEMENTS, MAX_NODES, HEX20_EDGES }
   };
 }));
