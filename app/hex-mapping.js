@@ -21,7 +21,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const CUSP_MAX = 20;          // corners and edges sharper than this are degenerate (knife edges)
+  const CUSP_MAX = 20;          // reject sharp straight-sided cusps; curved tangencies require mesh-quality review
   const CORNER_MAX = 140;       // face corner below this angle is a block corner
   const AMBIGUOUS_MIN = 115;    // corners and dihedrals in [AMBIGUOUS_MIN, AMBIGUOUS_MAX] may be either kind,
   const AMBIGUOUS_MAX = 165;    // decided by what makes faces four-sided
@@ -91,7 +91,24 @@
       return 'reflex';
     });
     if (kinds.includes('unknown')) return fail('angles', `Face ${id} has a corner angle the CAD kernel could not classify.`, { vertices: corners.filter((_, i) => kinds[i] === 'unknown').map(([v]) => Number(v)) });
-    const cusps = corners.filter(([, angle]) => !forced && angle != null && angle < CUSP_MAX).map(([v]) => Number(v));
+    // A tangent arc and a straight partition can still bound a four-sided
+    // patch. Its finite element chords open away from the tangent point;
+    // rejecting the exact CAD tangent angle would prevent trying that mesh.
+    // Keep genuinely collapsed/straight-sided corners blocked, and report
+    // curved tangencies as quality warnings on the completed block instead.
+    const curvedCusps = corners.filter(([v, angle], i) => {
+      if (forced || angle == null || angle >= CUSP_MAX || !vertices) return false;
+      const adjacent = [edges.get(loop[(i + loop.length - 1) % loop.length].edge), edges.get(loop[i].edge)];
+      if (!adjacent.some(e => e?.curve?.kind === 'circle' && !e.closed)) return false;
+      const origin = vertices.get(Number(v));
+      const ends = adjacent.map(e => vertices.get(e?.vertices?.map(Number).find(id => id !== Number(v))));
+      if (!origin || ends.some(p => !p)) return false;
+      const vectors = ends.map(p => sub(p, origin));
+      if (vectors.some(p => norm(p) < 1e-12)) return false;
+      const chordAngle = Math.acos(Math.max(-1, Math.min(1, dot(unit(vectors[0]), unit(vectors[1]))))) * 180 / Math.PI;
+      return chordAngle >= CUSP_MAX && chordAngle < CORNER_MAX;
+    }).map(([v]) => Number(v));
+    const cusps = corners.filter(([v, angle]) => !forced && angle != null && angle < CUSP_MAX && !curvedCusps.includes(Number(v))).map(([v]) => Number(v));
     if (cusps.length) return fail('cusp', `Face ${id} has a ${corners.find(([v]) => Number(v) === cusps[0])[1].toFixed(0)}° cusp at vertex ${cusps.join(', ')}. A slice probably grazed a curved face; undo it and slice elsewhere.`, { vertices: cusps });
     const reflex = corners.filter((_, i) => kinds[i] === 'reflex').map(([v]) => Number(v));
     if (reflex.length) return fail('reflex', `Face ${id} has a re-entrant corner at vertex ${reflex.join(', ')}. Slice through that corner so every piece is four-sided.`, { vertices: reflex });
@@ -123,7 +140,7 @@
       for (let i = start; i !== stop; i = (i + 1) % loop.length) chain.push(loop[i]);
       return chain;
     });
-    return { id, mappable: true, corners: ends.map(i => Number(corners[i][0])), chains, promoted, demoted };
+    return { id, mappable: true, corners: ends.map(i => Number(corners[i][0])), chains, promoted, demoted, curvedCusps };
   }
 
   /* ------------------------------------------------------------------ */
@@ -172,9 +189,14 @@
         list.push(faceId); edgeFaces.set(Number(edge), list);
       }
     }
+    const curvedCusps = [];
     for (const [edge, angle] of angles) {
+      const endpoints = edges.get(edge)?.vertices?.map(Number) || [];
+      const curvedCusp = angle != null && angle < CUSP_MAX && endpoints.length === 2 && endpoints[0] !== endpoints[1]
+        && endpoints.every(v => volumeFaces.some(f => faceInfo.get(f)?.curvedCusps?.includes(v)));
+      if (curvedCusp) curvedCusps.push(edge);
       if (angle == null) reasons.push({ code: 'angle', edges: [edge], message: `The angle across edge ${edge} could not be classified.` });
-      else if (angle < CUSP_MAX) reasons.push({ code: 'cusp', edges: [edge], faces: edgeFaces.get(edge) || [], angle, message: `Edge ${edge} is a knife edge (${Math.round(angle)}°) where faces meet tangentially. A slice probably grazed a curved face; undo it and slice elsewhere.` });
+      else if (angle < CUSP_MAX && !curvedCusp) reasons.push({ code: 'cusp', edges: [edge], faces: edgeFaces.get(edge) || [], angle, message: `Edge ${edge} is a knife edge (${Math.round(angle)}°) where faces meet tangentially. A slice probably grazed a curved face; undo it and slice elsewhere.` });
       else if (angle > FLAT_MAX) reasons.push({ code: 'reentrant', edges: [edge], faces: edgeFaces.get(edge) || [], angle, message: `Edge ${edge} is re-entrant (${Math.round(angle)}°). Slice the solid along one of its adjacent faces.` });
     }
     if (reasons.length) return { id, mappable: false, reasons };
@@ -196,7 +218,12 @@
     };
     const flatEdge = (edge, angle) => {
       if (angle < AMBIGUOUS_MIN || angle > FLAT_MAX) return false;
-      if (angle > AMBIGUOUS_MAX) return true;
+      if (angle > AMBIGUOUS_MAX) {
+        const endpoints = (edges.get(edge)?.vertices || []).map(Number);
+        // Respect the four logical corners of a projected circular cap even
+        // though adjacent cylindrical patches have a smooth CAD tangent.
+        return endpoints.length !== 2 || !endpoints.every(v => volumeFaces.some(f => faceInfo.get(f)?.curvedCorners?.includes(v)));
+      }
       const votes = (edges.get(edge)?.vertices || []).map(Number).flatMap(v => endOn(edge, v));
       if (votes.length && votes.every(Boolean)) return false;
       if (votes.length && votes.every(x => !x)) return true;
@@ -286,6 +313,11 @@
       lengths[axis].push(item);
     }
     const warnings = [];
+    if (curvedCusps.length) warnings.push({ code: 'curved-tangency', edges: curvedCusps,
+      message: `Solid ${id} has a curved tangency at edge ${curvedCusps.join(', ')}. It can be mapped, but inspect element quality near the tangent corner; refinement can reduce the Jacobian.` });
+    const curvedCaps = volumeFaces.filter(f => faceInfo.get(f)?.curvedCorners?.length);
+    if (curvedCaps.length) warnings.push({ code: 'curved-tangency', faces: curvedCaps,
+      message: `Solid ${id} uses four partition junctions as logical corners on a circular cap. Inspect quality at these smooth CAD corners, especially with HEX20 or fine sizing; an O-grid may give better elements.` });
     lengths.forEach((list, axis) => {
       const longest = Math.max(...list.map(x => x.length)), shortest = Math.min(...list.map(x => x.length));
       const taper = longest > 0 ? shortest / longest : 1;
@@ -305,6 +337,35 @@
     const overrides = options.cornerOverrides && typeof options.cornerOverrides.get === 'function' ? options.cornerOverrides : null;
     const faces = new Map();
     for (const face of index.faces.values()) faces.set(Number(face.id), classifyFace(face, index.edges, overrides, index.vertices));
+    // A projected bore outline bounds a filled circular cap. Four radial
+    // partition junctions supply its logical corners; the CAD periodic seam
+    // is not a fifth corner. Keep this tied to actual shared topology, rather
+    // than arbitrarily choosing four points on an unsplit circle.
+    const junctions = new Set();
+    for (const edge of index.edges.values()) if (edge.curve?.kind === 'line' && new Set(edge.faces || []).size >= 3) {
+      for (const vertex of edge.vertices || []) junctions.add(Number(vertex));
+    }
+    for (const face of index.faces.values()) {
+      if (overrides?.has(Number(face.id)) || face.surface?.kind !== 'plane' || faces.get(Number(face.id))?.code !== 'corners') continue;
+      const loop = face.orientedLoops[0], boundary = loop.map(([e]) => index.edges.get(Number(e)));
+      const circle = boundary[0]?.curve;
+      if (circle?.kind !== 'circle' || boundary.some(e => e?.curve?.kind !== 'circle'
+        || Math.abs(e.curve.radius - circle.radius) > circle.radius * 1e-6
+        || norm(sub(e.curve.center, circle.center)) > circle.radius * 1e-6)) continue;
+      // Only count junctions that leave the circular boundary, not the arc
+      // edges themselves (which can have three owners at a blind-hole floor).
+      const anchors = face.corners[0].map(([v]) => Number(v)).filter(v => junctions.has(v));
+      if (anchors.length !== 4) continue;
+      const points = anchors.map(v => index.vertices.get(v));
+      if (points.some(p => !p)) continue;
+      if (points.some((p, i) => {
+        const a = unit(sub(points[(i + 3) % 4], p)), b = unit(sub(points[(i + 1) % 4], p));
+        const angle = Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180 / Math.PI;
+        return angle < CUSP_MAX || angle >= CORNER_MAX;
+      })) continue;
+      const info = classifyFace(face, index.edges, new Map([[Number(face.id), new Set(anchors)]]), index.vertices);
+      if (info.mappable) faces.set(Number(face.id), { ...info, curvedCorners: anchors });
+    }
     // A ring cut once stays one solid; the kernel keeps the cut as a free face
     // (openIn) until a second cut separates the pieces.
     const openCuts = new Map();
@@ -767,12 +828,46 @@
     return grid;
   }
 
+  // CHEXA20 serendipity derivatives in the same corner/midside order as the
+  // writer. Sample all 27 {-1,0,1} locations and the eight 2x2x2 Gauss points.
+  // This is a sampled quality check, not a proof of positivity everywhere.
+  const HEX_REFERENCE = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
+  const HEX20_DERIVATIVES = (() => {
+    const sites = [];
+    for (const values of [[-1, 0, 1], [-1 / Math.sqrt(3), 1 / Math.sqrt(3)]])
+      for (const r of values) for (const s of values) for (const t of values) sites.push([r, s, t]);
+    const midsides = HEX20_EDGES.map(([a, b]) => scale(add(HEX_REFERENCE[a], HEX_REFERENCE[b]), 0.5));
+    return sites.map(q => [
+      ...HEX_REFERENCE.map(sign => [0, 1, 2].map(d => {
+        const others = [0, 1, 2].filter(k => k !== d);
+        return sign[d] / 8 * (1 + sign[others[0]] * q[others[0]]) * (1 + sign[others[1]] * q[others[1]])
+          * (2 * sign[d] * q[d] + sign[others[0]] * q[others[0]] + sign[others[1]] * q[others[1]] - 1);
+      })),
+      ...midsides.map(sign => {
+        const axis = sign.indexOf(0), others = [0, 1, 2].filter(k => k !== axis);
+        return [0, 1, 2].map(d => d === axis
+          ? -q[d] / 2 * (1 + sign[others[0]] * q[others[0]]) * (1 + sign[others[1]] * q[others[1]])
+          : (1 - q[axis] * q[axis]) / 4 * sign[d] * (1 + sign[others.find(k => k !== d)] * q[others.find(k => k !== d)]));
+      })
+    ]);
+  })();
+
   function hexQuality(points) {
     let minSJ = Infinity;
     for (let c = 0; c < 8; c++) {
       const [a, b, d] = HEX_CORNER_NEIGHBORS[c];
       const e1 = unit(sub(points[a], points[c])), e2 = unit(sub(points[b], points[c])), e3 = unit(sub(points[d], points[c]));
       minSJ = Math.min(minSJ, dot(e1, cross(e2, e3)));
+    }
+    if (points.length === 20) {
+      const relative = points.map(p => sub(p, points[0]));
+      for (const derivatives of HEX20_DERIVATIVES) {
+        const columns = [[0,0,0],[0,0,0],[0,0,0]];
+        for (let n = 0; n < 20; n++) for (let d = 0; d < 3; d++) for (let c = 0; c < 3; c++)
+          columns[d][c] += derivatives[n][d] * relative[n][c];
+        const [a, b, c] = columns.map(unit);
+        minSJ = Math.min(minSJ, dot(a, cross(b, c)));
+      }
     }
     let shortest = Infinity, longest = 0;
     for (const [a, b] of HEX20_EDGES) { const l = norm(sub(points[b], points[a])); shortest = Math.min(shortest, l); longest = Math.max(longest, l); }
@@ -955,7 +1050,7 @@
           const m = [(corner[a][0] + corner[b][0]) / 2, (corner[a][1] + corner[b][1]) / 2, (corner[a][2] + corner[b][2]) / 2];
           nodes.push(X[m[0]][m[1]][m[2]]);
         }
-        const q = hexQuality(nodes.slice(0, 8).map(id => table.point(id)));
+        const q = hexQuality(nodes.map(id => table.point(id)));
         volumeMin = Math.min(volumeMin, q.scaledJacobian);
         quality.minScaledJacobian = Math.min(quality.minScaledJacobian, q.scaledJacobian);
         quality.maxAspect = Math.max(quality.maxAspect, q.aspect);

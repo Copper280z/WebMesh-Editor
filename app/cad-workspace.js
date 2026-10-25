@@ -656,6 +656,7 @@
         if (segs.length) vp.setOverlay('pending-passages', { type: 'lines', positions: segs, color: 0xffd54a, depthTest: false, renderOrder: 14 });
       } else if (op.kind === 'project') {
         vp.setOverlay('pending-faces', { type: 'faces', faces: op.faceIds || [], color: 0x3aa8e6, opacity: 0.5, depthTest: false });
+        if (op.volumeIds?.length) vp.setOverlay('pending-scope', { type: 'faces', faces: op.volumeIds.flatMap(v => vp.volumeFaces(v)), color: 0x3aa8e6, opacity: 0.18 });
       }
       if (previewState.status === 'ready' && previewState.data && display.showResult) showResultPreview(previewState.data);
     }
@@ -955,8 +956,10 @@
         html += `<div class="cad-solid-list">${shown.map(v => `<button type="button" class="cad-solid-row ${selection.kind === 'solid' && selection.ids.includes(v.id) ? 'selected' : ''}" data-act="select-solid" data-id="${v.id}" data-solid-row="${v.id}"><i class="dot bad"></i><strong>Solid ${v.id}</strong><span>${esc(shortReason(v))}</span></button>`).join('')}</div>`;
         if (blocked.length > 4) html += `<button type="button" class="cad-link" data-act="expand" data-value="blocked">${expanded.blocked ? 'Show fewer' : `Show all ${blocked.length}`}</button>`;
       }
-      const tapered = [...analysis.volumes.values()].filter(v => v.mappable && v.warnings?.length);
+      const tapered = [...analysis.volumes.values()].filter(v => v.mappable && v.warnings?.some(w => w.code === 'taper'));
       if (tapered.length) html += `<p class="cad-note warn">${icon('warn')} ${tapered.length} block${tapered.length === 1 ? ' is' : 's are'} strongly tapered and will give poor elements: ${tapered.slice(0, 4).map(v => `<button type="button" class="cad-link inline" data-act="select-solid" data-id="${v.id}">solid ${v.id}</button>`).join(', ')}${tapered.length > 4 ? '…' : ''}</p>`;
+      const tangent = [...analysis.volumes.values()].filter(v => v.mappable && v.warnings?.some(w => w.code === 'curved-tangency'));
+      if (tangent.length) html += `<p class="cad-note warn">${icon('warn')} ${tangent.length} curved block${tangent.length === 1 ? ' has' : 's have'} tangent corners. Check mesh quality after sizing; finer curve divisions can reduce the Jacobian. ${tangent.slice(0, 4).map(v => `<button type="button" class="cad-link inline" data-act="select-solid" data-id="${v.id}">Solid ${v.id}</button>`).join(', ')}${tangent.length > 4 ? '…' : ''}</p>`;
       html += `<div class="cad-legend"><span><i class="dot ok"></i>Mappable</span><span><i class="dot bad"></i>Needs work</span><span><i class="dot warn"></i>Count conflict</span></div></section>`;
       return html;
     }
@@ -1136,8 +1139,10 @@
       const axis = pending?.operation.axis || 'z';
       return `<div class="cad-card"><div class="cad-card-title">Project faces <small>constant-section columns</small></div>
         <div class="cad-row"><span class="cad-row-label">Axis</span>${seg('project-axis', [['x', 'X'], ['y', 'Y'], ['z', 'Z']], axis, 'compact')}</div>
+        <label class="cad-row"><span class="cad-row-label">Target solids</span><input type="text" data-field="project-solids" value="${esc((pending?.operation.volumeIds || []).join(', '))}" placeholder="All solids" aria-label="Projection target solids"></label>
+        <div class="cad-inline">${btn('project-targets', 'Use selected solids', { cls: 'ghost small' })}</div>
         <div class="cad-inline">${btn('project-floors', 'Select internal floors', { cls: 'ghost small' })}</div>
-        <p class="cad-note">Pick planar ledge or pocket floors. Their outlines are extruded along the axis to split the solid into sweepable columns.</p></div>`;
+        <p class="cad-note">Pick planar faces. Their outlines and existing splits continue through the target solids. Leave targets blank to project through all solids.</p></div>`;
     }
 
     /* --------------------------------------------------------------- size -- */
@@ -1232,7 +1237,7 @@
         <div class="cad-hist">${bars}</div><div class="cad-hist-axis"><span>0</span><span>Scaled Jacobian</span><span>1</span></div>
         ${q.inverted ? `<p class="cad-note bad">${icon('warn')} ${q.inverted} inverted element${q.inverted === 1 ? '' : 's'}. Slice the solid or change counts.</p>` : ''}
         <div class="cad-worst">${worst.map(w => `<button type="button" data-act="select-solid" data-id="${w.volume}"><span>Solid ${w.volume}</span><span>${w.dims.join('×')}</span><span>${w.minScaledJacobian.toFixed(3)}</span></button>`).join('')}</div>
-        <p class="cad-note">Faces are colored by element scaled Jacobian.${q.order === 2 ? ' Quadratic midside nodes lie on the CAD curves and surfaces.' : ''} ${(100 * q.histogram.slice(5).reduce((a, b) => a + b, 0) / total).toFixed(0)}% of elements have SJ ≥ 0.5.</p></div>`;
+        <p class="cad-note">Faces are colored by element scaled Jacobian.${q.order === 2 ? ' HEX20 quality samples the curved mapping at nodes, face centres, the centre and Gauss points.' : ''} ${(100 * q.histogram.slice(5).reduce((a, b) => a + b, 0) / total).toFixed(0)}% of elements have SJ ≥ 0.5.</p></div>`;
     }
     /** Round holes among the picked faces or edges (a hole's bore, countersink or rim). */
     function pickedHoles() {
@@ -1386,6 +1391,7 @@
     function operationProblem(op) {
       if (op.kind === 'defeature' && !op.faceIds?.length) return 'Choose features or faces to remove.';
       if (op.kind === 'project' && !op.faceIds?.length) return 'Pick the planar faces to project.';
+      if (op.kind === 'project' && op.volumeIds?.some(id => !Number.isSafeInteger(id) || !analysis?.volumes.has(id))) return 'Enter existing target solid IDs, separated by commas.';
       if ((op.kind === 'passages') && !op.passages?.length) return 'Add a passage.';
       return null;
     }
@@ -1767,6 +1773,11 @@
           case 'passage-remove': passages.splice(Number(el.dataset.index), 1); syncPassagePending(); renderPart('cad-tool', toolCard); updatePendingOverlay(); refreshFooter(); if (pending) schedulePreview(); else clearPreview(); break;
           case 'passage-add': if (passages.length >= 24) throw Error('Use at most 24 passages per operation.'); passages.push({ axis: 'x', center: centerPoint().map(round), width: span() / 10, height: span() / 10, range: [bounds()[0] - span() * 0.02, bounds()[3] + span() * 0.02] }); syncPassagePending(); renderPart('cad-tool', toolCard); updatePendingOverlay(); schedulePreview(); break;
           case 'project-axis': if (pending?.operation.kind === 'project') { pending.operation.axis = value; renderPart('cad-tool', toolCard); schedulePreview(); } break;
+          case 'project-targets': {
+            if (pending?.operation.kind !== 'project') break;
+            if (selection.kind !== 'solid' || !selection.ids.length) { hooks.message('Pick the target solids, then choose Use selected solids.'); break; }
+            pending.operation.volumeIds = selection.ids.slice(); setPick('face'); renderPart('cad-tool', toolCard); updatePendingOverlay(); schedulePreview(); break;
+          }
           case 'project-floors': {
             const axis = 'xyz'.indexOf(pending?.operation.axis || 'z'), b = bounds(), tol = Math.max(1e-5, (b[axis + 3] - b[axis]) * 1e-8);
             const floors = session.topology.faces.filter(face => face.type === 'Plane' && face.bounds[axis + 3] - face.bounds[axis] < tol && face.center[axis] > b[axis] + tol && face.center[axis] < b[axis + 3] - tol && (face.normal?.[axis] || 0) > 0).map(f => f.id);
@@ -1895,6 +1906,10 @@
       const field = el.dataset.field, value = el.type === 'checkbox' ? el.checked : el.value;
       if(field==='region-name'){regionName=value;return;}
       try {
+        if (field === 'project-solids' && kind === 'change' && pending?.operation.kind === 'project') {
+          pending.operation.volumeIds = [...new Set(String(value).trim().split(/[\s,]+/).filter(Boolean).map(Number))];
+          updatePendingOverlay(); schedulePreview(); return;
+        }
         if (field === 'slice-slider') { moveSlice(Number(value), true); refreshSlice(false); return; }
         if (field === 'slice-offset' && Number.isFinite(Number(value)) && String(value).trim() !== '') { moveSlice(Number(value), false); refreshSlice(false); return; }
         if (field === 'slice-along' && sliceDraft?.along) {

@@ -132,3 +132,85 @@ test('boxing holes never cuts through one: pairs share the width, and cuts stay 
     }
   }
 });
+
+test('prepared flexure: bore splits, cap projection and local fillet slices produce a complete conforming mesh', cad, async () => {
+  const fs = require('node:fs'), path = require('node:path'), zlib = require('node:zlib');
+  const content = zlib.gunzipSync(fs.readFileSync(path.join(__dirname, 'fixtures/flexure-hex/prepared.brep.gz'))).toString('base64');
+  const s = new CadSession(server.base);
+  s.accept(await s.api('import', { filename: 'flexure-prepared.brep', format: 'brep', content }));
+  const initialVolume = s.topology.volume;
+  assert.deepEqual(s.analysis.summary, { volumes: 121, mappable: 111, blocked: 10 });
+  for (let k = 0; k < 4; k++) {
+    const hole = s.features('hole').find(h => !h.through && h.faces.some(id => s.analysis.faces.get(id)?.code === 'periodic'));
+    assert.ok(hole);
+    const face = hole.faces.map(id => s.recognized.ctx.faces.get(id)).find(f => s.analysis.faces.get(f.id)?.code === 'periodic');
+    const action = F.infer(s.topology, s.recognized, s.analysis, { kind: 'face', ids: [face.id] }).actions.find(x => x.key === 'split-hole');
+    assert.ok(action, 'the same action is available from the picked bore face');
+    assert.deepEqual(action.operation.volumeIds, face.volumes);
+    const before = s.analysis.summary;
+    const preview = await s.api('preview', { ...s.token, operation: action.operation });
+    assert.ok(preview.topology);
+    await s.apply(action.operation);
+    assert.equal(s.analysis.summary.volumes, before.volumes + 3);
+    assert.equal(s.analysis.summary.mappable, before.mappable + 4);
+    assert.ok(Math.abs(s.topology.volume - initialVolume) < 1e-6, 'partitioning retains material and every hole');
+  }
+  assert.deepEqual(s.analysis.summary, { volumes: 133, mappable: 127, blocked: 6 });
+  assertMesh(s, 1, 0.09);
+  for (const side of [-1, 1]) {
+    const hole = s.features('hole').find(h => !h.through && h.center[0] * side > 0);
+    const floor = hole.faces.map(id => s.recognized.ctx.faces.get(id)).find(f => f.surface?.kind === 'plane');
+    const action = F.infer(s.topology, s.recognized, s.analysis, { kind: 'face', ids: [floor.id] }).actions.find(a => a.key.startsWith('project-pattern:'));
+    assert.ok(action, 'the circular floor offers projection of the complete adjacent face partition');
+    assert.equal(action.operation.faceIds.length, 5, 'the circle and all four annular sectors are projected');
+    assert.equal(action.operation.volumeIds.length, 4, 'all four adjacent cap layers are included');
+    const targets = action.operation.volumeIds.map(id => s.recognized.ctx.volumes.get(id));
+    assert.ok(targets.every(v => v.bounds[0] * side > 0 && v.bounds[2] > -7.001), 'scope excludes the other column and bore segments');
+    const token = s.token;
+    await assert.rejects(s.api('prepare', { ...token, operation: { ...action.operation, volumeIds: [-1] } }), /target solid/);
+    assert.deepEqual(s.token, token);
+    const preview = await s.api('preview', { ...token, operation: action.operation });
+    assert.equal(preview.topology.volumes.length, s.topology.volumes.length + 16);
+    await s.apply(action.operation);
+    assert.ok(Math.abs(s.topology.volume - initialVolume) < 1e-6, 'projection partitions cap material without removing it');
+    assert.equal(s.data.history.at(-1).operation.kind, 'project');
+  }
+  assert.deepEqual(s.analysis.summary, { volumes: 165, mappable: 161, blocked: 4 });
+  // These four five-sided fillet patches need actual cuts, not permissive
+  // classification. Use the analyst's scoped Slice tool through arc endpoints.
+  for (const x of [12.75, -12.75]) for (const z of [7.25, 6.5]) {
+    const v = s.topology.volumes.find(v => !s.analysis.volumes.get(v.id).mappable
+      && v.bounds[0] < x && v.bounds[3] > x && v.bounds[2] < z && v.bounds[5] > z);
+    assert.ok(v);
+    await s.apply({ kind: 'slice', planes: [{ origin: [0, 0, z], normal: [0, 0, 1] }], volumeIds: [v.id] });
+  }
+  assert.deepEqual(s.analysis.summary, { volumes: 169, mappable: 169, blocked: 0 });
+  assert.ok(Math.abs(s.topology.volume - initialVolume) < 1e-6);
+  assertMesh(s, 1, 0.001);
+  for (const order of [1, 2]) {
+    const { mesh } = s.mesh(1, order), volumeNodes = new Map(), volumeQuads = new Map();
+    const sides = [[0,1,2,3], [4,5,6,7], [0,1,5,4], [1,2,6,5], [2,3,7,6], [3,0,4,7]];
+    assert.equal(mesh.elements.length, 14430);
+    for (const e of mesh.elements) {
+      if (!volumeNodes.has(e.volume)) volumeNodes.set(e.volume, new Set());
+      e.nodes.forEach(n => volumeNodes.get(e.volume).add(n));
+      if (!volumeQuads.has(e.volume)) volumeQuads.set(e.volume, []);
+      volumeQuads.get(e.volume).push(...sides.map(indices => indices.map(i => e.nodes[i])));
+    }
+    const shared = s.topology.faces.filter(f => f.volumes.length === 2);
+    assert.equal(shared.length, 297);
+    for (const face of shared) {
+      assert.ok(mesh.faceNodes[face.id]?.length >= 4);
+      for (const volume of face.volumes) assert.ok(mesh.faceNodes[face.id].every(n => volumeNodes.get(volume).has(n)),
+        `order ${order}: every interface node on face ${face.id} is used by solid ${volume}`);
+      const faceNodes = new Set(mesh.faceNodes[face.id]);
+      const signatures = face.volumes.map(v => volumeQuads.get(v).filter(q => q.every(n => faceNodes.has(n)))
+        .map(q => q.slice().sort((a,b) => a-b).join(',')).sort());
+      assert.ok(signatures[0].length > 0);
+      assert.deepEqual(signatures[0], signatures[1], `order ${order}: matching element faces across CAD face ${face.id}`);
+    }
+  }
+  for (let k = 0; k < 10; k++) s.accept(await s.api('undo', s.token));
+  assert.deepEqual(s.analysis.summary, { volumes: 121, mappable: 111, blocked: 10 });
+  await s.api('close', s.token);
+});

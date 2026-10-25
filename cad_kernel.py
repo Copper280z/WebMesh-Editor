@@ -803,6 +803,11 @@ def _prepare_solids(geom, operation, kind):
     elif kind == "project":
         axis = operation.get("axis")
         selected = operation.get("faceIds", [])
+        targets = operation.get("volumeIds", [])
+        if (not isinstance(targets, list) or any(type(tag) is not int or (3, tag) not in volumes for tag in targets)
+                or len(set(targets)) != len(targets)):
+            raise ValueError("Choose existing target solid IDs to project into, or leave targets empty for every solid.")
+        objects = [(3, tag) for tag in targets] if targets else volumes
         if axis not in ("x", "y", "z") or not isinstance(selected, list) or not selected:
             raise ValueError("Project partition requires an axis and one or more selected planar faces.")
         coordinate = "xyz".index(axis)
@@ -824,13 +829,18 @@ def _prepare_solids(geom, operation, kind):
             direction = [0.0] * 3
             direction[coordinate] = bounds[coordinate + 3] - bounds[coordinate] + 2 * padding
             tools.extend(entity for entity in occ.extrude(copy, *direction) if entity[0] == 3)
-        result, mapping = occ.fragment(volumes, tools, removeObject=True, removeTool=True)
+        result, mapping = occ.fragment(objects, tools, removeObject=True, removeTool=True)
         occ.synchronize()
-        keep = {tuple(entity) for group in mapping[:len(volumes)] for entity in group if entity[0] == 3}
+        keep = {tuple(entity) for group in mapping[:len(objects)] for entity in group if entity[0] == 3}
         discard = [entity for entity in result if entity[0] == 3 and tuple(entity) not in keep]
         if discard:
             occ.remove(discard, recursive=True)
         occ.synchronize()
+        if targets:
+            # Only selected solids are partitioned, but their new boundaries
+            # must be imprinted on neighbors to retain shared topology.
+            occ.fragment(model.getEntities(3), [], removeObject=True, removeTool=True)
+            occ.synchronize()
         remove_loose(geom, keep=open_cuts(geom, _probe(geom)))
         if len(model.getEntities(3)) <= len(volumes):
             raise ValueError("The projected faces did not partition a solid. Choose an internal ledge or pocket floor.")

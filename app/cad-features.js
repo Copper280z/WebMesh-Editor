@@ -279,7 +279,9 @@
   function holeSplit(ctx, feature, { ring = false } = {}) {
     const axis = unit(feature.axis), origin = feature.center;
     const holeEdges = new Set(feature.faces.flatMap(f => ctx.faceEdges.get(f) || []));
-    const host = [...ctx.faces.values()].find(face => (face.orientedLoops || []).length > 1 && face.orientedLoops.slice(1).some(loop => loop.every(([e]) => holeEdges.has(Number(e)))));
+    const host = [...ctx.faces.values()].find(face => (face.volumes || []).some(v => feature.solids.includes(Number(v)))
+      && face.surface?.kind === 'plane' && Math.abs(dot(unit(face.surface.normal), axis)) > 1 - 1e-6
+      && (face.orientedLoops || []).length > 1 && face.orientedLoops.slice(1).some(loop => loop.every(([e]) => holeEdges.has(Number(e)))));
     const rays = [];
     if (host) {
       const outer = host.corners?.[0] || [];
@@ -668,15 +670,63 @@
   /* Inference                                                           */
   /* ------------------------------------------------------------------ */
 
-  function featureActions(ctx, feature) {
+  // Continue a partition already drawn on a planar end face through the
+  // adjacent block. Projecting all coplanar pieces carries both curved hole
+  // outlines and straight sector boundaries, without removing cap material.
+  function projectionActions(ctx, volumeId) {
+    const faces = (ctx.volumes.get(Number(volumeId))?.faces || []).map(id => ctx.faces.get(Number(id)));
+    const groups = new Map(), tolerance = ctx.span * 1e-6;
+    for (const face of faces) {
+      if (face?.surface?.kind !== 'plane') continue;
+      const n = unit(face.surface.normal), axis = bestAxis(n);
+      if (Math.abs(n[axis]) < 1 - 1e-6) continue;
+      const coordinate = face.center[axis], key = axis + ':' + Math.round(coordinate / tolerance);
+      if (!groups.has(key)) groups.set(key, { axis, faces: [] });
+      groups.get(key).faces.push(face.id);
+    }
+    return [...groups.values()].filter(g => g.faces.length > 1).map(g => {
+      // Continue across adjacent layers with the same footprint. Stopping at
+      // the first layer would merely move the incompatible partition onto
+      // its next neighbor. Other shapes stay outside this suggested scope;
+      // the analyst can set an explicit scope with the Project tool.
+      const bounds = ctx.volumes.get(Number(volumeId)).bounds, targets = new Set([Number(volumeId)]);
+      for (const id of targets) for (const faceId of ctx.volumes.get(id).faces) {
+        const face = ctx.faces.get(Number(faceId));
+        if (face?.surface?.kind !== 'plane' || Math.abs(unit(face.surface.normal)[g.axis]) < 1 - 1e-6) continue;
+        for (const other of (face.volumes || []).map(Number)) {
+          const candidate = ctx.volumes.get(other)?.bounds;
+          if (candidate && [0, 1, 2].filter(k => k !== g.axis).every(k =>
+            Math.abs(candidate[k] - bounds[k]) < tolerance && Math.abs(candidate[k + 3] - bounds[k + 3]) < tolerance)) targets.add(other);
+        }
+      }
+      const volumeIds = [...targets].sort((a, b) => a - b);
+      return {
+        key: `project-pattern:${volumeId}:${g.axis}:${g.faces.join(',')}`, label: 'Project face partition through cap',
+        detail: `Continue ${g.faces.length} face outlines and their splits through solid${volumeIds.length > 1 ? 's' : ''} ${volumeIds.join(', ')}`,
+        faces: g.faces, operation: { kind: 'project', axis: 'xyz'[g.axis], faceIds: g.faces, volumeIds,
+          label: `Projected face partition through solid${volumeIds.length > 1 ? 's' : ''} ${volumeIds.join(', ')}` }
+      };
+    });
+  }
+
+  function featureActions(ctx, feature, volumeIds = feature.solids) {
     const actions = [];
     const tag = list => { list.forEach(action => { action.feature = feature.kind; action.featureId = feature.id; }); return list; };
     const removeLabel = { hole: 'Remove hole', boss: 'Remove boss', fillet: 'Remove fillet', chamfer: 'Remove chamfer' }[feature.kind];
     actions.push({ key: 'remove-feature', label: removeLabel, detail: `Heal ${feature.faces.length} face${feature.faces.length === 1 ? '' : 's'} closed`, primary: true,
       operation: { kind: 'defeature', faceIds: feature.faces.slice(), label: `Removed ${feature.label}` }, faces: feature.faces });
+    // A globally blind bore may pass through several already partitioned
+    // blocks. Splitting its selected block is still useful; keep removal
+    // feature-wide, but scope these cuts to the picked segment's own box.
+    const solids = feature.through ? feature.solids : feature.solids.filter(v => volumeIds.includes(v));
+    const splitFeature = { ...feature, solids, faces: feature.faces.filter(f => (ctx.faces.get(f)?.volumes || []).some(v => solids.includes(Number(v)))) };
+    if (feature.kind === 'hole' && solids.length) {
+      const detail = feature.through ? 'Radial cuts to the corners → four-sided sectors'
+        : `Radial cuts to the corners of solid${solids.length === 1 ? '' : 's'} ${solids.join(', ')}; then project the face partition through the blind-end cap`;
+      actions.push({ key: 'split-hole', label: 'Split around hole', detail, operation: holeSplit(ctx, splitFeature), faces: splitFeature.faces });
+      actions.push({ key: 'split-hole-ring', label: 'Split with O-grid ring', detail: 'Radial cuts plus a concentric ring', operation: holeSplit(ctx, splitFeature, { ring: true }), faces: splitFeature.faces });
+    }
     if (feature.kind === 'hole' && feature.through) {
-      actions.push({ key: 'split-hole', label: 'Split around hole', detail: 'Radial cuts to the corners → four-sided sectors', operation: holeSplit(ctx, feature), faces: feature.faces });
-      actions.push({ key: 'split-hole-ring', label: 'Split with O-grid ring', detail: 'Radial cuts plus a concentric ring', operation: holeSplit(ctx, feature, { ring: true }), faces: feature.faces });
       const cell = holeCells(ctx, [feature]);
       if (cell) actions.push({ key: 'box-hole', label: 'Box in a square cell', detail: `${cell.planes.length} cut${cell.planes.length === 1 ? '' : 's'} across the surrounding face, then split around it`, operation: cell, faces: feature.faces });
       actions.push({ key: 'passage', label: 'Square passage', detail: `Replace with ${fmt(feature.diameter / Math.SQRT2)} × ${fmt(feature.diameter / Math.SQRT2)} inscribed square`, tool: 'passages', passage: squarePassage(ctx, feature), faces: feature.faces });
@@ -707,7 +757,9 @@
         if (face.surface?.kind === 'plane') facts.push(['Normal', face.surface.normal.map(v => fmt(Math.abs(v) < 1e-12 ? 0 : v, 3)).join(', ')]);
         const info = analysis?.faces.get(ids[0]);
         if (info) facts.push(['Mapping', info.mappable ? '4-sided ✓' : info.message]);
-        if (feature) actions.push(...featureActions(ctx, feature));
+        if (feature) actions.push(...featureActions(ctx, feature, face.volumes || []));
+        if (face.surface?.kind === 'plane') for (const v of face.volumes || [])
+          actions.push(...projectionActions(ctx, v).filter(a => a.faces.includes(face.id)));
         const plane = facePlane(ctx, ids[0]);
         const crossed = plane ? solidsCut(ctx, plane.origin, unit(plane.normal)) : [];
         if (plane && crossed.length) actions.push({ key: 'slice-face', label: 'Slice with this plane', detail: `Extend the face plane through ${crossed.length} solid${crossed.length === 1 ? '' : 's'}`, tool: 'slice', slice: { origin: plane.origin, normal: cleanNormal(plane.normal), scope: 'all' }, primary: !feature });
@@ -921,6 +973,7 @@
       if (plane && grazesCylinder(ctx, volume.id, plane.origin, unit(plane.normal))) return;
       if (!seen.has(action.key)) { seen.add(action.key); actions.push(action); }
     };
+    projectionActions(ctx, volume.id).forEach(push);
     // Face-plane slices first: they name the face, and vertex slices on the same plane dedupe onto them.
     const reasons = (volume.reasons || []).slice().sort((a, b) => (a.code === 'reentrant' ? 0 : 1) - (b.code === 'reentrant' ? 0 : 1));
     for (const reason of reasons) {
@@ -939,7 +992,7 @@
       const feature = (reason.faces || []).map(f => recognized?.byFace.get(f)).find(Boolean)
         || (reason.edges || []).flatMap(e => [...(ctx.edgeFaces.get(e) || [])]).map(f => recognized?.byFace.get(f)).find(Boolean);
       if (feature && /^face-(holes|periodic|closed|corners|reflex)$|^sides$/.test(reason.code)) {
-        for (const action of featureActions(ctx, feature)) push({ ...action, key: action.key + ':' + feature.id, label: `${action.label}`, detail: `${feature.label} · ${action.detail}`, primary: !actions.length && action.primary });
+        for (const action of featureActions(ctx, feature, [Number(volume.id)])) push({ ...action, key: action.key + ':' + feature.id, label: `${action.label}`, detail: `${feature.label} · ${action.detail}`, primary: !actions.length && action.primary });
       }
       if (reason.code === 'face-holes' && reason.faces?.length && recognized) {
         const host = ctx.faces.get(reason.faces[0]);
@@ -1147,6 +1200,7 @@
       if (action.operation?.kind === 'defeature' && (action.feature === 'fillet' || action.feature === 'chamfer' || action.key.startsWith('remove:'))) return 0;
       // Whole-structure cuts first: they make the pieces the other fixes work on.
       if (action.key.startsWith('pocket:')) return 0.8;
+      if (action.key.startsWith('project-pattern:')) return 1.1;
       if (action.key.startsWith('levels:')) return 0.85;
       if (action.key.startsWith('join:')) return 0.9;
       if (action.key.startsWith('slice:')) return 1;
@@ -1494,5 +1548,5 @@
     return { faces: [...opposite].sort((x, y) => x - y), missing };
   }
 
-  return { tangentSide, oppositeSide, recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, pocketCuts, openingLevels, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, context };
+  return { tangentSide, oppositeSide, recognize, infer, fixes, shapeFixes, conflictFixes, sheetVolumes, autoFix, holeSplit, holeCells, pocketCuts, openingLevels, squarePassage, edgeCut, cutOperation, vertexCut, segmentRays, insideFace, facePlane, edgeFrame, cleanNormal, solidsCut, projectionActions, context };
 }));
