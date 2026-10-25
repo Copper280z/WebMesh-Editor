@@ -1,26 +1,29 @@
-# WebMesh Studio setup and build requirements
+# Getting started with WebMesh Studio
 
-WebMesh has three separately deployable pieces: the browser application, a local Python CAD/solver service, and two native face-meshing libraries. The JavaScript is served directly from this checkout. There is no frontend compilation, npm dependency installation, database, or separate web framework.
+WebMesh Studio runs in your browser and uses a local server to import CAD, generate meshes, and run analyses. This guide takes you from a downloaded copy of the project to your first mesh.
 
-## Requirements by capability
+## What you need
 
-| Capability | Requirements |
-| --- | --- |
-| Edit Nastran decks, create primitives, display meshes and results | A modern browser with WebGL and JavaScript; the bundled `vendor/three-runtime.js` is included |
-| Serve the application locally | Python 3; the HTTP service uses the standard library |
-| Import STEP/IGES/BREP, prepare geometry, generate mapped HEX8/HEX20 | Python packages `cadquery-ocp` (OpenCASCADE bindings) and `numpy`; the local service |
-| Recombined or quadtree quad shells | The CAD requirements above plus the `quadmesh` shared library |
-| Paved quad shells and its control-curve support | The CAD requirements above plus the `quadmesh_paved` shared library |
-| Gmsh triangle/tetrahedral, Gmsh quad/sweep/layered meshing, STL import | Optional Gmsh executable and Python module available to the service |
-| Run an analysis from the workspace | A separately built MYSTRAN or Vibestran executable configured on the service |
-| Run JavaScript tests | Node.js; npm is optional shorthand for the commands below |
-| Build the native meshers | Zig **0.17.0**, including its C/C++ toolchain; platform development headers/SDK as needed |
+- A desktop browser with WebGL enabled.
+- Python 3 with `pip` and `venv`.
+- Zig **0.17.0** to build the included quad meshers. Add the Zig executable to your system's `PATH` so you can run `zig` from a terminal.
+- A downloaded or cloned copy of this repository, including its `app`, `styles`, `vendor`, and `meshers` folders.
 
-The environment used to validate this setup is macOS with Python **3.14.7**, `cadquery-ocp` **8.0.1.1.0**, NumPy **2.4.3**, Node **24.10.0**, and Zig **0.17.0**. These are tested versions, not a claim that every other version is incompatible. The repository does not currently declare or test a minimum Python version. Choose a Python version for which your platform has a `cadquery-ocp` wheel. The Zig build files explicitly require 0.17.0 and use its newer build API; older Zig releases are not interchangeable.
+On macOS, the native build also needs the Xcode command-line tools. Install them if needed with:
 
-## 1. Prepare Python
+```sh
+xcode-select --install
+```
 
-Run commands from the repository root, the directory containing `server.py` and `WebMeshEditor.html`:
+On Linux, install your distribution's C/C++ development tools and system headers before building.
+
+Gmsh and a solver are optional. You can add them after completing the basic setup below.
+
+## 1. Install the Python dependencies
+
+Open a terminal in the WebMesh project folder—the folder containing `server.py` and `WebMeshEditor.html`. Create a virtual environment and install NumPy and the OpenCASCADE Python bindings.
+
+**macOS or Linux**
 
 ```sh
 cd /path/to/WebMesh-Editor
@@ -28,137 +31,111 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install numpy cadquery-ocp
-python -c "import sys, numpy, OCP; print(sys.executable); print(numpy.__version__); print(OCP.__version__)"
 ```
 
-For the exact package versions validated here, substitute:
+**Windows PowerShell**
 
-```sh
-python -m pip install numpy==2.4.3 cadquery-ocp==8.0.1.1.0
+```powershell
+cd C:\path\to\WebMesh-Editor
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install numpy cadquery-ocp
 ```
 
-If pip cannot find a compatible binary wheel, use a supported Python/platform combination before attempting a source build of OpenCASCADE. Installing the full CadQuery application is not required; WebMesh imports `OCP` directly.
+Keep this terminal open for the next steps. The virtual environment keeps WebMesh's Python packages separate from other applications.
 
-Activate the virtual environment in every terminal used to start the service or run Python tests. CAD workers use the service's Python interpreter, so installing packages in a different interpreter will not enable them. `npm start` invokes `python3`, which also follows the active environment's `PATH`.
+## 2. Build the meshers
 
-On Windows, virtual environment activation is `.venv\Scripts\Activate.ps1` in PowerShell. The examples below otherwise use POSIX shell syntax. These setup and build commands were verified on macOS; Windows and Linux have not been verified to the same extent.
-
-## 2. Build both native face meshers
-
-Install Zig 0.17.0 and put `zig` on `PATH`. On macOS, install the Xcode command-line tools if the compiler reports a missing platform SDK (`xcode-select --install`). On Linux, a working system C development environment may be needed. Zig compiles the C++20 mesher itself; a separate CMake build is not used here.
+From the same project folder, run:
 
 ```sh
 zig version
 zig build
 ```
 
-Run this at the repository root. `build.zig` builds both local dependencies, `meshers/quadmesh` and `meshers/paved`, and installs their shared libraries:
+The version command should report `0.17.0`. The build creates the native libraries used by the Paved, Recombined, and Quadtree shell meshers in `zig-out`. WebMesh finds these libraries automatically; leave that folder inside the project.
 
-| Platform | Expected outputs |
-| --- | --- |
-| macOS | `zig-out/lib/libquadmesh_capi.dylib`, `zig-out/lib/libquadmesh_paved.dylib` |
-| Linux | `zig-out/lib/libquadmesh_capi.so`, `zig-out/lib/libquadmesh_paved.so` |
-| Windows | `quadmesh_capi.dll`, `quadmesh_paved.dll` under `zig-out/bin` or `zig-out/lib` |
+## 3. Launch WebMesh
 
-The default optimization is `fast`. A debug build is `zig build -Doptimize=debug`. Build for the architecture of the Python process that will load the libraries. A library compiled for another CPU/OS cannot be loaded just because the filename is correct. The standard Zig `-Dtarget=...` option is available for explicit cross builds, but the resulting libraries must run on the target system.
-
-No native build is needed for the browser's mapped hex mesher. Without the quad libraries, those shell meshing choices are unavailable while core CAD preparation and mapped hex meshing remain usable.
-
-`quadmesh_bridge.py` searches the root `zig-out/lib` and `zig-out/bin` directories. To use libraries built elsewhere:
+With the virtual environment still active, run:
 
 ```sh
-export WEBMESH_QUADMESH_LIB=/absolute/path/to/libquadmesh_capi.dylib
-export WEBMESH_PAVED_LIB=/absolute/path/to/libquadmesh_paved.dylib
+python server.py
 ```
 
-Use `.so` or `.dll` on the appropriate platform. `WEBMESH_QUADMESH_BINDING` can override the Python binding file; normally it is loaded directly from `meshers/quadmesh/bindings/python/quadmesh.py`. Keep bindings and libraries compatible. The loader checks ABI support; control curves require ABI 0.3 support, which the paved library provides in this checkout.
+Open [WebMesh Studio at http://127.0.0.1:8765/WebMeshEditor.html](http://127.0.0.1:8765/WebMeshEditor.html).
 
-## 3. Optional Gmsh plugin
+Keep the terminal running while you use WebMesh. To stop the server, save your project and press **Ctrl+C** in the terminal.
 
-Core CAD preparation does **not** require Gmsh. For its optional operations, install a Gmsh distribution that supplies both the executable and Python API. One package-based route is:
+The next time you launch WebMesh, open a terminal in the project folder, activate the environment, and start the server:
+
+```sh
+source .venv/bin/activate
+python server.py
+```
+
+On Windows, use `.\.venv\Scripts\Activate.ps1` instead of the `source` command.
+
+## 4. Make your first mesh
+
+The included [block example](examples/block.step) is a simple starting point for solid meshing.
+
+1. In **Parts**, choose **Add CAD part** and open `examples/block.step`.
+2. Open the part's **Prepare / mesh** controls. The block is ready for mapped hex meshing without geometry preparation.
+3. In **Size**, set an element size of `10`.
+4. In **Mesh**, choose **Mapped hex**, preview the mesh, then review and apply it to the model.
+5. Choose **Save project** to download a `.webmesh` file you can reopen later.
+
+Use **Open → Open project** to resume a saved project. To work with an existing Nastran model, choose **Open → Open Nastran deck** and select its `.bdf` or `.dat` file.
+
+**Save project** preserves your editable workspace. **Export deck** produces solver input. Before solving your own model, check its material, sections, loads, supports, and units.
+
+## Add optional features
+
+### Gmsh meshing
+
+Install Gmsh to enable tetrahedral meshes, triangle shells, additional sweep methods, and STL import. Stop the server, then run these commands with the virtual environment active:
 
 ```sh
 python -m pip install gmsh
 gmsh --version
 python -c "import gmsh; print(gmsh.__version__)"
+python server.py
 ```
 
-If the executable is not on `PATH`, pass its absolute path using `--gmsh`. The plugin also checks the Homebrew binding directories listed in `cad_gmsh_plugin.py` when the module is not on Python's path. For another SDK installation, make its `gmsh.py` importable in the service's Python environment. A Gmsh installation may require platform graphics/system libraries even when invoked without a window; resolve missing-library errors for that distribution.
-
-WebMesh isolates Gmsh operations in their own processes. Do not combine direct Gmsh imports and the OCP kernel in one ad hoc test process: their bundled native OpenCASCADE builds can conflict. `WEBMESH_BLOCK_GMSH=1` deliberately disables the plugin and is useful for checking the core-only configuration.
-
-Gmsh **4.15.2-git** was used for validation. Check the executable and Python API with the commands above to verify your installation.
-
-## 4. Start the local service
+If you installed Gmsh elsewhere, you can specify the executable when launching WebMesh:
 
 ```sh
-python3 server.py
+python server.py --gmsh "/path/to/gmsh"
 ```
 
-Open **http://127.0.0.1:8765/WebMeshEditor.html**. The default port is 8765 and the server binds to `127.0.0.1`. To choose another port or Gmsh binary:
+The Gmsh Python package must also be available in the environment used to launch WebMesh.
+
+### MYSTRAN or Vibestran
+
+To run analyses from WebMesh, install or build MYSTRAN or Vibestran using that solver's installation instructions. Then stop WebMesh and restart it with the path to your solver executable:
 
 ```sh
-python3 server.py --port 8798 --gmsh /absolute/path/to/gmsh
+python server.py --solver mystran="/path/to/mystran"
 ```
 
-Equivalent npm shorthand is `npm start -- --port 8798`. No `npm install` is required: `package.json` declares scripts but no dependencies. Keep the terminal running; Ctrl+C stops that service.
+For Vibestran, use `--solver vibestran="/path/to/vibestran"`. You can supply both `--solver` options to make both solvers available.
 
-Check the actual runtime configuration:
+In WebMesh, use **Solve** to prepare and run a static analysis, then **Results** to inspect its output. Save the project afterward to retain the run and results. You can also import an existing MYSTRAN `.F06` file from **Results → Import F06** after opening its matching model.
 
-```sh
-curl http://127.0.0.1:8765/api/health
-```
+## Troubleshooting
 
-The response separately reports `cad`, `plugins.gmsh`, `quadmesh.libraries`, meshing choices, limits and configured `solvers`. Check this endpoint instead of assuming that successful HTML loading means CAD, native shells, or solvers are available. The UI also displays service/plugin failures.
+| Problem | What to try |
+| --- | --- |
+| `python`, `py`, or `zig` is not found | Check that the program is installed and on `PATH`, then open a new terminal. |
+| Python packages will not install | Activate `.venv` and upgrade `pip`. If `cadquery-ocp` has no compatible package for your Python version or platform, choose a Python version for which a prebuilt package is available and recreate the environment. |
+| CAD import is unavailable | Activate `.venv`, run `python -m pip install numpy cadquery-ocp`, and restart the server from that terminal. |
+| A quad mesher is unavailable | Run `zig build` from the project folder and restart the server. The libraries must be built for the same operating system and CPU architecture as Python. |
+| The browser cannot connect | Check that `python server.py` is still running and use the URL printed in its terminal. |
+| Port 8765 is already in use | Open the existing WebMesh server, or launch with `python server.py --port 8766` and use port 8766 in the browser URL. |
+| A solver is unavailable | Check the executable path supplied with `--solver` and confirm that the solver runs from a terminal. |
 
-Opening `WebMeshEditor.html` directly can be useful for standalone FE editing, but local CAD and solver calls need the HTTP service. For development and complete workspace workflows, use the served URL.
+For more detail about missing components, open the [local service status page](http://127.0.0.1:8765/api/health). It lists CAD, meshers, Gmsh, and solvers with their availability and any loading errors.
 
-## 5. Configure MYSTRAN or Vibestran
-
-Solvers are not downloaded or built by WebMesh. Build the desired solver in its own repository using that project's toolchain and build instructions, then supply a runnable executable. WebMesh does not require a Fortran compiler or CMake unless you also choose to build a solver yourself.
-
-```sh
-python3 server.py --port 8765 \
-  --solver mystran=/absolute/path/to/mystran \
-  --solver vibestran=/absolute/path/to/vibestran
-```
-
-You can instead set `WEBMESH_MYSTRAN` and/or `WEBMESH_VIBESTRAN`. Discovery order is the explicit `--solver` configuration, the corresponding environment variable, then a same-named executable on `PATH`.
-
-Replace the example paths with your installed solver executables. Each executable must have execute permission, match the host architecture and find any of its own runtime libraries. Verify `available: true` in `/api/health`, then use the workspace's named SOL 101 case and Run controls. Solver jobs run in temporary working directories; save the project to retain the deck, run record and imported results.
-
-## 6. Verify the build (optional)
-
-Use Node 24 for the tested JavaScript environment. There is no browser automation package to install for the repository test suite.
-
-```sh
-npm test
-npm run test:cad
-npm run test:meshers
-```
-
-The direct commands are:
-
-```sh
-node --test tests/*.test.cjs
-python3 -m unittest discover -s tests -p 'test_*.py'
-zig build test
-```
-
-JavaScript CAD integration tests start their own loopback servers and use the installed Python kernel. They skip kernel-specific workflows if OCP is unavailable. `PYTHON=/absolute/path/to/python` selects the interpreter used by those JavaScript integration helpers. Python tests requiring optional Gmsh functionality skip when the plugin is absent. Read the test summary for skips; a green run without CAD dependencies is not full CAD coverage.
-
-`zig build test` runs the C++ mesher's GoogleTest/Python binding suites and the paved mesher's unit, Python and WebAssembly binding suites. It needs Python and Node in addition to Zig. The first C++ test build downloads **GoogleTest v1.17.0** using the URL and hash in `meshers/quadmesh/build.zig.zon`; an ordinary `zig build` does not fetch it. Allow access to that dependency or populate the Zig cache before testing offline. Zig needs writable local/global cache directories.
-
-## Persistence, rebuilding and troubleshooting
-
-- **Save before stopping a service with active work.** Runtime CAD sessions belong to that service process. Project saves include portable CAD checkpoints, drafts and executable CAD undo/redo. A browser refresh alone is not a substitute for saving.
-- **Use the same port while editing a project.** Another server has a different session store. Saved projects can restore to it, but in-memory session IDs cannot simply migrate.
-- **Restart for backend or native-library changes.** A service may retain imported modules or loaded libraries. Save drafts first; do not terminate a service that another active workspace still needs. Frontend changes normally require a page reload after saving.
-- **CAD unavailable:** verify OCP/NumPy imports with the exact Python executable that started the service. Check the health response and terminal error.
-- **Quad mesher unavailable:** run `zig build` at the root; inspect the library paths and ABI errors in the health response. Check architecture and binding/library compatibility.
-- **Zig cache permission denied:** use a writable compiler cache. In a restricted development environment, grant the build access to its cache or set `ZIG_GLOBAL_CACHE_DIR` to a writable directory. This is separate from a source compilation failure.
-- **Port already in use:** retain the existing server if it has active drafts, or choose a free `--port`. Do not start a second server on the same port.
-- **Restore fails:** keep the saved project and inspect the error. Failed candidates are aborted transactionally; the current project/draft should remain available. An older running server may need an upgrade before it understands portable checkpoints.
-- **Solver unavailable or fails:** check its configured executable and native runtime dependencies, then inspect the saved run log.
-
-Generated `.venv/`, `node_modules/`, `.zig-cache/`, `zig-out/`, Python caches and `test-results/` are local build/runtime artifacts. `WEBMESH_CAD_CACHE=0` disables the geometry cache for diagnosis. It does not turn off saved project history or server-session ownership.
+After updating WebMesh, save your project, stop the server, run `zig build`, and launch the server again. Refresh the browser to load the updated application.
