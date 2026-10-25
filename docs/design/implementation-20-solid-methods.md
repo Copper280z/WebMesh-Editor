@@ -21,6 +21,8 @@ The pending method change uses the existing remesh-impact highlights, local prev
 
 Validate the prepared 169-solid flexure and its locally refined blade. Switch solid 145 and its cap neighbors 150, 155 and 161 to O-grid; preserve the other 165 solids. Compare HEX8 and HEX20 quality, verify all 297 shared CAD faces, switch back, change parameters, and reopen the saved project. Check browser previews, Apply and undo/redo. Record measured results under `validation/solid-methods/`.
 
+The follow-on [bulk-coarsening case](validation/bulk-coarsening/README.md) exercises the same local remesh workflow with size controls while retaining all eight blade meshes and the O-grid assignments: 15,508 → 7,900 → 6,184 HEX8. The second patch reduces the cylindrical surrounds from five radial layers to two. Across both patches, 89 solids are remeshed and 80 retained, all 297 shared CAD interfaces conform, and minimum scaled Jacobian is unchanged. Matched views include surrounding bulk solids, blade-root junctions and endcap surrounds.
+
 ## Scope
 
 This method applies to already prepared straight, constant-radius circular cores with two complete circular caps, four logical circumferential sides and compatible opposite counts. It does not yet partition an unsplit cylinder, create O-grids around holes, or handle conical, branched or curved sweeps. Per-solid method switching currently covers native mapped blocks and these O-grids; independent shell regions and legacy Gmsh methods retain their existing workflows. Mesh quality is evaluated, not assumed to improve for every parameter choice.
