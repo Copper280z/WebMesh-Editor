@@ -414,3 +414,18 @@ button:disabled{opacity:.42;cursor:not-allowed}
 .ws-repair-row span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .ws-repair-row button { flex: 0 0 auto; }
 .ws-match-legend { font-size: 11px; color: #c6aa7d; }
+/* Reviewed object deletion and independent definitions. */
+.ws-delete-choices label { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #ffffff12; }
+.ws-delete-choices label>span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.ws-delete-choices small { display:block; color:var(--text-dim,#9aaab9); font-size:11px; }
+.ws-delete-choices select { width:88px; padding:5px; background:#141d27; color:inherit; border:1px solid #ffffff26; border-radius:4px; }
+.ws-delete-outcome { display:grid; grid-template-columns:1fr auto; gap:4px 8px; font-size:12px; padding:6px 0; }
+.ws-delete-outcome span { overflow-wrap:anywhere; min-width:0; }
+.ws-delete-outcome strong { font-size:11px; font-weight:500; color:#8edbc1; }
+.ws-delete-outcome .delete,.ws-delete-menu { color:#f5a7a2; }
+.ws-delete-outcome .repair { color:#ebc17c; }
+.ws-delete-outcome small { grid-column:1/-1; color:#ebc17c; }
+.ws-delete-note { font-size:12px; color:#a8b5c2; line-height:1.5; }
+.ws-independent-find { display:flex; gap:5px; flex-wrap:wrap; align-items:end; margin:10px 0; }
+.ws-independent-find label { flex:1; min-width:90px; font-size:12px; }
+.ws-independent-find input { width:100%; background:#141d27; color:inherit; border:1px solid #ffffff26; padding:6px; }

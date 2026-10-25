@@ -123,17 +123,18 @@
   const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy,
     replaceSource:id=>partWorkspace.chooseReplacement(id),addPart:file=>partWorkspace.addFile(file), addSessionPart:staged=>partWorkspace.addImported(staged), reviewMappedMesh: reviewCadMesh, editMeshOwner:id=>run(async()=>{const root=window.WebMeshCadProject.rootFor(engine().getProjectOwnership(),id);if(root?.definition.part)await partWorkspace.editMesh(id);else await restoreCadOwner(id);}),
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
-  const partWorkspace=window.WebMeshPartWorkspace.create({engine,cad:()=>cadWorkspace,run,dialog,close:closeDialog,onClose:fn=>{dialogCleanup=fn;},review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
+  const partWorkspace=window.WebMeshPartWorkspace.create({remove:id=>deletionWorkspace.remove(id),engine,cad:()=>cadWorkspace,run,dialog,close:closeDialog,onClose:fn=>{dialogCleanup=fn;},review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
+  const deletionWorkspace=window.WebMeshDeletionWorkspace.create({engine,run,dialog,close:closeDialog,review:reviewProject,beforeReview:()=>partWorkspace.retain(),changed:()=>partWorkspace.synchronize(true)});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
-  const assemblyWorkspace=window.WebMeshAssemblyWorkspace.create({engine,run,dialog,review:reviewProject});
-  const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
+  const assemblyWorkspace=window.WebMeshAssemblyWorkspace.create({remove:id=>deletionWorkspace.remove(id),engine,run,dialog,review:reviewProject});
+  const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({remove:id=>deletionWorkspace.remove(id),engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
   const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
   const selectionWorkspace=window.WebMeshSelectionWorkspace.create({onClose:fn=>{dialogCleanup=fn;},engine,run,dialog,review:reviewProject,close:closeDialog,dock:()=>{cadWorkspace.activate(false);$('wb-dialog').close();$('wb-dialog').classList.add('docked');$('wb-dialog').show();}});
-  const massWorkspace=window.WebMeshMassWorkspace.create({engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
+  const massWorkspace=window.WebMeshMassWorkspace.create({remove:id=>deletionWorkspace.remove(id),engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
   let restoringAnalysisProject=false;
   const analysisRequest=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||'Solver request failed.');return value;};
   const analysisSession=window.WebMeshAnalysisSession.create({engine,request:analysisRequest,changed:updateRunCaption,restored:()=>partWorkspace.clear()});
-  const analysisWorkspace=window.WebMeshAnalysisWorkspace.create({engine,run,dialog,review:reviewProject,session:analysisSession,request:analysisRequest,health:async()=>{const r=await fetch('/api/health');if(!r.ok)throw Error('Local solver service unavailable.');return r.json();},download,results:()=>setTimeout(()=>{workspaceShell?.setStage('results');setTab('results');openTool('results');updateRunCaption();},0)});
+  const analysisWorkspace=window.WebMeshAnalysisWorkspace.create({remove:id=>deletionWorkspace.remove(id),engine,run,dialog,review:reviewProject,session:analysisSession,request:analysisRequest,health:async()=>{const r=await fetch('/api/health');if(!r.ok)throw Error('Local solver service unavailable.');return r.json();},download,results:()=>setTimeout(()=>{workspaceShell?.setStage('results');setTab('results');openTool('results');updateRunCaption();},0)});
   function updateRunCaption(){
     workspaceShell?.refresh();
     let el=$('wb-run-caption');if(!el){el=document.createElement('div');el.id='wb-run-caption';el.className='wb-run-caption';$('viewport').appendChild(el);}
@@ -278,6 +279,9 @@
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    if(deletionWorkspace.open(id))return;
+    if(object.definition.independent&&window.WebMeshRegions.isRegion(object)){run(()=>selectionWorkspace.open(id));return;}
+    if(object.facts?.suspendedReason&&object.definition.generator===window.WebMeshAnalysisProject.CASE){run(()=>analysisWorkspace.open(id));return;}
     if(object.facts?.suspendedReason&&!['cad-mapped-v1','cad-shell-v1'].includes(object.definition.generator)){dialog(object.name,`<p role="alert">${esc(object.facts.suspendedReason)}</p>${button('wb-resume-object','Review repair / reactivation','check','primary')}`);$('wb-resume-object').onclick=()=>run(()=>partWorkspace.repairObject(id));return;}
     if(assemblyWorkspace.open(id))return;
     if(partWorkspace.open(id))return;
@@ -306,7 +310,7 @@
     $('wb-cad-draft').onclick=()=>root.definition.part?runOwnerAction(()=>partWorkspace.editMesh(root.id)):setTab('mesh');
     $('wb-cad-restore').onclick=()=>runOwnerAction(()=>restoreCadOwner(root.id));
     $('wb-cad-convert').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id,true)));
-    $('wb-cad-remove').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id)));
+    $('wb-cad-remove').onclick=()=>runOwnerAction(()=>deletionWorkspace.remove(root.id));
   }
   async function restoreCadOwner(id){
     const root=window.WebMeshCadProject.rootFor(engine().getProjectOwnership(),id);
@@ -597,7 +601,7 @@
   window.addEventListener('webmesh:change',event=>{if(restoringAnalysisProject)return;operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason!=='load')closeDialog();Promise.resolve(partWorkspace.synchronize(true)).then(()=>refresh(true)).catch(error=>message('CAD draft restore: '+error.message,true));if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
   function filterTree(){const term=$('wb-tree-filter').value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));}
   $('wb-tree-filter').addEventListener('input',filterTree);
-  workspaceShell=window.WebMeshWorkspaceShell?.create({engine,owner:openProjectOwner,message,runs:()=>analysisSession.summaries(),openRun:id=>run(()=>analysisWorkspace.runView(id)),
+  workspaceShell=window.WebMeshWorkspaceShell?.create({engine,owner:openProjectOwner,message,canDelete:id=>!!engine().getProjectOwnership()?.project.objects.some(o=>o.id===id),remove:id=>run(()=>deletionWorkspace.remove(id)),canIndependent:id=>{const o=engine().getProjectOwnership()?.project.objects.find(o=>o.id===id);return o&&!o.facts.suspendedReason&&!o.definition.independent&&(window.WebMeshParts.isInstance(o)||o.definition.generator===window.WebMeshAssembly.CONNECTION);},makeIndependent:id=>run(async()=>reviewProject(window.WebMeshDeletion.independent(engine().getProjectOwnership(),id,await engine().getAuthoringModel()),{note:'The retained object keeps its current mesh and settings and stops following its source.'})),runs:()=>analysisSession.summaries(),openRun:id=>run(()=>analysisWorkspace.runView(id)),
     selectMode:mode=>{engine().setCadSelectionMode('none');$('selEntity').value=mode;$('selEntity').dispatchEvent(new Event('change',{bubbles:true}));},
     visibility:()=>partWorkspace.refreshVisibility?.(),
     command:key=>{

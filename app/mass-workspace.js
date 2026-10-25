@@ -28,7 +28,7 @@
       action('highlight',()=>hooks.engine().select({nodes:nodes(),mode:'node'}));
       action('centroid',()=>{const chosen=new Set(nodes()),points=hooks.engine().getMesh().nodes.filter(n=>chosen.has(n.id));if(!points.length)throw Error('Select support regions first.');['x','y','z'].forEach((axis,i)=>{body().querySelector(`[data-mass="reference${i}"]`).value=points.reduce((sum,n)=>sum+n[axis],0)/points.length;});});
       action('review',()=>{const input={id:id||'payload-'+crypto.randomUUID(),name:get('name'),mass:get('mass'),reference:vec('reference'),offset:vec('offset'),inertia:readInertia(),supports:supports()};return hooks.review(P.payload(input,state(),hooks.engine().getNextIds()),{owner:input.id});});
-      if(old)action('remove',()=>hooks.review(P.removal(state(),id)));
+      if(old)action('remove',()=>hooks.remove(id));
     }
     function directEditor(kind,id){
       const old=objects().find(o=>o.id===id),a=old?.definition.action,u=P.units(state()),selected=hooks.engine().getState().selection.nodes;
@@ -44,7 +44,7 @@
         action('highlight',()=>hooks.engine().select({nodes:groups().flatMap(g=>g.gids),mode:'node'}));
       }
       action('review',async()=>{const input={id:id||'connection-'+crypto.randomUUID(),name:get('name'),action:kind};if(kind==='point')input.position=vec('position');else input.node=Number(get('node'));if(kind==='mass')Object.assign(input,{mass:get('mass'),offset:vec('offset'),inertia:readInertia()});if(kind==='rbe2')Object.assign(input,{nodes:ids(get('nodes')),components:get('components').trim()});if(kind==='rbe3')input.groups=groups();const request=P.direct(input,state(),await hooks.engine().getAuthoringModel(),hooks.engine().getNextIds());return hooks.review(request,{owner:input.id,note:kind==='mass'?'Adds '+request.objects[0].definition.action.mass+' '+u.mass+'; COM offset and inertia are in basic XYZ. Mesh material mass is retained.':undefined});});
-      if(old)action('remove',()=>hooks.review(P.removal(state(),id)));
+      if(old)action('remove',()=>hooks.remove(id));
     }
     function open(id){const o=P.rootFor(state(),id);if(!o)return false;if(o.definition.generator===P.PAYLOAD){payloadEditor(o.id);return true;}if([P.POINT,P.MASS,P.DISTRIBUTION,P.RIGID].includes(o.definition.generator)){directEditor(o.definition.action.action,o.id);return true;}return false;}
     return{list,open,payloadEditor};

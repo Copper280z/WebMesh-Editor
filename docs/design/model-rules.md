@@ -237,6 +237,13 @@ A region keeps its meaning only if it knows which geometry it meant and can find
 - Editing a generated element of one instance offers two choices: apply the change to the part (all instances), or **Make unique**, which turns the instance into its own part with a copy of the mesh definition.
 - Differences between instances live in regions and connections, which can be scoped to particular instances (R21).
 
+**R37.** Deletion is a reviewed composition of removal and independent authoring actions.
+- Right-click **Delete…** opens a dependency inspector. The analyst can keep or delete dependents together or individually; keeping is the default.
+- Kept dependents become independently authored objects with names, card identities and current resolved values preserved. They no longer follow deleted parents. A retained live placement becomes an independent part through **Make independent**, preserving its mesh owner and GRID/element identities.
+- Required geometry is never silently invented. A kept definition with missing inputs is suspended, emits no solver cards and blocks analysis until explicitly repaired or deleted. Hand-card conflicts follow R5 and cannot be silently suspended or removed.
+- Shared resources remain while referenced. Optional cleanup applies only to unused materials/sections of removed meshes.
+- Apply is one undoable transaction. CAD drafts needed for undo remain recoverable; saved live projects must not resurrect removed parts.
+
 ## 7. Acceptance scenarios
 
 Each scenario is a test on the rover project:

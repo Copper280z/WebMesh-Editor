@@ -62,3 +62,14 @@ test('editing a mesh region reuses prepared CAD and retains plain mesh records a
  f.current.imported.revision=9;f.current.data.prepared={history:['slice','sheet','extend']};f.current.data.meshes=[{id:8,kind:'tet',elements:[55],label:'Plain tetrahedra'},{id:11,projectOwner:'mesh',kind:'hex',elements:[8],label:'Mesh'}];
  await w.editMesh('mesh');assert.equal(f.imports.length,0);assert.equal(f.current.imported.revision,9);assert.deepEqual(f.current.data.prepared.history,['slice','sheet','extend']);assert.equal(f.current.data.editingOwner,'mesh');assert.equal(f.current.data.settings.sizing.size,3);assert.equal(f.current.data.meshes.find(m=>m.projectOwner==='mesh').id,11);assert.deepEqual(f.current.data.meshes.find(m=>m.id===8).elements,[55]);
 });
+
+test('deleting the active part preserves its CAD draft for undo and omits it from saved live parts',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('delete.step'));await f.apply();const id=w.active(),before=clone(f.state),draft=f.current;draft.data.prepared={history:['split','midsurface','extend']};draft.data.settings={size:7};f.state={project:{objects:[]}};
+ await w.synchronize(true);assert.equal(w.active(),null);assert.equal(f.current,null);assert.equal((await w.serialize()).entries.length,0);
+ f.state=before;await w.synchronize(true);assert.equal(w.active(),id);assert.equal(f.current,draft);assert.deepEqual(f.current.data.prepared.history,['split','midsurface','extend']);assert.equal(f.imports.length,0);
+ f.state={project:{objects:[]}};await w.synchronize(true);assert.equal(f.current,null);assert.equal((await w.serialize()).active,null);
+});
+test('saving after mesh deletion prunes stale ownership records without mutating the undo draft',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('retained.step'));await f.apply();const id=w.active();f.current.data.editingOwner='gone';f.current.data.meshes=[{id:1,projectOwner:'gone'},{id:2,elements:[50]}];
+ const saved=await w.serialize();assert.equal(saved.entries[0].data.editingOwner,null);assert.equal(saved.entries[0].data.meshes.length,1);assert.equal(f.current.data.meshes.length,2);assert.equal(f.current.data.editingOwner,'gone');await w.stageRestore(saved,f.state);
+});

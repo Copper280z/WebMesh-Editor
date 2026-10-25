@@ -19,7 +19,7 @@
     const uuid=prefix=>prefix+'-'+crypto.randomUUID();
     const action=(key,fn)=>body().querySelector(`[data-mount-action="${key}"]`)?.addEventListener('click',()=>hooks.run(async()=>{try{await fn();}catch(e){const error=body().querySelector('[data-mount-error]');if(error)error.textContent=e.message;else throw e;}}));
     const show=(title,html)=>{hooks.dialog(title,`<div data-mount-editor>${html}<p data-mount-error role="alert"></p></div>`);};
-    const removable=id=>action('remove',()=>hooks.review(A.removal(state(),id)));
+    const removable=id=>action('remove',()=>hooks.remove(id));
     function list(){
       const all=objects(),groups=[[A.REGION,'Mounting regions'],[A.ATTACHMENT,'Attachments'],[A.TEMPLATE,'Shared stiffness templates']];
       show('Mounting regions & attachments',`<p>Create a named CAD face or shell-edge region, then connect it to explicit mount and shaft points. Each change is reviewed before it affects the model.</p><div class="wb-owner-actions">${button('region','New mounting region')}${button('attachment','New RBE2/CBUSH attachment')}</div>${groups.map(([g,title])=>`<h3>${title}</h3>${all.filter(o=>o.definition.generator===g).map(o=>`<p><button class="wb-owner-link" data-mount-owner="${esc(o.id)}">${esc(o.name)}</button></p>`).join('')||'<p>None yet.</p>'}`).join('')}`);

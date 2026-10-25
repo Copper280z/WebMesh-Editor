@@ -25,7 +25,7 @@
       }
       if(kind!=='support')action('direction',()=>{const f=window.WebMeshCoordinates.frame(state(),get('frame')),v=window.WebMeshCoordinates.vector([0,1,2].map(i=>number('vector'+i)),f.axes);body().querySelector('[data-analysis-direction]').textContent='Basic XYZ: '+v.map(x=>Number(x.toPrecision(7))).join(', ');});
       action('review',async()=>{const input={id:id||'analysis-set-'+crypto.randomUUID(),name:get('name'),action:kind,frame:get('frame')==='__existing'?undefined:get('frame')};if(kind==='support')Object.assign(input,{region:get('region'),nodes:get('nodes').split(/[\s,]+/).filter(Boolean).map(Number),components:get('components').trim()});else input.vector=[0,1,2].map(i=>number('vector'+i));if(kind==='force')input.node=number('node');return h.review(P.set(input,state(),await h.engine().getAuthoringModel()),{owner:input.id});});
-      action('back',list);if(old)action('remove',()=>h.review(P.remove(state(),id)));
+      action('back',list);if(old)action('remove',()=>h.remove(id));
     }
     async function caseEditor(id){
       const old=objects().find(o=>o.id===id),d=old?.definition,semantic=await h.engine().getAuthoringModel(),catalog=P.catalog(state(),semantic);
@@ -33,7 +33,7 @@
       if(!loads.length||!supports.length){show('New static case','<p>Create or import at least one load set and one support set first.</p>'+button('back','Analysis definitions'));action('back',list);return;}
       show((old?'Edit':'New')+' static case',field('name','Case name',old?.name||'Gravity')+`<p>SOL 101 · ${old?'Subcase '+d.subcase:'Subcase identity is allocated on Apply'}.</p>`+select('load','Load set',loads.map(c=>[c.id,c.name+' · SID '+c.id]),d?.load||loads[0].id)+select('support','Support set',supports.map(c=>[c.id,c.name+' · SID '+c.id]),d?.support||supports[0].id)+`<h3>Output requests</h3>${['DISPLACEMENT','SPCFORCES','STRESS','OLOAD','FORCE'].map(v=>`<label class="wb-check-row"><input type="checkbox" data-analysis-output="${v}" ${(d?.outputs||['DISPLACEMENT','SPCFORCES','STRESS','OLOAD']).includes(v)?'checked':''}> ${v}</label>`).join('')}<p>Existing card-authored sets remain editable in Model setup. LOAD combinations can be selected by their set ID.</p>`+button('review','Review case')+(old?button('remove','Review removal'):'')+button('back','All analysis cases & runs'));
       action('review',async()=>{const input={id:id||'analysis-case-'+crypto.randomUUID(),name:get('name'),load:number('load'),support:number('support'),outputs:[...body().querySelectorAll('[data-analysis-output]:checked')].map(e=>e.dataset.analysisOutput)};return h.review(P.caseObject(input,state(),await h.engine().getAuthoringModel()),{owner:input.id,note:'Named cases replace imported executive/case control on export. All bulk cards are retained.'});});
-      action('back',list);if(old)action('remove',()=>h.review(P.remove(state(),id)));
+      action('back',list);if(old)action('remove',()=>h.remove(id));
     }
     async function prepare(){
       const health=await h.health(),solvers=health.solvers||[];

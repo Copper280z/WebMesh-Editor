@@ -1,6 +1,6 @@
 # Design: a project workspace built around the analysis model
 
-*Design revised after both reviews, 22 October 2026. Milestones 1–16 now implement the project core, owned authoring, assembly/analysis workflow, and the first complete tree/visibility/docked-inspector workspace. Remaining work is listed in the implementation notes below.*
+*Design revised after both reviews, 22 October 2026. Milestones 1–17 now implement the project core, owned authoring, assembly/analysis workflow, tree/visibility/docked inspectors, reviewed CAD replacement and object deletion. Remaining work is listed in the implementation notes below.*
 
 This document describes what the analyst sees. How the model behaves when it changes is defined in [model-rules.md](model-rules.md): ownership, change propagation, overrides, region matching, runs and recovery. Rule numbers such as R8 refer to that document. Where the two disagree, the rules win.
 
@@ -469,5 +469,7 @@ The [payload/mass milestone](implementation-08-payload-masses.md) adds editable 
 [CAD session reuse and transactional restoration](implementation-15-cad-sessions.md) now provides exact per-workspace/part reuse, cleanup after failed or abandoned restores, rollback of the current model/drafts/histories, and portable executable CAD undo/redo. Browser rover reopening and failures, fresh-server redo/undo and continued real-kernel preparation are validated. Committed sessions are retained until explicitly closed; duplicate browser tabs receive independent session ownership. See [acceptance evidence](validation/cad-sessions/README.md).
 
 [CAD source replacement and explicit repair](implementation-16-cad-replacement.md) now preserves part identity and retained CAD drafts, reviews conservative face/edge/solid matches, displays old boundaries against proposed geometry, and commits incomplete revisions with suspended mesh/analysis definitions. Independent remeshing and explicit region/instance/connection reactivation use the existing authoring actions. Source replacement undo/redo and portable historical CAD drafts are covered. See the root [setup.md](../../setup.md) for dependencies, build requirements, service configuration and tests.
+
+[Reviewed deletion and independent dependents](implementation-17-deletion.md) adds tree **Delete…**, a docked dependency review with keep/remove choices, independent mesh/connection promotion, explicit repair of missing inputs, shared-resource protection and CAD-draft preservation for undo. Kept objects remain named, owned and editable. Hand cards are never silently removed or retargeted.
 
 The next source-replacement increment is selective mesh preservation and named pattern matching, with the moved-motor-pattern rover acceptance (S3). Milestone 16 deliberately suspends all meshes of the replaced source; automatic preparation replay, split/merge correspondence and the full S3 selective-regeneration workflow remain open. Other original-plan gaps remain: a unified CAD/FE history, read-only old-run viewing, field-granular recipe inheritance, owned load combinations, broader result fields/probes and a consistent units/material editing workflow.
