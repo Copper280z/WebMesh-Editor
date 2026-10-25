@@ -113,6 +113,12 @@ The response separately reports `cad`, `plugins.gmsh`, `quadmesh.libraries`, mes
 
 Opening `WebMeshEditor.html` directly can be useful for standalone FE editing, but local CAD and solver calls need the HTTP service. For development and complete workspace workflows, use the served URL.
 
+### Development server lifecycle
+
+Keep one user-facing server on **8765**. Restart it from the current checkout after updates and check `/api/health`, including CAD, meshers and configured solvers. The user has authorized these restarts and confirmed that no work is in progress during updates; retaining older servers to protect drafts or undo history is unnecessary in this workflow.
+
+Use a separate temporary server for testing, on an available port. Always stop that server and its CAD workers afterward, even if testing fails. At handoff, only the server on 8765 should remain. Preserve the MYSTRAN/Vibestran configuration when restarting it. See `AGENTS.md` for the agent workflow rule.
+
 ## 5. Configure MYSTRAN or Vibestran
 
 Solvers are not downloaded or built by WebMesh. Build the desired solver in its own repository using that project's toolchain and build instructions, then supply a runnable executable. WebMesh does not require a Fortran compiler or CMake unless you also choose to build a solver yourself.
