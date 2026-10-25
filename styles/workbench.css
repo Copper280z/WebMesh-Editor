@@ -403,3 +403,14 @@ button:disabled{opacity:.42;cursor:not-allowed}
 
 .wb-proposal-box{position:fixed;display:none;pointer-events:none;border:1px solid #ffd257;background:#ffd25722;z-index:10000}.wb-region-picker{border:1px solid #456174;border-radius:6px;padding:10px;margin:12px 0}.wb-region-picker legend{color:#a7d8ca;font-size:12px}.wb-region-picker [data-repair-count]{overflow-wrap:anywhere;max-height:90px;overflow:auto}
 .wb-proposal-selection #contourLegend,.wb-proposal-selection #wb-run-caption{display:none!important}.wb-proposal-selection::after{content:"Proposed mesh · selection only";position:absolute;top:56px;left:12px;right:12px;color:#d4eee7;background:#122b32e8;padding:6px;font-size:12px;pointer-events:none}.wb-proposal-selection #wb-edges,.wb-proposal-selection #wb-shading,.wb-proposal-selection #wb-measure{pointer-events:none;opacity:.4}
+
+/* Replacement review stays compact while making geometry decisions explicit. */
+.ws-topology-matches { display: grid; gap: 8px; margin: 12px 0; }
+.workspace #wb-dialog-body .ws-topology-matches .wb-field { grid-template-columns: 1fr; gap: 6px; margin: 0; padding: 8px; border: 1px solid var(--wb-border, #354252); border-radius: 6px; }
+.ws-topology-matches small { display: block; font-size: 11px; font-weight: 400; opacity: .72; margin-top: 3px; }
+.ws-topology-matches select { max-width: 100%; }
+.ws-topology-matches button { justify-self: start; }
+.ws-repair-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--wb-border, #354252); }
+.ws-repair-row span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.ws-repair-row button { flex: 0 0 auto; }
+.ws-match-legend { font-size: 11px; color: #c6aa7d; }

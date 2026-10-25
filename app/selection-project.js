@@ -7,12 +7,13 @@
     const old=objects(state).filter(o=>changed.has(o.id)).flatMap(o=>o.definition.cards||[]),retired=new Map();for(const c of old){if(!retired.has(c.family))retired.set(c.family,new Set());retired.get(c.family).add(c.id);}
     for(const family of ['nodes','properties','materials','coords','masses'])m[family]=(m[family]||[]).filter(([id])=>!retired.get(family)?.has(id));
     for(const bucket of Object.keys(m.elems||{}))m.elems[bucket]=m.elems[bucket].filter(v=>!retired.get('elems')?.has(v.eid));
-    for(const o of request.objects||[])for(const c of o.definition.cards||[]){if(c.family==='elems')(m.elems[c.bucket]||=[]).push(copy(c.value));else if(['nodes','properties','materials','coords','masses'].includes(c.family))m[c.family].push([c.id,copy(c.value)]);}
+    for(const o of request.objects||[])if(!o.facts?.suspendedReason)for(const c of o.definition.cards||[]){if(c.family==='elems')(m.elems[c.bucket]||=[]).push(copy(c.value));else if(['nodes','properties','materials','coords','masses'].includes(c.family))m[c.family].push([c.id,copy(c.value)]);}
     return {state:s,semantic:m};
   }
   function inspect(state,semantic,request={}){
     const pending=project(state,semantic,request),catalog=new Map(objects(pending.state).map(o=>[o.id,o])),nodes=new Map(pending.semantic.nodes),elements=new Map(Object.values(pending.semantic.elems).flat().map(e=>[e.eid,e])),entries=[],ownedNodes=new Map([...catalog.values()].flatMap(o=>(o.definition.cards||[]).filter(c=>c.family==='nodes').map(c=>[c.id,{owner:o.id,role:c.role}])));
     for(const o of catalog.values()){
+      if(o.facts?.suspendedReason)continue;
       const d=o.definition,issues=[],ns=new Set(),es=new Set();let type=null;
       const bindings=d.nodeFrames??objects(state).find(x=>x.id===o.id)?.definition.nodeFrames;
       for(const b of bindings||[])if(!b.source&&b.frame){type='frames';const c=d.cards.find(c=>c.family==='nodes'&&c.role===b.role);ns.add(b.node);if(!c)issues.push('GRID '+b.node+' displacement frame selection was replaced.');}

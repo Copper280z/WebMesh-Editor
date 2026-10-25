@@ -48,7 +48,7 @@
   const tool = (key,title,subtitle,name) => `<button class="wb-tool-card" data-tool="${key}">${icon(name)}<span><strong>${title}</strong><small>${subtitle}</small></span></button>`;
   let activeTab = 'parts', primitive = 'block', patternKind = 'linear', preview = null, busy = false;
   let projectName = 'Untitled model', historyItems = [], moved = [], lastState = '', operationRevision = 0;
-  let editingPlate = null, pendingProject = null, pendingDiscard = null;
+  let editingPlate = null, pendingProject = null, pendingDiscard = null, dialogCleanup = null;
   let workspaceShell = null;
   const savedForms = new Map();
   const formKey = () => activeTab+':'+(activeTab==='build'?primitive:activeTab==='pattern'?patternKind:'');
@@ -121,14 +121,14 @@
     finally{setBusy(false);refresh(true);}
   }
   const cadWorkspace=window.WebMeshCadWorkspace.create({engine,run,message,render:renderPanel,refresh:()=>refresh(true),name:nameProject,log:logOperation,appendMesh:appendCadMesh,removeMesh:tag=>engine().removeMeshOwner(tag),isBusy:()=>busy,
-    addPart:file=>partWorkspace.addFile(file), addSessionPart:staged=>partWorkspace.addImported(staged), reviewMappedMesh: reviewCadMesh, editMeshOwner:id=>run(async()=>{await restoreCadOwner(id);}),
+    replaceSource:id=>partWorkspace.chooseReplacement(id),addPart:file=>partWorkspace.addFile(file), addSessionPart:staged=>partWorkspace.addImported(staged), reviewMappedMesh: reviewCadMesh, editMeshOwner:id=>run(async()=>{const root=window.WebMeshCadProject.rootFor(engine().getProjectOwnership(),id);if(root?.definition.part)await partWorkspace.editMesh(id);else await restoreCadOwner(id);}),
     reviewRemoveMesh: (owner,onApplied)=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),owner),{onApplied})});
-  const partWorkspace=window.WebMeshPartWorkspace.create({engine,cad:()=>cadWorkspace,run,dialog,review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
+  const partWorkspace=window.WebMeshPartWorkspace.create({engine,cad:()=>cadWorkspace,run,dialog,close:closeDialog,onClose:fn=>{dialogCleanup=fn;},review:reviewProject,owner:openProjectOwner,parts:()=>setTab('parts',true),mesh:()=>setTab('mesh',true)});
   const boltWorkspace=window.WebMeshBoltWorkspace.create({engine,run,message,render:renderPanel,clearPreview:invalidatePreview,log:logOperation,isBusy:()=>busy});
   const assemblyWorkspace=window.WebMeshAssemblyWorkspace.create({engine,run,dialog,review:reviewProject});
   const attachmentWorkspace=window.WebMeshAttachmentWorkspace.create({engine,run,dialog,review:reviewProject,cadState:()=>cadWorkspace.getState()});
   const coordinateWorkspace=window.WebMeshCoordinateWorkspace.create({engine,run,dialog,review:reviewProject});
-  const selectionWorkspace=window.WebMeshSelectionWorkspace.create({engine,run,dialog,review:reviewProject,close:closeDialog,dock:()=>{cadWorkspace.activate(false);$('wb-dialog').close();$('wb-dialog').classList.add('docked');$('wb-dialog').show();}});
+  const selectionWorkspace=window.WebMeshSelectionWorkspace.create({onClose:fn=>{dialogCleanup=fn;},engine,run,dialog,review:reviewProject,close:closeDialog,dock:()=>{cadWorkspace.activate(false);$('wb-dialog').close();$('wb-dialog').classList.add('docked');$('wb-dialog').show();}});
   const massWorkspace=window.WebMeshMassWorkspace.create({engine,run,dialog,review:reviewProject,regions:()=>attachmentWorkspace.list()});
   let restoringAnalysisProject=false;
   const analysisRequest=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const value=await response.json();if(!response.ok)throw Error(value.error||'Solver request failed.');return value;};
@@ -278,6 +278,7 @@
   function openProjectOwner(id){
     if(busy)return;
     const state=engine().getProjectOwnership(),object=state?.project.objects.find(o=>o.id===id);if(!object)return;
+    if(object.facts?.suspendedReason&&!['cad-mapped-v1','cad-shell-v1'].includes(object.definition.generator)){dialog(object.name,`<p role="alert">${esc(object.facts.suspendedReason)}</p>${button('wb-resume-object','Review repair / reactivation','check','primary')}`);$('wb-resume-object').onclick=()=>run(()=>partWorkspace.repairObject(id));return;}
     if(assemblyWorkspace.open(id))return;
     if(partWorkspace.open(id))return;
     if([window.WebMeshAnalysisProject.SET,window.WebMeshAnalysisProject.CASE].includes(object.definition.generator)){run(()=>analysisWorkspace.open(id));return;}
@@ -302,7 +303,7 @@
     dialog(root.name,`<div class="ws-editor-summary"><strong>${d.generator==='cad-shell-v1'?'Shell mesh':'Solid mesh'}</strong><span>${count('elems').toLocaleString()} elements · ${count('nodes').toLocaleString()} nodes</span></div><dl class="ws-part-meta"><dt>Source</dt><dd>${esc(source.definition.snapshot.filename)}</dd><dt>Target size</dt><dd>${esc(d.generator==='cad-shell-v1'?(d.settings.shell.size||d.settings.sizing.size):d.settings.sizing.size)}</dd><dt>${d.generator==='cad-shell-v1'?'Faces':'Solids'}</dt><dd>${esc(d.targets.join(', '))}</dd></dl><div class="wb-owner-actions">${button('wb-cad-draft','Prepare / remesh',null,'primary')}</div><p id="wb-cad-owner-error" role="alert"></p><details class="wb-owner-diff"><summary>Material</summary>${['E','nu','rho'].map((key,i)=>`<label class="wb-field"><span>${['Young’s modulus','Poisson’s ratio','Density'][i]}</span><input data-cad-material="${key}" type="number" step="any" value="${esc(material[key])}"></label>`).join('')}${button('wb-cad-material','Review material changes',null)}</details><details class="wb-owner-diff"><summary>Sections & checks</summary><p>${d.sections.map(s=>(d.generator==='cad-shell-v1'?'PSHELL ':'PSOLID ')+s.pid+' · CAD '+esc(s.volumes.join(', '))).join('<br>')}</p>${checksHtml(engine().getProjectSummary().checks.filter(c=>window.WebMeshCadProject.bundle(state,root.id).includes(c.id)))}</details><details class="wb-owner-diff"><summary>Restore committed preparation</summary><p>Replaces this part’s current CAD draft with the snapshot used for this mesh. Save the project first to retain that draft.</p>${button('wb-cad-restore','Reopen committed CAD snapshot',null)}</details><details class="wb-owner-diff"><summary>Convert or remove</summary>${button('wb-cad-convert','Convert to plain cards',null)}${button('wb-cad-remove','Review removal',null)}</details>`);
     const runOwnerAction=fn=>run(async()=>{try{await fn();}catch(error){const el=$('wb-cad-owner-error');if(el)el.textContent=error.message;else throw error;}});
     $('wb-cad-material').onclick=()=>runOwnerAction(()=>{const values={};for(const el of $('wb-dialog-body').querySelectorAll('[data-cad-material]')){if(el.value.trim()===''||!Number.isFinite(Number(el.value)))throw Error('Enter finite material values.');values[el.dataset.cadMaterial]=Number(el.value);}return reviewProject(window.WebMeshCadProject.materialChange(engine().getProjectOwnership(),root.id,values),{owner:root.id});});
-    $('wb-cad-draft').onclick=()=>root.definition.part?runOwnerAction(()=>partWorkspace.edit(root.definition.part)):setTab('mesh');
+    $('wb-cad-draft').onclick=()=>root.definition.part?runOwnerAction(()=>partWorkspace.editMesh(root.id)):setTab('mesh');
     $('wb-cad-restore').onclick=()=>runOwnerAction(()=>restoreCadOwner(root.id));
     $('wb-cad-convert').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id,true)));
     $('wb-cad-remove').onclick=()=>runOwnerAction(()=>reviewProject(window.WebMeshCadProject.removal(engine().getProjectOwnership(),root.id)));
@@ -313,14 +314,16 @@
     const staged=await cadWorkspace.stageRestore(window.WebMeshCadProject.restoreData(engine().getProjectOwnership(),id),null,id);await cadWorkspace.adoptRestore(staged);cadWorkspace.commitRestore(staged);closeDialog();activeTab='mesh';document.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab==='mesh'));$('wb-view-type').textContent='Meshing';cadWorkspace.activate(true);renderPanel();message('Committed mesh region reopened. Other regions stay in the model.');
   }
   async function reviewProject(request,{mesh,newMeshIdentity=false,owner,beforeCommit,onApplied,onDiscard,note}={}){
-    const state=engine().getProjectOwnership(),options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,onDiscard,note};
+    const fullState=engine().getProjectOwnership(),options={mesh,newMeshIdentity,owner,beforeCommit,onApplied,onDiscard,note};
+    let state=fullState,activeChange;
     const semantic=await engine().getAuthoringModel();
     try {
+    activeChange=window.WebMeshCadReplacement.active(state,request);state=activeChange.state;request=activeChange.request;
     request=window.WebMeshEmbeddedInterface.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshInterfaceProject.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshParts.rebuild(state,request,engine().getNextIds());
     request=window.WebMeshParts.scopedRegions(state,request);
-    if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(request,options);
+    if(window.WebMeshSelections.inspect(state,semantic,request).some(r=>r.issues.length))return selectionWorkspace.list(activeChange.merge(request),options);
     request=window.WebMeshRegions.rebuild(state,window.WebMeshSelections.project(state,semantic,request).semantic,request);
     request=window.WebMeshAttachmentProject.rebuild(state,request);
     request=window.WebMeshAssembly.rebuild(state,request,engine().getNextIds());
@@ -328,28 +331,30 @@
     request=window.WebMeshActionProject.rebuild(state,request,window.WebMeshSelections.project(state,semantic,request).semantic);
     request=window.WebMeshAnalysisProject.rebuild(state,request);
     request=window.WebMeshCoordinates.rebuild(state,request);
-    } catch(error){return selectionWorkspace.list(request,options,error.message);}
+    } catch(error){return selectionWorkspace.list(activeChange?activeChange.merge(request):request,options,error.message);}
+    request=activeChange.merge(request);state=fullState;
     const attachmentNote=window.WebMeshAttachmentProject.describe(state,request);
     const massNote=window.WebMeshMassProject.describe(state,request);
     if(massNote)note=[note,massNote].filter(Boolean).join(' ');
     if(attachmentNote)note=[note,attachmentNote].filter(Boolean).join(' ');
     if(!mesh){
-      const cards=(request.objects||[]).flatMap(o=>o.definition.cards||[]),connections=cards.filter(c=>c.family==='elems'&&['RBE2','RBE3','CBUSH'].includes(c.value.type));
+      const cards=(request.objects||[]).filter(o=>!o.facts?.suspendedReason).flatMap(o=>o.definition.cards||[]),connections=cards.filter(c=>c.family==='elems'&&['RBE2','RBE3','CBUSH'].includes(c.value.type));
       if(connections.length)mesh=ownedCardPreview([...cards.filter(c=>c.family==='nodes'),...connections],engine().getMesh().nodes,'Connection preview');
     }
-    if((request.objects||[]).some(o=>[window.WebMeshEmbeddedInterface.GENERATOR,window.WebMeshParts.MESH].includes(o.definition.generator))){
-      mesh=ownedCardPreview((request.objects||[]).flatMap(o=>o.definition.cards||[]),engine().getMesh().nodes,'Embedded interface and dependents');
+    if((request.objects||[]).filter(o=>!o.facts?.suspendedReason).some(o=>[window.WebMeshEmbeddedInterface.GENERATOR,window.WebMeshParts.MESH].includes(o.definition.generator))){
+      mesh=ownedCardPreview((request.objects||[]).filter(o=>!o.facts?.suspendedReason).flatMap(o=>o.definition.cards||[]),engine().getMesh().nodes,'Embedded interface and dependents');
     }
 
     let candidate;try{candidate=await engine().previewProjectChange(request);}catch(error){return selectionWorkspace.list(request,options,error.message);}
     const report=candidate.preview();
     const names=new Map(engine().getProjectSummary().objects.map(o=>[o.id,o.name]));for(const o of request.objects||[])names.set(o.id,o.name);
     const groups=new Map();for(const change of report.changes){if(!groups.has(change.owner))groups.set(change.owner,[]);groups.get(change.owner).push(change);}
-    const affected=report.project.checks.filter(c=>report.project.affected.includes(c.id)),blocked=affected.some(c=>c.status==='invalid');
+    const proposedObjects=new Map([...(state?.project.objects||[]),...(request.objects||[])].map(o=>[o.id,o]));
+    const affected=report.project.checks.filter(c=>report.project.affected.includes(c.id)),blocked=affected.some(c=>c.status==='invalid'&&!proposedObjects.get(c.id)?.facts?.suspendedReason);
     const value=v=>v===undefined?'—':JSON.stringify(v);
     const diff=c=>{const before=c.before?.value||{},after=c.after?.value||{};const fields=[...new Set([...Object.keys(before),...Object.keys(after)])].filter(k=>value(before[k])!==value(after[k]));return `<table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${fields.map(k=>`<tr><td>${esc(k)}</td><td>${esc(value(before[k]))}</td><td>${esc(value(after[k]))}</td></tr>`).join('')}</tbody></table>`;};
     const changeGroups=[...groups];
-    dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change · ${report.project.changes.length} project objects change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?changeGroups.map(([id,changes],index)=>`<details class="wb-owner-diff" data-diff-group="${index}"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary><div data-diff-content></div></details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?`<details class="wb-owner-diff" ${blocked?'open':''}><summary>${affected.length} affected objects · ${blocked?'repair required':'references resolve'}</summary>${checksHtml(affected)}</details>`:''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
+    dialog(request.label,`<p>${report.changes.length} solver card${report.changes.length===1?'':'s'} change · ${report.ownershipChanges.length} ownership records change · ${report.project.changes.length} project objects change.</p>${newMeshIdentity?'<p class="wb-report bad">Mesh layout changed: fresh node and element IDs will replace the old mesh. Existing references must remain valid.</p>':''}${request.convertToPlain?`<p>These definitions will be removed: ${esc(request.convertToPlain.map(id=>names.get(id)||id).join(', '))}. Their solver cards remain editable. Undo restores the definitions.</p>`:''}${report.changes.length?changeGroups.map(([id,changes],index)=>`<details class="wb-owner-diff" data-diff-group="${index}"><summary>${esc(names.get(id)||id)} · ${changes.length} card${changes.length===1?'':'s'} (${['add','update','remove'].map(a=>changes.filter(c=>c.action===a).length+' '+a).join(', ')})</summary><div data-diff-content></div></details>`).join(''):'<p>No solver card values change.</p>'}${affected.length?`<details class="wb-owner-diff" ${blocked?'open':''}><summary>${affected.length} affected objects · ${affected.some(c=>c.status==='invalid')?'repair required before analysis':'references resolve'}</summary>${checksHtml(affected)}</details>`:''}<p id="wb-project-error" role="alert">${blocked?'Resolve affected dependencies before applying.':''}</p><div class="wb-review-actions">${button('wb-discard-project','Discard',null)}${button('wb-apply-project','Apply changes','check','primary')}</div>`);
     // Large assembly remeshes can change tens of thousands of cards. Keep the
     // review readable and cheap until an analyst opens an owner and card.
     $('wb-dialog-body').querySelectorAll('[data-diff-group]').forEach(group=>group.addEventListener('toggle',()=>{
@@ -434,6 +439,7 @@
   }
 
   function closeDialog() {
+    const cleanup=dialogCleanup;dialogCleanup=null;if(cleanup)Promise.resolve(cleanup()).catch(error=>message(error.message,true));
     document.querySelector('.wb-panel').inert=false;
     engine()?.endMeshSelection?.();
     if(pendingProject){pendingProject.discard();pendingProject=null;const discard=pendingDiscard;pendingDiscard=null;Promise.resolve(discard?.()).catch(error=>message(error.message,true));invalidatePreview();}
@@ -588,7 +594,7 @@
     if(/INPUT|SELECT|TEXTAREA/.test(event.target.tagName))return;
     if(event.key.toLowerCase()==='f'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();$('btnReset').click();}
   });
-  window.addEventListener('webmesh:change',event=>{if(restoringAnalysisProject)return;operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){partWorkspace.synchronize();if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
+  window.addEventListener('webmesh:change',event=>{if(restoringAnalysisProject)return;operationRevision++;if(event.detail?.reason==='results')analysisSession.unbound();if(['load','history','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason==='load'&&!restoringAnalysisProject)analysisSession.clear();else analysisSession.changed();}if(['load','undo','redo'].includes(event.detail?.reason)){if(event.detail.reason!=='load')closeDialog();Promise.resolve(partWorkspace.synchronize(true)).then(()=>refresh(true)).catch(error=>message('CAD draft restore: '+error.message,true));if(activeTab==='parts')renderPanel();editingPlate=null;savedForms.delete('build:plate');if(activeTab==='build')renderPanel();}refresh(true);});
   function filterTree(){const term=$('wb-tree-filter').value.toLowerCase();$('wb-tree').querySelectorAll('button').forEach(el=>el.hidden=!el.textContent.toLowerCase().includes(term));}
   $('wb-tree-filter').addEventListener('input',filterTree);
   workspaceShell=window.WebMeshWorkspaceShell?.create({engine,owner:openProjectOwner,message,runs:()=>analysisSession.summaries(),openRun:id=>run(()=>analysisWorkspace.runView(id)),

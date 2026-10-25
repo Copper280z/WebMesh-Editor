@@ -37,9 +37,10 @@
     const sourceId=old?.definition.source||part?.definition.source||input.sourceId||input.id+'/source',materialId=input.id+'/material';
     const shared=find(sourceId),siblings=(state?.project.objects||[]).filter(o=>o.id!==input.id&&[GENERATOR,SHELL].includes(o.definition.generator)&&o.definition.source===sourceId);
     if(shared&&shared.definition.generator!=='cad-source-v1')throw Error('Invalid shared CAD source.');
-    if(shared&&shared.definition.geometryKey!==geometryKey&&siblings.length)throw Error('Shared CAD topology changed. Restore the committed source or remove its mesh regions and interfaces before changing topology.');
+    if(shared&&shared.definition.geometryKey!==geometryKey&&siblings.some(o=>!o.facts?.suspendedReason))throw Error('Shared CAD topology changed. Restore the committed source or remove its mesh regions and interfaces before changing topology.');
     const sourceVolumes=shell?topo.volumes.filter(v=>v.faces.some(f=>target.includes(Math.abs(f)))).map(v=>v.id):target;
     for(const other of siblings){
+      if(other.facts?.suspendedReason)continue;
       const d=other.definition,otherShell=d.generator===SHELL;
       if(shell===otherShell&&target.some(id=>d.targets.includes(id)))throw Error('Mesh coverage overlaps '+other.name+'. Edit that mesh region instead.');
       if(shell!==otherShell&&(shell?sourceVolumes.some(v=>d.targets.includes(v)):(d.sourceVolumes||[]).some(v=>target.includes(v))))throw Error('Shell and solid idealizations overlap in '+other.name+'. Partition the CAD first and assign disjoint solid regions.');
@@ -72,7 +73,8 @@
     const role='mesh-'+layout.generation,nr=role+'/nodes',er=role+'/elements';
     const cards=nodes.map((n,i)=>({family:'nodes',id:n.id,role:nr+'/'+i,allocationRole:nr,value:{x:n.x,y:n.y,z:n.z,cp:0,cd:0,ps:''}}));
     elements.forEach((e,i)=>cards.push({family:'elems',bucket:shell?(e.type==='CQUAD4'?'quad':'tri'):'hex',id:e.id,role:er+'/'+i,allocationRole:er,value:{type:e.type,eid:e.id,pid:e.pid,n:e.nodes,...(e.zoffs!=null?{zoffs:e.zoffs}:{})}}));
-    const source=shared&&shared.definition.geometryKey===geometryKey?copy(shared):{id:sourceId,kind:'source',name:input.name+' · CAD source',definition:{generator:'cad-source-v1',geometryKey,snapshot:copy(input.snapshot)}};
+    const source=shared&&shared.definition.geometryKey===geometryKey?copy(shared):{id:sourceId,kind:'source',name:input.name+' · CAD source',definition:{...(shared?copy(shared.definition):{}),generator:'cad-source-v1',geometryKey,topology:copy(topo),snapshot:copy(input.snapshot)}};
+    source.definition.topology=copy(topo);
     // Preserve exact membership; interface selectors never infer CAD IDs from proximity.
     const localPoints=new Map(mesh.nodes.map(n=>[n.id,n]));
     const edges=Object.entries(mesh.edgeNodes||{}).map(([id,ids])=>({id:Number(id),nodes:ids.map(n=>nodeMap.get(n)).filter(Boolean),center:['x','y','z'].map(axis=>ids.reduce((sum,n)=>sum+localPoints.get(n)[axis],0)/ids.length)}));
@@ -84,15 +86,21 @@
       return {id:s.id,kind:'section',name:input.name+' · '+(shell?'Shell faces ':'Solids ')+s.volumes.join(', '),dependsOn:[materialId],definition:{region:{geometryKey,[shell?'faces':'volumes']:s.volumes},cards:[{family:'properties',id:s.pid,role:shell?'shell':'solid',value:shell?{type:'PSHELL',pid:s.pid,mid1:mid,mid2:mid,mid3:mid,t}:{type:'PSOLID',pid:s.pid,mid}}]}};
     });
     const objects=[source,material,...sectionObjects,
-      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...(partId?[partId]:[]),...sections.map(s=>s.id)],definition:{...(partId?{part:partId}:{}),generator:shell?SHELL:GENERATOR,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,cards}}];
-    const removeObjects=(old?.definition.sections||[]).filter(s=>!sections.some(n=>n.id===s.id)).map(s=>s.id);
+      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...(partId?[partId]:[]),...sections.map(s=>s.id)],definition:{...(partId?{part:partId}:{}),generator:shell?SHELL:GENERATOR,geometryKey,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,cards}}];
+    const removeObjects=(old?.definition.sections||[]).filter(s=>!sections.some(n=>n.id===s.id)&&!(state?.project.objects||[]).some(o=>o.id!==old.id&&o.facts?.suspendedReason&&o.dependsOn?.includes(s.id))).map(s=>s.id);
     return {mesh:generated,owner:input.id,newMeshIdentity:!!old&&!same,regions:sections,request:{label:(old?'Replace ':'Create ')+input.name,objects,removeObjects,reservations:[{owner:input.id,namespace:'node',role:nr,start:layout.node,count:nodes.length},{owner:input.id,namespace:'element',role:er,start:layout.element,count:elements.length}]}};
   }
   function restoreData(state,owner){
     const root=rootFor(state,owner);if(!root)throw Error('Unknown CAD owner.');
     const source=state.project.objects.find(o=>o.id===root.definition.source);
     const meshes=state.project.objects.filter(o=>[GENERATOR,SHELL].includes(o.definition.generator)&&o.definition.source===source.id).map((o,i)=>({id:i+1,kind:o.definition.generator===SHELL?'shell':'hex',label:o.name,projectOwner:o.id,volumes:o.definition.generator===SHELL?[]:o.definition.targets,faces:o.definition.generator===SHELL?o.definition.targets:[],elements:state.owners.filter(e=>e.owner===o.id&&e.card.family==='elems').map(e=>e.card.id),properties:o.definition.sections.map(s=>s.pid),stale:false}));
-    return {...copy(source.definition.snapshot),settings:copy(root.definition.settings),editingOwner:root.id,meshes};
+    let settings=copy(root.definition.settings);
+    if(root.facts?.suspendedReason&&source.definition.replacement){
+      const targets=root.definition.replacementTargets||[],shell=root.definition.generator===SHELL;
+      settings={version:2,step:'mesh',sizing:{size:settings.sizing?.size,minCount:settings.sizing?.minCount||1,edges:[]},mesh:{...settings.mesh,method:shell?'shell':'mapped',scope:'selected',selectedVolumes:shell?[]:targets},shell:{element:settings.shell?.element||'quad',mesher:settings.shell?.mesher||'recombined',thickness:settings.shell?.thickness||1,placement:settings.shell?.placement||'surface',offset:settings.shell?.offset||0,size:settings.shell?.size||null,scope:'selected',selectedFaces:shell?targets:[]}};
+      for(const m of meshes){const o=state.project.objects.find(o=>o.id===m.projectOwner);if(o.facts?.suspendedReason){m.volumes=o.definition.generator===GENERATOR?o.definition.replacementTargets||[]:[];m.faces=o.definition.generator===SHELL?o.definition.replacementTargets||[]:[];m.stale=true;}}
+    }
+    return {...copy(source.definition.snapshot),settings,editingOwner:root.id,regionName:root.name,meshes};
   }
   return Object.freeze({GENERATOR,SHELL,geometryFingerprint,build,rootFor,bundle,removal,materialChange,restoreData});
 }));

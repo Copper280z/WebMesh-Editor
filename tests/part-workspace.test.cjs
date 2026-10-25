@@ -1,12 +1,12 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const P=require('../app/part-project.js'),clone=x=>JSON.parse(JSON.stringify(x));
 function fixture(){
- let ownership={project:{objects:[]}},current=null,uuid=0,fail=false;const reviews=[],imports=[],finishes=[];
+ let ownership={project:{objects:[]}},current=null,uuid=0,fail=false;let busy=false;const reviews=[],imports=[],finishes=[],controls=[],opened=[];
  const cad={beginRestore:()=>({client:'workspace',transaction:String(++uuid)}),finishRestore:async(tx,commit)=>finishes.push({tx,commit}),abortRestore:async tx=>finishes.push({tx,commit:false}),captureDraft:()=>current,serializeDraft:async d=>clone(d.data||{filename:d.file.name,content:'CAD',meshes:[]}),restoreDraft:d=>{current=d;},clear:()=>{current=null;},stageRestore:async data=>{imports.push(data);if(fail)throw Error('Import failed');return {file:{name:data.filename},imported:{topology:{}},data:clone(data)};}};
- const h={engine:()=>({getProjectOwnership:()=>ownership}),cad:()=>cad,parts(){},mesh(){},review:async(request,options)=>reviews.push({request,options})};
- const ctx={window:{WebMeshParts:P,WebMeshCadProject:{geometryFingerprint:async()=> 'fingerprint'}},crypto:{randomUUID:()=>String(++uuid)},structuredClone:clone};vm.createContext(ctx);vm.runInContext(fs.readFileSync(require.resolve('../app/part-workspace.js'),'utf8'),ctx);const workspace=ctx.window.WebMeshPartWorkspace.create(h);
+ const h={engine:()=>({getProjectOwnership:()=>ownership}),cad:()=>cad,parts(){},mesh(){},run:async fn=>{busy=true;try{return await fn();}finally{busy=false;}},owner:id=>{if(!busy)opened.push(id);},review:async(request,options)=>reviews.push({request,options})};
+ const ctx={window:{WebMeshParts:P,WebMeshCadReplacement:require('../app/cad-replacement.js'),WebMeshCadProject:{geometryFingerprint:async()=> 'fingerprint',restoreData:require('../app/cad-project.js').restoreData}},document:{querySelectorAll:()=>controls},crypto:{randomUUID:()=>String(++uuid)},structuredClone:clone};vm.createContext(ctx);vm.runInContext(fs.readFileSync(require.resolve('../app/part-workspace.js'),'utf8'),ctx);const workspace=ctx.window.WebMeshPartWorkspace.create(h);
  const staged=name=>({file:{name},imported:{topology:{}},data:{filename:name,content:name,meshes:[]}});
- return {workspace,cad,reviews,imports,finishes,staged,get state(){return ownership;},set state(v){ownership=v;},get current(){return current;},set current(v){current=v;},set fail(v){fail=v;},async apply(){const {request,options}=reviews.at(-1);await options.beforeCommit();const map=new Map(ownership.project.objects.map(o=>[o.id,o]));for(const o of request.objects)map.set(o.id,o);ownership={project:{objects:[...map.values()]}};options.onApplied();}};
+ return {workspace,cad,reviews,imports,finishes,staged,controls,opened,get state(){return ownership;},set state(v){ownership=v;},get current(){return current;},set current(v){current=v;},set fail(v){fail=v;},async apply(){const {request,options}=reviews.at(-1);await options.beforeCommit();const map=new Map(ownership.project.objects.map(o=>[o.id,o]));for(const o of request.objects)map.set(o.id,o);ownership={project:{objects:[...map.values()]}};options.onApplied();}};
 }
 test('adding and switching parts preserves independent CAD drafts; discard and failed import leave the active part intact',async()=>{
  const f=fixture(),w=f.workspace;await w.addImported(f.staged('chassis.step'));assert.equal(w.active(),null);assert.equal(f.state.project.objects.length,0);await f.apply();const chassis=w.active(),chassisDraft=f.current;chassisDraft.data.settings={sizing:{size:5}};
@@ -35,4 +35,30 @@ test('review discard releases an imported candidate; applying adopts it and fail
  const second=f.staged('second.step');await w.addImported(second);await f.apply();assert.deepEqual(seen.at(-1),['adopt',second]);
  const before=w.captureState();w.commitRestore(null);assert.equal(f.current,null);w.restoreState(before);assert.equal(f.current,second);
  f.cad.serializeDraft=async()=>{throw Error('checkpoint failed');};const failed=f.staged('failed.step');await assert.rejects(w.addImported(failed),/checkpoint failed/);assert.deepEqual(seen.at(-1),['discard',failed]);assert.equal(f.current,second);
+});
+
+
+test('replacement source history switches drafts on model undo/redo and persists both prepared histories',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('original.step'));await f.apply();const id=w.active(),originalState=clone(f.state);f.current.data.settings={size:3};f.current.data.prepared={history:['split original','surface original']};
+ const next=clone(f.state),source=next.project.objects.find(o=>o.kind==='source');source.definition.replacement={revisionId:'revision-2'};source.definition.snapshot={filename:'replacement.step',content:'next',meshes:[]};f.state=next;
+ await w.synchronize(true);assert.equal(f.current.file.name,'replacement.step');f.current.data.settings={size:7};f.current.data.prepared={history:['prepare replacement']};
+ f.state=originalState;await w.synchronize(true);assert.equal(f.current.file.name,'original.step');assert.equal(f.current.data.settings.size,3);assert.deepEqual(f.current.data.prepared.history,['split original','surface original']);
+ f.state=next;await w.synchronize(true);assert.equal(f.current.data.settings.size,7);const saved=clone(await w.serialize());assert.equal(saved.history.length,1);assert.equal(saved.history[0].version,'initial');assert.deepEqual(saved.history[0].data.prepared.history,['split original','surface original']);
+ const staged=await w.stageRestore(saved,f.state);w.commitRestore(staged);f.state=originalState;await w.synchronize(true);assert.equal(f.current.data.settings.size,3);f.state=next;await w.synchronize(true);assert.equal(f.current.data.settings.size,7);
+});
+
+test('invalid retained replacement history rejects before opening a session',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('part.step'));await f.apply();const saved=clone(await w.serialize());saved.history=[{part:'missing',version:'initial',data:{}}];await assert.rejects(w.stageRestore(saved,f.state),/history entry/);assert.equal(f.imports.length,0);
+});
+
+
+test('the Parts palette opens an owner before entering a busy operation',async()=>{
+ const f=fixture();f.controls.push({dataset:{partAction:'owner',partId:'part'}});f.workspace.bind();await f.controls[0].onclick();assert.deepEqual(f.opened,['part']);
+});
+
+test('editing a mesh region reuses prepared CAD and retains plain mesh records and history',async()=>{
+ const f=fixture(),w=f.workspace;await w.addImported(f.staged('part.step'));await f.apply();const id=w.active(),source=f.state.project.objects.find(o=>o.kind==='source').id;
+ f.state.owners=[];f.state.project.objects.push({id:'mesh',name:'Mesh',kind:'mesh',dependsOn:[id,source],definition:{generator:'cad-mapped-v1',part:id,source,sections:[],targets:[1],settings:{version:2,sizing:{size:3},mesh:{method:'mapped'}}}});
+ f.current.imported.revision=9;f.current.data.prepared={history:['slice','sheet','extend']};f.current.data.meshes=[{id:8,kind:'tet',elements:[55],label:'Plain tetrahedra'},{id:11,projectOwner:'mesh',kind:'hex',elements:[8],label:'Mesh'}];
+ await w.editMesh('mesh');assert.equal(f.imports.length,0);assert.equal(f.current.imported.revision,9);assert.deepEqual(f.current.data.prepared.history,['slice','sheet','extend']);assert.equal(f.current.data.editingOwner,'mesh');assert.equal(f.current.data.settings.sizing.size,3);assert.equal(f.current.data.meshes.find(m=>m.projectOwner==='mesh').id,11);assert.deepEqual(f.current.data.meshes.find(m=>m.id===8).elements,[55]);
 });

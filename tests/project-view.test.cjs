@@ -40,3 +40,10 @@ test('CAD references default hidden once meshed; explicit CAD display and group 
 test('unknown saved IDs are harmless, absent objects can return through undo, and preference input is sanitized',()=>{
  const {index,semantic}=fixture(),p=V.preferences({objects:{mesh:false,ghost:false,invalid:'no'},isolate:'deleted'});assert.equal(p.objects.invalid,undefined);assert.ok(V.mask(index,p,semantic).elems.has(10));assert.equal(p.objects.ghost,false);assert.throws(()=>V.setVisibility(index,p,'missing',true),/no longer/);
 });
+
+
+test('suspended definitions keep tree identity without advertising retained cards as active geometry',()=>{
+ const {state}=fixture();for(const o of state.project.objects)if(['mesh','copy/mesh','region','joint'].includes(o.id))o.facts={suspendedReason:'CAD replaced'};
+ const index=V.build(state);for(const id of ['mesh','copy/mesh','region','joint']){assert.equal(index.entries.get(id).own.elems.size,0);assert.equal(index.entries.get(id).own.nodes.size,0);}
+ assert.equal(index.entries.get('part').members.elems.size,0);assert.equal(index.entries.get('cad').sourceDefault,true);
+});

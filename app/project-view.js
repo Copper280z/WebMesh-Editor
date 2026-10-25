@@ -21,7 +21,7 @@
       else if(d.partSource&&map.has(d.partSource))parent=d.partSource;
       else if(d.template&&map.get(d.template)?.kind==='template'&&o.kind==='connection')parent=d.template;
       const own=empty();
-      for(const c of d.cards||[]){
+      for(const c of o.facts?.suspendedReason?[]:d.cards||[]){
         if(c.family==='nodes')own.nodes.add(c.id);
         if(c.family==='elems'||c.family==='masses'){own.elems.add(c.id);for(const n of nodeIds(c.value))own.nodes.add(n);}
         if(c.family==='loads'||c.family==='loadSets')own.loads.add(c.value.sid??c.id);
@@ -29,8 +29,8 @@
         if(c.family==='coords')own.coords.add(c.id);
       }
       if(o.kind==='source')own.sources.add(o.id);
-      if(o.kind==='region'){for(const n of d.resolved?.nodes||[])own.nodes.add(n);for(const e of d.resolved?.elements||[])own.elems.add(e);}
-      entries.set(o.id,{id:o.id,name:o.name,kind:o.kind,generator:d.generator,parent,children:[],own,members:empty(),reference:!!d.partSource||o.kind==='mesh'&&own.elems.size>0&&[...own.elems].every(id=>excluded.has(id)),sourceDefault:o.kind==='source'&&!objects.some(m=>m.kind==='mesh'&&m.definition.source===o.id),overrides:Object.keys(d.overrides||{}).length});
+      if(o.kind==='region'&&!o.facts?.suspendedReason){for(const n of d.resolved?.nodes||[])own.nodes.add(n);for(const e of d.resolved?.elements||[])own.elems.add(e);}
+      entries.set(o.id,{id:o.id,name:o.name,kind:o.kind,generator:d.generator,parent,children:[],own,members:empty(),reference:!!d.partSource||o.kind==='mesh'&&own.elems.size>0&&[...own.elems].every(id=>excluded.has(id)),sourceDefault:o.kind==='source'&&!objects.some(m=>m.kind==='mesh'&&!m.facts?.suspendedReason&&m.definition.source===o.id),overrides:Object.keys(d.overrides||{}).length});
     }
     for(const e of entries.values())if(e.parent){if(!entries.has(e.parent)||e.parent===e.id)e.parent='@other';entries.get(e.parent).children.push(e.id);}
     const visiting=new Set(),done=new Set();

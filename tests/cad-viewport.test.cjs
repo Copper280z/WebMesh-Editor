@@ -116,3 +116,11 @@ test('split plane guide is visible geometry but never expands source fitting bou
   assert.equal(scene.children[0].children.some(object => object.name === 'CAD split plane guide'), false);
   assert.throws(() => viewport.setSplitPlane({ axis: 'bad', position: 0 }), /Split plane/);
 });
+
+
+test('comparison outlines opt into fitting and discard restores ordinary CAD bounds',()=>{
+ const {viewport}=fixture();viewport.load(preview());const original=viewport.getBounds().clone();
+ viewport.setOverlay('old-source',{type:'lines',positions:[0,0,0,9,8,7],includeInFit:true});assert.deepEqual(Array.from(viewport.getBounds().max.toArray()),[9,8,7]);
+ viewport.clearOverlay('old-source');assert.deepEqual(Array.from(viewport.getBounds().max.toArray()),Array.from(original.max.toArray()));
+ viewport.setOverlay('tool-ray',{type:'lines',positions:[0,0,0,99,88,77]});assert.deepEqual(Array.from(viewport.getBounds().max.toArray()),Array.from(original.max.toArray()));
+});

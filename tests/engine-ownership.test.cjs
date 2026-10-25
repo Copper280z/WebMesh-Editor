@@ -958,6 +958,7 @@ test('pending remesh repairs an explicit support without committing partial chan
 });
 test('explicit CAD topology rebind regenerates motor regions and attachments with stable identities',async()=>{
   const a=await mountedPair(),source=copy(a.ownership.project.objects.find(o=>o.kind==='source'));source.definition.geometryKey+='-new';let r={label:'Replace topology',objects:[source,copy(a.ownership.project.objects.find(o=>o.id==='cad'))]};
+  r.objects[1].definition.geometryKey=source.definition.geometryKey; // This fixture supplies a mesh classified on the proposed topology.
   assert.equal(Selections.inspect(a.ownership,a.semantic,r).filter(x=>x.issues.length).length,2);
   for(const id of ['left','right'])r=Selections.repair(a.ownership,a.semantic,r,{id},nextPlateIds);
   const b=apply10(a,r);assert.deepEqual(b.semantic.elems.rbe2,a.semantic.elems.rbe2);assert.deepEqual(b.semantic.elems.bush,a.semantic.elems.bush);assert.ok(b.project.checks.every(c=>c.status!=='invalid'));
@@ -1192,4 +1193,19 @@ test('failed project load rolls back the model, worker state, results and execut
  assert.deepEqual(c.historyManager.stack,stack);assert.equal(c.historyManager.pointer,pointer);assert.deepEqual(c.model.preLines,['CEND']);assert.deepEqual(c.model.postLines,['ENDDATA']);assert.equal(c.solverResults.activeSetId,'gravity');assert.equal(c.deckCaseControl.subcases[0],1);
  c.historyManager.redo();assert.ok(c.model.projectOwnership);assert.ok(c.model.nodes.has(1));c.historyManager.undo();assert.deepEqual(O.snapshot(c.model),before);
  const committed=await c.beginProjectRestore();c.model.nodes.set(99,{x:1,y:2,z:3});committed.commit();committed.rollback();assert.ok(c.model.nodes.has(99));
+});
+
+
+const Replacement=require('../app/cad-replacement.js');
+function applyReplacement(a,r){const active=Replacement.active(a.ownership,r),pending={...a,ownership:active.state};return O.preview(a.semantic,a.ownership,active.merge(rebuild12(pending,active.request)));}
+test('source replacement preserves mixed shell/solid owners and remeshes both sides independently before repairing the interface',async()=>{
+ let a=await mixedModel();const p=Parts.part({id:'mixed-part',name:'Mixed CAD part',source:'cad/source'},a.ownership).objects[0],roots=a.ownership.project.objects.filter(o=>['cad','skin'].includes(o.id)).map(o=>({...copy(o),dependsOn:[...o.dependsOn,p.id],definition:{...copy(o.definition),part:p.id}}));
+ a=apply12(a,{objects:[p,...roots]});const before=copy(a),input=mixedInput(),src=a.ownership.project.objects.find(o=>o.id==='cad/source');
+ a=applyReplacement(a,Replacement.build(a.ownership,{part:p.id,before:input.topology,topology:input.topology,snapshot:src.definition.snapshot,geometryKey:src.definition.geometryKey,revisionId:'mixed-replacement'}));
+ assert.equal(a.semantic.elems.hex.length,0);assert.equal(a.semantic.elems.quad.length,0);assert.equal(a.semantic.elems.rbe3.length,0);
+ a=applyReplacement(a,(await Cad.build(mixedInput('shell',3),a.ownership,nextPlateIds)).request);assert.equal(a.semantic.elems.quad.length,9);assert.equal(a.semantic.elems.hex.length,0);assert.equal(a.semantic.elems.rbe3.length,0);
+ const skin=copy(a.ownership.project.objects.find(o=>o.id==='skin'));
+ a=applyReplacement(a,(await Cad.build(mixedInput('solid',3),a.ownership,nextPlateIds)).request);assert.deepEqual(a.ownership.project.objects.find(o=>o.id==='skin').definition,skin.definition);assert.equal(a.semantic.elems.rbe3.length,0);
+ a=applyReplacement(a,Replacement.resume(a.ownership,'tie'));assert.ok(a.semantic.elems.rbe3.length>0);assert.equal(Project.restore(a.ownership.project).readiness().allowed,true);assert.equal(a.ownership.project.objects.filter(o=>o.kind==='source').length,1);
+ assert.deepEqual(before.ownership.project.objects.find(o=>o.id==='skin').definition.sections.map(s=>s.pid),skin.definition.sections.map(s=>s.pid));
 });

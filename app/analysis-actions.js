@@ -35,7 +35,7 @@
   function number(t){const s=String(t??'').trim().replace(/d/i,'e').replace(/([\d.])([+-]\d+)$/,'$1e$2');const n=Number(s);if(!Number.isFinite(n))throw Error('Invalid Nastran numeric value: '+t);return n;}
   function gravityCards(cards){return(cards||[]).filter(c=>c.kind==='card'&&c.name==='GRAV').map(c=>{const t=c.tokens;return{type:'GRAV',sid:id(number(t[1])),cid:number(t[2]||0),scale:number(t[3]),vector:[4,5,6].map(i=>number(t[i]||0)),mb:number(t[7]||0)};});}
   function validateCases(state,s){
-    const sets=rows(s),cases=(state?.project.objects||[]).filter(o=>o.definition.generator==='static-case-v1'),used=new Set();
+    const sets=rows(s),cases=(state?.project.objects||[]).filter(o=>!o.facts?.suspendedReason&&o.definition.generator==='static-case-v1'),used=new Set();
     for(const o of cases){const d=o.definition;id(d.subcase);if(used.has(d.subcase))throw Error('Duplicate analysis subcase '+d.subcase+'.');used.add(d.subcase);
       for(const [family,key] of [['loadSets','load'],['constraintSets','support']])if(!sets.some(c=>c.family===family&&c.id===d[key]))throw Error(o.name+': missing '+key+' set '+d[key]+'.');
       if(!o.name||/[^\x20-\x7e]/.test(o.name)||o.name.length>65)throw Error('Case names must be one line of ASCII text, up to 65 characters.');

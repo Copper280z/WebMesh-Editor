@@ -280,7 +280,8 @@
     }
     function ownedMatches(m) {
       const owned = meshOwnership(m), expected = new Set((m.elements || []).map(Number));
-      m.inModel = owned.elements.length > 0;
+      const suspended=m.projectOwner&&engine().getProjectOwnership()?.project.objects.some(o=>o.id===m.projectOwner&&o.facts?.suspendedReason);
+      m.inModel = owned.elements.length > 0||!!suspended;
       const matches = expected.size > 0 && expected.size === owned.elements.length && owned.elements.every(id => expected.has(Number(id)));
       if (m.projectOwner && m.inModel) Object.assign(m, owned);
       return matches;
@@ -311,7 +312,7 @@
     function meshesCard() {
       const rows = meshes.map(m => {
         const confirm = removing === m.id, gone = m.inModel === false;
-        return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? (m.projectOwner ? 'Owner absent (undone, removed or converted)' : 'Not in the model (undone)') : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? (m.projectOwner ? ' · draft differs or needs review; committed mesh retained' : ' · out of date: the geometry or sizing changed') : ''}`}</small></div>
+        return `<div class="cad-session"><div class="cad-session-name"><strong title="${esc(m.label)}">${esc(m.label)}</strong><small>${gone ? (m.projectOwner ? 'Owner absent (undone, removed or converted)' : 'Not in the model (undone)') : `${(m.elements || []).length.toLocaleString()} elements${m.stale ? (m.projectOwner ? ((m.elements||[]).length?' · draft differs or needs review; committed mesh retained':' · suspended: remesh required') : ' · out of date: the geometry or sizing changed') : ''}`}</small></div>
           ${m.projectOwner&&!gone?btn('mesh-edit','Edit region',{cls:'ghost mini',data:{value:m.projectOwner}}):''}${m.stale && !gone ? chip(m.projectOwner ? 'Draft changed' : 'Out of date', 'warn') : ''}${btn('mesh-remove', gone ? 'Forget' : confirm ? 'Confirm remove' : 'Remove', { cls: `ghost mini${confirm ? ' danger' : ''}`, data: { value: m.id }, title: gone ? 'Drop it from this list' : 'Remove this mesh from the model' })}</div>`;
       }).join('');
       return `<section class="cad-card"><div class="cad-card-title">Mesh regions <small>${meshes.length}</small></div><label class="cad-field"><span>Mesh region name</span><input aria-label="Mesh region name" data-field="region-name" value="${esc(regionName)}" placeholder="Name this mesh region"></label><p class="cad-note">${editingOwner?'Editing the selected region. Other mesh regions stay committed.':'Creating a separate region from this CAD source. Unmeshed CAD remains reference geometry.'}</p>${meshes.length?btn('mesh-new','New mesh region',{cls:'ghost mini'}):''}${rows}
@@ -1697,7 +1698,7 @@
       const act = el.dataset.act, value = el.dataset.value;
       try {
         switch (act) {
-          case 'import': document.getElementById('wb-cad-file').click(); break;
+          case 'import': if(partId&&hooks.replaceSource)hooks.replaceSource(partId);else document.getElementById('wb-cad-file').click(); break;
           case 'sessions': sessionsOpen = !sessionsOpen; closing = null; if (sessionsOpen) refreshSessions(); hooks.render(); break;
           case 'session-resume': hooks.run(() => resumeSession(value)); break;
           case 'session-close':

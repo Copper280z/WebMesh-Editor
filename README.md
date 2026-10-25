@@ -1,5 +1,7 @@
 # WebMesh Studio 3.0
 
+For installation, dependencies, native builds, solver configuration and troubleshooting, see [setup.md](setup.md).
+
 WebMesh Studio is a modular, browser-based finite element pre/post processor for Nastran `.bdf` and `.dat` decks. Build connected meshes from primitives, assemble them with patterns, prepare and mesh CAD through a local OpenCASCADE service, define model cards, and review MYSTRAN F06 results.
 
 ## Primary project goal: analyst-accessible actions

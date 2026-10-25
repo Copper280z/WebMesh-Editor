@@ -464,6 +464,7 @@
       const existing = overlays.get(name);
       const next = buildOverlay(spec);
       next.name = 'CAD overlay ' + name;
+      next.userData.includeInFit = spec.includeInFit === true;
       next.visible = spec.visible !== false;
       group.add(next); overlays.set(name, next);
       if (existing) disposeGroup(existing);
@@ -623,7 +624,12 @@
       setFaceColors, setEdgeColors, setXray, setBaseVisible, setHiddenVolumes, setEdgeFaces, setOverlay, clearOverlay, clearOverlays, overlayNames, updateLabelOcclusion,
       section: (origin, normal, includeFace) => data ? sectionSegments(data.positions, data.triangleCount, origin, normal, includeFace || null, data.triangleFaceIds) : new Float32Array(),
       faceVolumes: tag => (faceVolumes.get(Number(tag)) || []).slice(), volumeFaces: tag => (volumeFaces.get(Number(tag)) || []).slice(),
-      getBounds: () => data && visible && bounds ? bounds.clone() : null,
+      getBounds: () => {
+        if (!data || !visible || !bounds) return null;
+        const box = bounds.clone();
+        for (const overlay of overlays.values()) if (overlay.visible && overlay.userData.includeInFit) box.union(new Box3().setFromObject(overlay));
+        return box;
+      },
       isPicking: () => !!(data && visible && mode !== 'none'), dispose: clear };
   }
   return { normalizeCadPreview, createCadViewport, sectionSegments, limits: { maxTriangles: MAX_TRIANGLES, maxSegments: MAX_SEGMENTS } };

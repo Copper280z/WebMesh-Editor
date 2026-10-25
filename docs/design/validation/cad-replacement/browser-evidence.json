@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-24",
+  "browser": "Codex in-app browser",
+  "url": "http://127.0.0.1:8798/WebMeshEditor.html",
+  "workflow": [
+    "Import original.step and review mapped hex mesh",
+    "Create a live instance translated 22 units in Y",
+    "Replace source with revised.step; inspect old outline and explicitly accept solid 1",
+    "Review and apply suspension",
+    "Undo and redo source replacement",
+    "Save suspended project, reload page, reopen project",
+    "Remesh the existing region; review and apply",
+    "Review and apply live-instance reactivation",
+    "Save, reload and reopen rebuilt project",
+    "Preview another replacement, then discard; confirm 468 nodes and 240 elements retained"
+  ],
+  "original": {
+    "dimensions": [
+      20,
+      12,
+      6
+    ],
+    "nodes": 324,
+    "elements": 160,
+    "sourceMeshElements": 80,
+    "instances": 1
+  },
+  "rebuilt": {
+    "dimensions": [
+      30,
+      12,
+      6
+    ],
+    "nodes": 468,
+    "elements": 240,
+    "sourceMeshElements": 120,
+    "instances": 1,
+    "minimumScaledJacobian": 1,
+    "invalidChecks": 0
+  },
+  "tests": {
+    "javascript": {
+      "passed": 532,
+      "failed": 0,
+      "skipped": 0
+    },
+    "python": {
+      "passed": 198,
+      "failed": 0
+    },
+    "nativeBuild": "zig build: exit 0",
+    "nativeTests": "zig build test: exit 0"
+  },
+  "sha256": {
+    "original.step": "cd470541b17c3d380bb920fdf571d8ffdc40d7c1bc72feb3e659b860c44e254f",
+    "revised.step": "9e1f047d781aebe5deb553c8749a9befa21d53c1a1ed6d54654fade1cacb1d4d",
+    "suspended.webmesh": "1e49b0798d3d8ca8fdfb172620576097278d78c5ee087bb737ad7dbf2b252074",
+    "rebuilt.webmesh": "3144dbcbc67e33a187c04ca2b8d1f5beca986001989357d8dce5c0c3b396031c"
+  }
+}

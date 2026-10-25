@@ -220,6 +220,12 @@
       if (all && !equal(all.get(entry.key), card)) fail(entry.key + ' is owned by ' + object.name + ' (' + entry.role + '). Edit its owner or explicitly convert the object to plain cards.');
     }
     for (const object of objects.values()) {
+      if(object.facts.suspendedReason){
+        if(s.owners.some(e=>e.owner===object.id))fail('Suspended objects must not produce solver cards: '+object.name);
+        continue;
+      }
+      if(object.dependsOn.some(id=>objects.get(id)?.facts.suspendedReason))fail(object.name+': active definition depends on a suspended object.');
+      if(['cad-mapped-v1','cad-shell-v1'].includes(object.definition.generator)&&object.definition.geometryKey&&object.definition.geometryKey!==objects.get(object.definition.source)?.definition.geometryKey)fail(object.name+': remesh on the current CAD source before reactivation.');
       if(Regions.isRegion(object))Regions.validate(object,objects,semantic);
       Parts.validate(object,objects);
       Assembly.validate(object,objects);
@@ -244,7 +250,7 @@
     }
     if (semantic) {
       const grids=new Map(semantic.nodes);
-      for(const o of objects.values())if(o.definition.generator==='analysis-set-v1'&&o.definition.action.action==='support'&&Object.hasOwn(o.definition,'frame')){const cid=Coordinates.frame(s,o.definition.frame).cid;for(const n of o.definition.action.nodes)if((grids.get(n)?.cd||0)!==cid)fail(o.name+': GRID '+n+' displacement frame differs from the support frame. Review the support selection/frame together.');}
+      for(const o of objects.values())if(!o.facts.suspendedReason&&o.definition.generator==='analysis-set-v1'&&o.definition.action.action==='support'&&Object.hasOwn(o.definition,'frame')){const cid=Coordinates.frame(s,o.definition.frame).cid;for(const n of o.definition.action.nodes)if((grids.get(n)?.cd||0)!==cid)fail(o.name+': GRID '+n+' displacement frame differs from the support frame. Review the support selection/frame together.');}
       analysisExclusions(s, semantic); Analysis.validateCases(s, semantic); }
     return project;
   }
@@ -253,6 +259,7 @@
     const index = references(semantic, opaque), excluded = new Set();
     const owners = new Map((state?.owners || []).map(e => [e.key, e.owner]));
     for (const object of state?.project.objects || []) {
+      if(object.facts?.suspendedReason)continue;
       for (const input of object.definition.inputs || []) {
         const actual = index.cards.get(input.key), expected = input.card;
         if (!actual || !equal(actual.value, expected.value)) fail(object.name + ': explicit mesh input ' + input.key + ' changed. Use Selections & repair to review replacement inputs before applying.');

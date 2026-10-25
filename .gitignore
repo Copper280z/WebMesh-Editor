@@ -9,3 +9,6 @@ zig-pkg/
 
 # Local investigations of external solver defects; keep outside version control.
 /solver-bug-reports/
+
+# Local Python environment.
+.venv/
