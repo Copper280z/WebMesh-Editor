@@ -93,6 +93,17 @@ test('CAD visibility controls picking and fitting bounds without deleting geomet
   viewport.setVisible(true); assert.equal(viewport.isPicking(), true); assert.ok(viewport.getBounds());
 });
 
+test('picking an exposed sheet edge preserves its tag after earlier edges are hidden', () => {
+  const { viewport } = fixture(); viewport.load(preview());
+  viewport.setEdgeFaces(new Map([[101, [10]], [102, [20]]]));
+  viewport.setHiddenVolumes([], [10]);
+  assert.equal(viewport.hitAt(200,200,'edge').id, 102);
+  assert.equal(viewport.hitAt(300,100,'edge'), null);
+  viewport.setHiddenVolumes([], []);
+  assert.equal(viewport.hitAt(300,200,'edge').id, 101);
+  assert.equal(viewport.hitAt(200,200,'edge'), null);
+});
+
 test('new CAD revisions clear selection and dispose only the replaced CAD group', () => {
   const { viewport, scene } = fixture(); viewport.load(preview()); viewport.select({ faces: [10], edges: [101] });
   const old = scene.children[0], surface = old.children.find(object => object.isMesh);

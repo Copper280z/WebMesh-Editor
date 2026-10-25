@@ -581,7 +581,10 @@
       raycaster.params.Line.threshold = Math.max(1e-10, worldPerPixel(view.rect, view.camera) * (reach.pixels || 6));
       const candidates = raycaster.intersectObject(edgeLines, false);
       const edgeHit = candidates.find(hit => xray || !faceHit || hit.distance <= faceHit.distance + raycaster.params.Line.threshold * 2);
-      return edgeHit ? { kind: 'edge', id: segmentEdgeIds[Math.floor(edgeHit.index / 2)], point: edgeHit.point.toArray(), distance: edgeHit.distance } : null;
+      if (!edgeHit) return null;
+      // With hidden geometry, raycast indices address the filtered index buffer.
+      const vertexIndex = edgeLines.geometry.index ? edgeLines.geometry.index.getX(edgeHit.index) : edgeHit.index;
+      return { kind: 'edge', id: segmentEdgeIds[Math.floor(vertexIndex / 2)], point: edgeHit.point.toArray(), distance: edgeHit.distance };
     }
     function setHover(next) {
       const previous = hover;

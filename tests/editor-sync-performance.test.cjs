@@ -66,6 +66,32 @@ test('newly authored rod properties are included in the actual card stream', () 
   assert.deepEqual(Array.from(context.workerCards.byKey.get('PROD:2').tokens.slice(0,4)), ['PROD', '2', '1', '12.5']);
 });
 
+test('new concentrated masses survive writer/parser roundtrip, edits and deletion', async () => {
+  const { context, model, warnings } = createSyncContext(8, 1);
+  model.masses.set(20, { type: 'CONM2', eid: 20, g: 1, cid: 0, m: 0.0005, x: [0, 0, 200], inertia: [1, 0.2, 3, 0.4, 0.5, 6] });
+  let text;
+  const worker = vm.createContext({ Map, Set, self: { postMessage(message) { if (message.type === 'WRITE_COMPLETE') text = message.text; } }, TextEncoder, TextDecoder, performance, setTimeout, clearTimeout });
+  vm.runInContext(require('./helpers/worker-source.cjs'), worker);
+  for (const mass of [0.0005, 0.001]) {
+    model.masses.get(20).m = mass;
+    context.syncWorkerFromEditorModel();
+    worker.handleWriteRequest({ model: context.workerModel, options: { writeFormat: 'free' } });
+    assert.equal((text.match(/^CONM2,/gm) || []).length, 1);
+    const parsed = await worker.parseDeckToCardStream(text, 'mass.bdf', {}, { strictMode: true, retainSourceSession: false, includeSourceFilesInModel: false });
+    assert.deepEqual(JSON.parse(JSON.stringify(parsed.errors)), []);
+    const restored = parsed.transferables.coreModel.masses[0];
+    assert.equal(restored.m, mass);
+    assert.equal(restored.g, 1);
+    assert.deepEqual(Array.from(restored.x), [0, 0, 200]);
+    assert.deepEqual(Array.from(restored.inertia), [1, 0.2, 3, 0.4, 0.5, 6]);
+  }
+  model.masses.delete(20);
+  context.syncWorkerFromEditorModel();
+  worker.handleWriteRequest({ model: context.workerModel, options: { writeFormat: 'free' } });
+  assert.doesNotMatch(text, /^CONM2,/m);
+  assert.deepEqual(warnings, []);
+});
+
 
 test('new solid properties survive the actual writer and parser roundtrip', async () => {
   const { context } = createSyncContext(8, 1);
