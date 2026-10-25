@@ -23,6 +23,8 @@ Validate the prepared 169-solid flexure and its locally refined blade. Switch so
 
 The follow-on [bulk-coarsening case](validation/bulk-coarsening/README.md) exercises the same local remesh workflow with size controls while retaining all eight blade meshes and the O-grid assignments: 15,508 → 7,900 → 6,184 HEX8. The second patch reduces the cylindrical surrounds from five radial layers to two. Across both patches, 89 solids are remeshed and 80 retained, all 297 shared CAD interfaces conform, and minimum scaled Jacobian is unchanged. Matched views include surrounding bulk solids, blade-root junctions and endcap surrounds.
 
+The [all-blade refinement follow-up](validation/all-blade-refinement/README.md) gives the remaining seven blades three thickness layers while retaining all eleven coarse bulk blocks and every endcap block exactly. One 45-solid local patch brings the model to 7,700 HEX8. Every blade is 7 × 6 × 3, all 297 shared CAD interfaces conform, and minimum scaled Jacobian remains 0.270. Viewport picks verify all seven blades; four matched detail views include their neighboring solids and junctions.
+
 ## Scope
 
 This method applies to already prepared straight, constant-radius circular cores with two complete circular caps, four logical circumferential sides and compatible opposite counts. It does not yet partition an unsplit cylinder, create O-grids around holes, or handle conical, branched or curved sweeps. Per-solid method switching currently covers native mapped blocks and these O-grids; independent shell regions and legacy Gmsh methods retain their existing workflows. Mesh quality is evaluated, not assumed to improve for every parameter choice.
