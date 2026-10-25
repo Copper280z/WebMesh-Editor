@@ -78,8 +78,8 @@ function setup({ imported = 'box', prepared = 'split-box', gmsh = true, projectR
     } };
   vm.createContext(context);
   // The browser loads these modules into the same realm as the workspace.
-  for (const file of ['hex-mapping.js', 'cad-features.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../app', file), 'utf8'), context);
-  Object.assign(window, { WebMeshHexMapping: context.WebMeshHexMapping, WebMeshCadFeatures: context.WebMeshCadFeatures });
+  for (const file of ['hex-mapping.js', 'cad-local-mesh.js', 'cad-features.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../app', file), 'utf8'), context);
+  Object.assign(window, { WebMeshHexMapping: context.WebMeshHexMapping, WebMeshCadLocal: context.WebMeshCadLocal, WebMeshCadFeatures: context.WebMeshCadFeatures });
   vm.runInContext(source, context);
   const hooks = {
     engine: () => engine, isBusy: () => busy, render() { workspace.render(); workspace.bind(); }, refresh() {}, name() {}, log() {},
@@ -786,6 +786,25 @@ test('a mapped CAD review rejects a changed sizing draft before applying',async(
   await f.workspace.api.addMesh();f.workspace.api.setSize(2);
   assert.throws(()=>f.calls.review.apply(),/CAD draft changed/);
   assert.equal((await f.workspace.serialize()).meshes,undefined);
+});
+
+test('solid sizing shows dependent remesh impact, previews the closure and persists controls through reopening',async()=>{
+  const f=await imported({projectReview:true,imported:'split-box'});
+  f.workspace.api.step('mesh');f.workspace.api.setSize(2);await f.workspace.api.addMesh();f.calls.review.apply();
+  f.workspace.api.step('size');f.workspace.api.select('solid',[1]);
+  assert.match(f.workspace.render().body,/Solid element size/);assert.match(f.workspace.render().body,/Directional edge controls/);
+  f.input('solid-size',1);
+  const impact=plain(f.workspace.getState().remeshImpact);
+  assert.deepEqual(impact.direct,[1]);assert.deepEqual(impact.propagated,[2]);
+  assert.match(f.workspace.render().body,/dependent remesh/);assert.match(f.workspace.render().foot,/Preview 2 affected solids/);
+  assert.ok(f.calls.overlayData.get('remesh-impact-propagated').faces.length);
+  f.click('remesh-affected');await f.workspace.api.addMesh();
+  assert.equal(f.calls.review.input.localRemesh,true);assert.deepEqual(f.calls.review.input.volumes,[1,2]);
+  f.calls.review.apply();assert.deepEqual(plain(f.workspace.getState().remeshImpact.affected),[]);
+  const saved=await f.workspace.serialize();assert.deepEqual(plain(saved.settings.sizing.solids),[{id:1,size:1}]);
+  f.workspace.commitRestore(await f.workspace.stageRestore(saved));
+  assert.deepEqual(plain(f.workspace.getState().remeshImpact.affected),[]);
+  f.workspace.api.step('size');f.workspace.api.select('solid',[1]);assert.match(f.workspace.render().body,/data-field="solid-size"[^>]*value="1"/);
 });
 
 test('selected mapped solid targets survive save/reopen and selection edits invalidate cached previews',async()=>{

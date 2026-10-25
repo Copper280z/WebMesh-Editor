@@ -433,12 +433,19 @@
     const size = Number(settings.size) > 0 ? Number(settings.size) : 1;
     const minCount = Math.max(1, Math.round(Number(settings.minCount) || 1));
     const controls = settings.controls && typeof settings.controls.get === 'function' ? settings.controls : new Map();
+    // Solid sizes supply targets for their boundary edges. Explicit edge sizes
+    // take precedence; where locally sized solids meet, the finer target wins.
+    const solidSizes = settings.solidSizes || new Map(), localSizes = new Map();
+    for (const [id, value] of solidSizes) if (Number(value) > 0 && analysis.volumes.get(id)?.mappable) {
+      for (const e of regionOf(analysis, [id]).edges) localSizes.set(e, Math.min(localSizes.get(e) || Infinity, Number(value)));
+    }
     const equations = equationsOf(analysis, region);
-    const target = new Map(), locked = new Map();
+    const target = new Map(), locked = new Map(), priority = new Map();
     for (const e of region.edges) {
       const control = controls.get(e) || {};
       const length = Number(edges.get(e)?.length) || 0;
-      const edgeSize = Number(control.size) > 0 ? Number(control.size) : size;
+      const edgeSize = Number(control.size) > 0 ? Number(control.size) : localSizes.get(e) || size;
+      priority.set(e, Number(control.size) > 0 ? 2 : localSizes.has(e) ? 1 : 0);
       target.set(e, Math.max(minCount, length / edgeSize));
       if (Number.isInteger(control.count) && control.count > 0) locked.set(e, control.count);
     }
@@ -473,7 +480,9 @@
     };
     for (const group of groups) {
       const fixed = group.edges.filter(e => locked.has(e));
-      group.target = group.edges.reduce((s, e) => s + target.get(e), 0) / group.edges.length;
+      const level = Math.max(...group.edges.map(e => priority.get(e)));
+      const preferred = group.edges.filter(e => priority.get(e) === level);
+      group.target = preferred.reduce((s, e) => s + target.get(e), 0) / preferred.length;
       group.lockedEdges = fixed;
       const values = [...new Set(fixed.map(e => locked.get(e)))];
       if (values.length > 1) {
@@ -1071,6 +1080,7 @@
       nodes,
       // Face grids contain unused face-center points for HEX20; only expose
       // nodes actually referenced by elements. Preserve shared edge/midside IDs.
+      edgeNodes: Object.fromEntries([...edgeNodes].map(([id,list])=>[id,list.map(n=>used[n]).filter(n=>n>0)])),
       faceNodes: Object.fromEntries([...faceGrids].sort(([a], [b]) => a - b).map(([id, grid]) =>
         [id, [...new Set(grid.ids.flat().map(n => used[n]).filter(n => n > 0))].sort((a, b) => a - b)])),
       elements: elements.map((e, i) => ({ id: i + 1, type: 'CHEXA', pid: Number(options.pidPerSolid ? e.volume : 1), volume: e.volume, nodes: e.nodes.map(id => used[id]) })),

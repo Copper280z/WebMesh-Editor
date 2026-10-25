@@ -270,7 +270,7 @@
     const built=await window.WebMeshCadProject.build(input,state,engine().getNextIds());
     const oldSource=old&&state.project.objects.find(o=>o.id===old.definition.source);
     const source=built.request.objects.find(o=>o.kind==='source')||oldSource;
-    const note=(old?.definition.pendingReplacement?'Remesh only the changed faces. Unchanged element and boundary-node identities stay committed. ':old?'Replace this mesh region. ':'Create a separate mesh region. ')+
+    const note=(built.localRemesh?'Remesh '+built.localRemesh.solids.length+' solid'+(built.localRemesh.solids.length===1?'':'s')+'; retain '+built.localRemesh.retainedElements+' unchanged elements and '+built.localRemesh.retainedNodes+' nodes. ':old?.definition.pendingReplacement?'Remesh only the changed faces. Unchanged element and boundary-node identities stay committed. ':old?'Replace this mesh region. ':'Create a separate mesh region. ')+
       'Source: '+input.snapshot.filename+'. '+(oldSource?(oldSource.definition.geometryKey===source.definition.geometryKey?'Source geometry is unchanged. ':'Source geometry changed. '):'Original and prepared CAD snapshots are saved. ')+
       (input.kind==='shell'?'Shell faces: '+input.faces.join(', ')+'. Thickness and offsets are retained in the shell sections. ':'Solids: '+input.volumes.join(', ')+'. ')+
       'Dependent interfaces are resolved in this review. Embedded interfaces may also change neighboring shell boundary connectivity; review every affected owner.';

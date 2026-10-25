@@ -1,8 +1,8 @@
 (function(root,factory){
   'use strict';
-  if(typeof module==='object'&&module.exports)module.exports=factory(require('./engine-ownership.js'),require('./modeling.js'),require('./cad-selective-mesh.js'));
-  else root.WebMeshCadProject=factory(root.WebMeshOwnership,root.WebMeshModeling,root.WebMeshCadSelective);
-}(typeof globalThis!=='undefined'?globalThis:this,function(O,Modeling,Selective){
+  if(typeof module==='object'&&module.exports)module.exports=factory(require('./engine-ownership.js'),require('./modeling.js'),require('./cad-selective-mesh.js'),require('./cad-local-mesh.js'));
+  else root.WebMeshCadProject=factory(root.WebMeshOwnership,root.WebMeshModeling,root.WebMeshCadSelective,root.WebMeshCadLocal);
+}(typeof globalThis!=='undefined'?globalThis:this,function(O,Modeling,Selective,Local){
   'use strict';
   const GENERATOR='cad-mapped-v1', SHELL='cad-shell-v1',copy=v=>JSON.parse(JSON.stringify(v));
   async function digest(value){const data=new TextEncoder().encode(O.canonical(value));return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),v=>v.toString(16).padStart(2,'0')).join('');}
@@ -26,6 +26,10 @@
     if(!input.id||!input.name||!input.snapshot?.prepared?.content||!input.snapshot.content)throw Error('CAD mesh ownership requires the original and prepared source snapshots.');
     if(find(input.id)&&!old)throw Error('The requested CAD mesh identity belongs to another object.');
     if(old?.definition.pendingReplacement){if(await geometryFingerprint(input.topology)!==find(old.definition.source).definition.geometryKey)throw Error('The patch must use the current committed CAD source.');const result=Selective.patch(input,state,nextIds),validation=Modeling.validateMesh(result.mesh);if(!validation.valid)throw Error(validation.errors.join('\n'));return result;}
+    if(input.localRemesh){
+      if(!old||await geometryFingerprint(input.topology)!==old.definition.geometryKey)throw Error('Local remeshing requires unchanged CAD geometry.');
+      const result=Local.patch(input,state,nextIds),validation=Modeling.validateMesh(result.mesh);if(!validation.valid)throw Error(validation.errors.join('\n'));return result;
+    }
     const shell=input.kind==='shell',mesh=input.mesh;
     if(!mesh?.nodes?.length||!mesh.elements?.length)throw Error('Generate a nonempty CAD mesh.');
     const target=[...new Set(shell?input.faces:input.volumes)].sort((a,b)=>a-b);
@@ -87,7 +91,7 @@
       return {id:s.id,kind:'section',name:input.name+' · '+(shell?'Shell faces ':'Solids ')+s.volumes.join(', '),dependsOn:[materialId],definition:{region:{geometryKey,[shell?'faces':'volumes']:s.volumes},cards:[{family:'properties',id:s.pid,role:shell?'shell':'solid',value:shell?{type:'PSHELL',pid:s.pid,mid1:mid,mid2:mid,mid3:mid,t}:{type:'PSOLID',pid:s.pid,mid}}]}};
     });
     const objects=[source,material,...sectionObjects,
-      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...(partId?[partId]:[]),...sections.map(s=>s.id)],definition:{...(partId?{part:partId}:{}),generator:shell?SHELL:GENERATOR,geometryKey,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,cards}}];
+      {id:input.id,kind:'mesh',name:input.name,dependsOn:[sourceId,...(partId?[partId]:[]),...sections.map(s=>s.id)],definition:{...(partId?{part:partId}:{}),generator:shell?SHELL:GENERATOR,geometryKey,source:sourceId,material:materialId,sections,layout,settings:copy(input.settings),targets:target,sourceVolumes,faces,edges,...(!shell?{volumeElements:target.map(id=>({id,elements:mesh.elements.flatMap((e,i)=>e.volume===id?[layout.element+i]:[])}))}:{}),cards}}];
     const removeObjects=(old?.definition.sections||[]).filter(s=>!sections.some(n=>n.id===s.id)&&!(state?.project.objects||[]).some(o=>o.id!==old.id&&o.facts?.suspendedReason&&o.dependsOn?.includes(s.id))).map(s=>s.id);
     return {mesh:generated,owner:input.id,newMeshIdentity:!!old&&!same,regions:sections,request:{label:(old?'Replace ':'Create ')+input.name,objects,removeObjects,reservations:[{owner:input.id,namespace:'node',role:nr,start:layout.node,count:nodes.length},{owner:input.id,namespace:'element',role:er,start:layout.element,count:elements.length}]}};
   }

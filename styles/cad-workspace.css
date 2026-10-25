@@ -373,3 +373,10 @@ kbd{font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 4px;bor
 .cad-btn.ghost.on{background:#243142;color:#e6eef7}
 .cad-pads .cad-chip button{border:0;background:none;color:inherit;font:inherit;padding:0 0 0 2px;cursor:pointer;opacity:.7}
 .cad-pads .cad-chip button:hover{opacity:1}
+
+/* Local remesh impact stays compact; individual reasons are available on demand. */
+.cad-impact-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; margin: 8px 0 12px; }
+.cad-impact-list { max-height: 230px; overflow: auto; margin-top: 10px; }
+.cad-impact-list summary { position: sticky; top: 0; background: var(--panel, #172330); cursor: pointer; }
+.cad-impact-list .cad-note { overflow-wrap: anywhere; margin: 0 0 8px; }
+.cad-direction-controls { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 10px; }

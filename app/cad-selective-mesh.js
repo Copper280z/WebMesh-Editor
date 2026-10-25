@@ -57,6 +57,8 @@
     d.sourceVolumes=(old.sourceVolumes||[]).map(id=>target('volumes',id)).filter(id=>id!==null);
     d.cards=old.cards.filter(c=>c.family==='nodes'?keptNodes.has(c.id):c.family!=='elems'||keptElements.has(c.id)).map(copy);
     d.sections=old.sections.map(s=>{const volumes=s.volumes.map(id=>target(shell?'faces':'volumes',id)).filter(id=>id!==null);return {...copy(s),volumes,key:geometryKey+(shell?'/shell/':'/solid/')+volumes.join('-')};});
+    if(d.volumeElements&&!shell)d.volumeElements=d.volumeElements.map(v=>({...v,id:exact('volumes',v.id)}));
+    if(d.settings?.sizing?.solids)d.settings.sizing.solids=d.settings.sizing.solids.filter(v=>exact('volumes',v.id)!==null).map(v=>({...v,id:exact('volumes',v.id)}));
     if(d.settings?.sizing)d.settings.sizing.edges=(d.settings.sizing.edges||[]).filter(e=>exact('edges',e.id)!==null).map(e=>({...e,id:exact('edges',e.id)}));
     if(d.settings?.shell?.selectedFaces)d.settings.shell.selectedFaces=d.targets.slice();if(d.settings?.mesh?.selectedVolumes&&!shell)d.settings.mesh.selectedVolumes=d.targets.slice();
     const changed=shell?old.targets.filter(id=>!keepFace.has(id)):[];
